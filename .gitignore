@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+shops.db
+mrcheck-web.service
+deploy.sh
+templates_docs/
