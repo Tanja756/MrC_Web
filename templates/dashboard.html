@@ -17,7 +17,7 @@
         <li class="nav-item"><button class="nav-link active" id="tasks-tab" data-bs-toggle="tab" data-bs-target="#tasks" role="tab"><i class="bi bi-list-check me-1"></i>Заявки</button></li>
         <li class="nav-item"><button class="nav-link" id="warehouse-tab" data-bs-toggle="tab" data-bs-target="#warehouse" role="tab"><i class="bi bi-shop me-1"></i>Склад</button></li>
         <li class="nav-item"><button class="nav-link" id="salary-tab" data-bs-toggle="tab" data-bs-target="#salary" role="tab"><i class="bi bi-cash me-1"></i>Моя зарплата</button></li>
-        <li class="nav-item"><button class="nav-link" id="reports-tab" data-bs-toggle="tab" data-bs-target="#reports" role="tab"><i class="bi bi-file-earmark-pdf me-1"></i>Отчеты</button></li>
+        <li class="nav-item"><button class="nav-link" id="reports-tab" data-bs-toggle="tab" data-bs-target="#reports" role="tab"><i class="bi bi-file-earmark-pdf me-1"></i>ППР</button></li>
     </ul>
 
     <div class="tab-content mt-3" id="mainTabsContent">
@@ -266,7 +266,7 @@
 <!-- Document Form Modal -->
 <div class="modal fade" id="docFormModal" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content">
+        <div class="modal-content position-relative">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title"><i class="bi bi-file-earmark-text me-2"></i>Формирование документов</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -347,9 +347,16 @@
                     </div>
                 </div>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-                <button class="btn btn-primary" onclick="generateDocForm()"><i class="bi bi-file-earmark-pdf me-1"></i>Сформировать</button>
+            <div class="modal-footer" id="docFormFooter">
+                <button class="btn btn-secondary" data-bs-dismiss="modal" id="docFormCancelBtn">Отмена</button>
+                <button class="btn btn-primary" onclick="generateDocForm()" id="docFormSubmitBtn">
+                    <i class="bi bi-file-earmark-pdf me-1"></i>Сформировать
+                </button>
+            </div>
+            <div id="docFormLoading" class="d-none position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center bg-white bg-opacity-90" style="z-index:1060;border-radius:inherit;">
+                <div class="spinner-border text-primary mb-3" role="status" style="width:3rem;height:3rem;"></div>
+                <div class="fw-semibold mb-1">Формирование документов...</div>
+                <div class="small text-muted" id="docFormStatus">Подготовка данных</div>
             </div>
         </div>
     </div>
@@ -359,6 +366,17 @@
 {% block scripts %}
 <script>
 // ============ UTILITY ============
+
+// Android back button — close modals instead of navigating away
+document.addEventListener('shown.bs.modal', () => {
+    if (!document.querySelectorAll('.modal.show').length) {
+        history.pushState(null, '');
+    }
+});
+window.addEventListener('popstate', () => {
+    const modal = document.querySelector('.modal.show');
+    if (modal) bootstrap.Modal.getInstance(modal)?.hide();
+});
 
 function toggleFilter(el) {
     el.closest('.filter-bar').classList.toggle('show');
@@ -430,6 +448,7 @@ let currentBalanceFilter = 'all';
 let multiSelectMode = false;
 let selectedGuids = new Set();
 let pendingAttachments = [];
+let pprPendingAttachments = [];
 let taskLocations = JSON.parse(localStorage.getItem('taskLocations') || '{}');
 let clientsMap = {};  // guid → name
 
@@ -469,8 +488,14 @@ function toggleTheme() {
     applyTheme(currentTheme === 'light' ? 'dark' : 'light');
 }
 
-function openSettings() {
+function openSettings(firstLogin) {
     const modal = new bootstrap.Modal(document.getElementById('settingsModal'));
+    const titleEl = document.querySelector('#settingsModal .modal-title');
+    if (firstLogin) {
+        titleEl.innerHTML = '<i class="bi bi-person-check me-2"></i>Добро пожаловать! Заполните настройки';
+    } else {
+        titleEl.innerHTML = '<i class="bi bi-gear me-2"></i>Настройки';
+    }
     document.getElementById('profileName').value = savedProfileName;
     document.getElementById('settingsModal').querySelector('.theme-toggle').classList.toggle('active', currentTheme === 'light');
     document.getElementById('settingsModal').querySelector('.theme-toggle').setAttribute('aria-checked', currentTheme === 'light');
@@ -714,6 +739,16 @@ function renderTasks(containerId, tasks, query, sort, mode) {
 // ============ TASK DETAIL ============
 function openTaskDetail(guid, mode) {
     const modal = new bootstrap.Modal(document.getElementById('taskDetailModal'));
+    const lists = {user: tasksMy, my: tasksMy, free: tasksFree, closed: tasksClosed};
+    const localTask = (lists[mode] || []).find(t => t.guid === guid);
+    const task = localTask || null;
+    if (!task) return;
+
+    if (task && task.description !== undefined) {
+        showTaskDetail(task, mode, guid);
+        modal.show();
+        return;
+    }
 
     fetch('/api/tasks/' + guid).then(checkAuth).then(r => {
         if (!r.ok) return null;
@@ -724,8 +759,13 @@ function openTaskDetail(guid, mode) {
             task = allTasks.find(t => t.guid === guid);
         }
         if (!task) return;
+        showTaskDetail(task, mode, guid);
+        modal.show();
+    });
+}
 
-        document.getElementById('taskDetailTitle').innerHTML = `<i class="bi bi-info-circle me-2"></i>${task.name || ''}`;
+function showTaskDetail(task, mode, guid) {
+    document.getElementById('taskDetailTitle').innerHTML = `<i class="bi bi-info-circle me-2"></i>${task.name || ''}`;
 
         let body = `
             <div class="row g-3">
@@ -735,27 +775,27 @@ function openTaskDetail(guid, mode) {
                         <p class="mb-0 task-description">${task.description || '—'}</p>
                     </div>
                 </div>
-                <div class="col-md-4">
+                <div class="col-6 col-md-4">
                     <small class="text-muted d-block">Статус</small>
                     <span class="fw-semibold">${task.status || '—'}</span>
                 </div>
-                <div class="col-md-4">
+                <div class="col-6 col-md-4">
                     <small class="text-muted d-block">Дата создания</small>
                     <span class="fw-semibold">${formatDate(task.date)}</span>
                 </div>
-                <div class="col-md-4">
+                <div class="col-6 col-md-4">
                     <small class="text-muted d-block">Срок</small>
                     <span class="fw-semibold">${formatDate(task.period)}</span>
                 </div>
-                <div class="col-md-4">
+                <div class="col-6 col-md-4">
                     <small class="text-muted d-block">Приоритет</small>
                     <span class="fw-semibold">${task.priority != null ? task.priority : '—'}</span>
                 </div>
-                <div class="col-md-4">
+                <div class="col-6 col-md-4">
                     <small class="text-muted d-block">Отдел</small>
                     <span class="fw-semibold">${task.name_department || '—'}</span>
                 </div>
-                <div class="col-md-4">
+                <div class="col-6 col-md-4">
                     <small class="text-muted d-block">Клиент</small>
                     <span class="fw-semibold">${clientName(task.guid_client)}</span>
                 </div>
@@ -792,13 +832,14 @@ function openTaskDetail(guid, mode) {
                 <button class="btn btn-primary" onclick="takeTask('${guid}')"><i class="bi bi-hand-index-thumb me-1"></i>Взять заявку</button>`;
         } else if (mode === 'closed') {
             body += `<hr class="my-3"><div><small class="text-muted d-block mb-1">Комментарий при закрытии</small>${formatComments(task.comments)}</div>`;
+            if (task.hasAttachments) {
+                body += `<hr class="my-3"><div><small class="text-muted d-block mb-1">Вложения</small><div id="closedAttachments"><button class="btn btn-outline-secondary btn-sm" onclick="loadClosedAttachments('${guid}')"><i class="bi bi-download me-1"></i>Загрузить вложения</button></div></div>`;
+            }
             footer = `<button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
         }
 
-        document.getElementById('taskDetailBody').innerHTML = body;
-        document.getElementById('taskDetailFooter').innerHTML = footer;
-        modal.show();
-    });
+    document.getElementById('taskDetailBody').innerHTML = body;
+    document.getElementById('taskDetailFooter').innerHTML = footer;
 }
 
 // ============ ATTACHMENTS ============
@@ -830,13 +871,48 @@ function fileToBase64(file) {
     });
 }
 
+function loadClosedAttachments(guid) {
+    const container = document.getElementById('closedAttachments');
+    container.innerHTML = '<div class="spinner-border spinner-border-sm me-2" role="status"></div>Загрузка...';
+
+    fetch('/api/tasks/' + guid + '/attachments')
+        .then(checkAuth).then(r => r.json())
+        .then(data => {
+            const list = data.attachments || [];
+            if (!list.length) {
+                container.innerHTML = '<span class="text-muted">Нет вложений</span>';
+                return;
+            }
+            container.innerHTML = list.map(a => {
+                const dataUri = 'data:' + a.filetype + ';base64,' + a.content;
+                return `<div class="mb-1 d-flex gap-2 align-items-center flex-wrap">
+                    <span class="small text-truncate" style="max-width:300px"><i class="bi bi-paperclip me-1"></i>${a.filename}</span>
+                    <a href="${dataUri}" download="${a.filename}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download me-1"></i>Скачать</a>
+                    <a href="${dataUri}" target="_blank" class="btn btn-outline-secondary btn-sm"><i class="bi bi-eye me-1"></i>Просмотр</a>
+                </div>`;
+            }).join('');
+        })
+        .catch(() => {
+            container.innerHTML = '<span class="text-danger">Ошибка загрузки вложений</span>';
+        });
+}
+
 // ============ CLOSE TASK ============
 function closeTask(guid, guidDoc) {
     const comment = document.getElementById('closeComment').value.trim();
-    if (!comment && pendingAttachments.length === 0) {
+    const allTasks = [...tasksMy, ...tasksFree, ...tasksClosed];
+    const task = allTasks.find(t => t.guid === guid);
+    const hasExistingAttachments = task && task.hasAttachments;
+
+    if (!comment && pendingAttachments.length === 0 && !hasExistingAttachments) {
         alert('Добавьте комментарий или вложение');
         return;
     }
+
+    const btn = document.querySelector('#taskDetailFooter .btn-success');
+    const origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Закрытие...';
 
     const doClose = (lat, lng) => {
         fetch('/api/tasks/close', {
@@ -848,6 +924,8 @@ function closeTask(guid, guidDoc) {
                 attachments: pendingAttachments,
             })
         }).then(checkAuth).then(r => r.json()).then(data => {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
             if (data.success) {
                 if (lat || lng) {
                     taskLocations[guid] = { lat, lng, ts: Date.now() };
@@ -861,7 +939,11 @@ function closeTask(guid, guidDoc) {
                 const msg = data.error || data.detail?._error || data.detail?._raw || 'Ошибка при закрытии заявки';
                 alert('Ошибка: ' + msg);
             }
-        }).catch(() => alert('Ошибка сети'));
+        }).catch(() => {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+            alert('Ошибка сети');
+        });
     };
 
     if (!navigator.geolocation) { doClose(0, 0); return; }
@@ -1000,7 +1082,20 @@ function filterBalances() {
         return;
     }
 
-    container.innerHTML = `<div class="table-responsive"><table class="table table-hover balance-table">
+    // Mobile: stacked cards
+    const mobileHtml = filtered.map(b => `
+        <div class="balance-mobile-card d-flex py-2 px-2 border-bottom">
+            <div class="flex-grow-1 min-w-0 pe-2 overflow-hidden">
+                <div class="fw-semibold text-truncate">${b.product_name || '—'}</div>
+                <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.series_name ? 'Сер.: ' + b.series_name : ''}</div>
+                <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.inventory_number ? 'Инв.: ' + b.inventory_number : ''}</div>
+            </div>
+            <div class="fw-bold fs-5 text-end flex-shrink-0 align-self-center">${b.balance ?? 0}</div>
+        </div>
+    `).join('');
+
+    // Desktop: table
+    const desktopHtml = `<div class="table-responsive"><table class="table table-hover balance-table">
         <thead><tr><th>Товар</th><th>Серия</th><th>Инв. номер</th><th class="text-end">Остаток</th></tr></thead>
         <tbody>${filtered.map(b => `<tr>
             <td>${b.product_name || '—'}</td>
@@ -1009,6 +1104,8 @@ function filterBalances() {
             <td class="text-end fw-bold">${b.balance ?? 0}</td>
         </tr>`).join('')}</tbody>
     </table></div>`;
+
+    container.innerHTML = `<div class="d-md-none">${mobileHtml}</div><div class="d-none d-md-block">${desktopHtml}</div>`;
 }
 
 function filterBalanceType(type) {
@@ -1089,7 +1186,22 @@ function loadPpr() {
                 container.innerHTML = '<div class="empty-state"><i class="bi bi-kanban"></i><p>Нет задач ППР</p></div>';
                 return;
             }
-            container.innerHTML = `<div class="table-responsive"><table class="table table-hover">
+            // Mobile: cards
+            const mobileHtml = tasks.map(t => `
+                <div class="ppr-card d-flex align-items-center py-2 px-2 border-bottom gap-2">
+                    <div class="flex-grow-1 min-w-0">
+                        <div class="fw-semibold text-truncate">#${t.number || t.guid?.slice(0,8)} ${t.name || ''}</div>
+                        <div class="small text-muted">${t.name_department || '—'} · <span class="badge bg-info">${t.status || ''}</span> · ${formatDate(t.date)}</div>
+                    </div>
+                    <div class="flex-shrink-0 d-flex gap-1">
+                        <button class="btn btn-outline-secondary btn-sm" onclick="openPprDetail('${t.guid}')" title="Подробнее"><i class="bi bi-info-circle"></i></button>
+                        ${t.status !== 'Closed' ? `<button class="btn btn-success btn-sm" onclick="openPprClose('${t.guid}')" title="Закрыть"><i class="bi bi-check-lg"></i></button>` : ''}
+                    </div>
+                </div>
+            `).join('');
+
+            // Desktop: table
+            const desktopHtml = `<div class="table-responsive"><table class="table table-hover">
                 <thead><tr><th>Номер</th><th>Название</th><th>Отдел</th><th>Статус</th><th>Дата</th><th></th></tr></thead>
                 <tbody>${tasks.map(t => `<tr>
                     <td><strong>#${t.number || t.guid?.slice(0,8)}</strong></td>
@@ -1103,6 +1215,8 @@ function loadPpr() {
                     </td>
                 </tr>`).join('')}</tbody>
             </table></div>`;
+
+            container.innerHTML = `<div class="d-md-none">${mobileHtml}</div><div class="d-none d-md-block">${desktopHtml}</div>`;
         });
 }
 
@@ -1130,13 +1244,41 @@ function openPprDetail(guid) {
         });
 }
 
+function pprAttachFile(type) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    if (type === 'pdf') input.accept = '.pdf';
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const base64 = await fileToBase64(file);
+        pprPendingAttachments.push({
+            data: base64.split(',')[1],
+            extension: file.name.split('.').pop()
+        });
+        document.getElementById('pprAttachmentsList').innerHTML = pprPendingAttachments.map(a =>
+            `<span class="badge bg-light text-dark me-1">📎 .${a.extension} (${(a.data.length * 0.75 / 1024).toFixed(0)} KB)</span>`
+        ).join('');
+    };
+    input.click();
+}
+
 function openPprClose(guid) {
+    pprPendingAttachments = [];
     const modal = new bootstrap.Modal(document.getElementById('pprDetailModal'));
     document.getElementById('pprDetailTitle').innerHTML = '<i class="bi bi-check-circle me-2"></i>Закрыть задачу ППР';
     document.getElementById('pprDetailBody').innerHTML = `
         <div class="mb-3">
             <label class="form-label fw-semibold">Комментарий</label>
             <textarea class="form-control" id="pprCloseComment" rows="3" placeholder="Введите комментарий..."></textarea>
+        </div>
+        <div class="mb-2">
+            <label class="form-label fw-semibold">Вложения</label>
+            <div class="d-flex gap-2">
+                <button class="btn btn-outline-secondary btn-sm" onclick="pprAttachFile('pdf')"><i class="bi bi-filetype-pdf me-1"></i>PDF</button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="pprAttachFile('any')"><i class="bi bi-paperclip me-1"></i>Файл</button>
+            </div>
+            <div id="pprAttachmentsList" class="mt-2"></div>
         </div>`;
     document.getElementById('pprDetailFooter').innerHTML = `
         <button class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
@@ -1146,18 +1288,35 @@ function openPprClose(guid) {
 
 function doPprClose(guid) {
     const comment = document.getElementById('pprCloseComment')?.value.trim() || '';
+    if (!comment && pprPendingAttachments.length === 0) {
+        alert('Добавьте комментарий или вложение');
+        return;
+    }
+
+    const btn = document.querySelector('#pprDetailFooter .btn-success');
+    const origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Закрытие...';
+
     const doRequest = (lat, lng) => {
         fetch('/api/ppr/close', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({guid, comment, latitude: lat, longitude: lng, attachments: []})
+            body: JSON.stringify({guid, comment, latitude: lat, longitude: lng, attachments: pprPendingAttachments})
         }).then(checkAuth).then(r => r.json()).then(data => {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
             if (data.success) {
+                pprPendingAttachments = [];
                 bootstrap.Modal.getInstance(document.getElementById('pprDetailModal'))?.hide();
                 loadPpr();
             } else {
                 alert('Ошибка при закрытии задачи ППР');
             }
+        }).catch(() => {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+            alert('Ошибка сети');
         });
     };
     if (!navigator.geolocation) { doRequest(0, 0); return; }
@@ -1205,6 +1364,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Restore profile avatar
     updateProfileAvatar();
 
+    // First login — prompt to set up profile
+    const defaultWarehouse = localStorage.getItem('defaultWarehouse');
+    if (!savedProfileName || !defaultWarehouse) {
+        openSettings(true);
+    }
+
     loadClients();
     loadTasks('', ['my', 'free']);
     loadPprDepartments();
@@ -1234,7 +1399,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Load closed tasks when closed pill is first activated
     document.getElementById('closed-pill')?.addEventListener('shown.bs.tab', () => {
-        if (!tasksClosed.length) loadClosedTasks();
+            if (!tasksClosed.length) loadClosedTasks();
+    });
+
+    // Reset loading state if modal is dismissed manually
+    document.getElementById('docFormModal').addEventListener('hidden.bs.modal', () => {
+        const loading = document.getElementById('docFormLoading');
+        const footer = document.getElementById('docFormFooter');
+        if (!loading.classList.contains('d-none')) {
+            loading.classList.add('d-none');
+            footer.querySelectorAll('button').forEach(b => b.disabled = false);
+        }
     });
 });
 
@@ -1432,7 +1607,6 @@ function generateDocForm() {
         zd: document.getElementById('docZd').value.trim(),
     };
 
-    // Add selected products for TV/SN placeholders
     if (docSelectedItems.length > 0) {
         fields.items = docSelectedItems.map(item => ({
             name: item.name,
@@ -1444,7 +1618,16 @@ function generateDocForm() {
     const includeFn = document.getElementById('docIncludeFn').checked;
     const includeM15 = document.getElementById('docIncludeM15').checked;
 
-    bootstrap.Modal.getInstance(document.getElementById('docFormModal'))?.hide();
+    // Show loading overlay, disable buttons
+    const loading = document.getElementById('docFormLoading');
+    const footer = document.getElementById('docFormFooter');
+    const cancelBtn = document.getElementById('docFormCancelBtn');
+    const submitBtn = document.getElementById('docFormSubmitBtn');
+    const status = document.getElementById('docFormStatus');
+
+    loading.classList.remove('d-none');
+    footer.querySelectorAll('button').forEach(b => b.disabled = true);
+    status.textContent = 'Запрос на генерацию...';
 
     fetch('/api/tasks/documents', {
         method: 'POST',
@@ -1459,14 +1642,31 @@ function generateDocForm() {
         })
     }).then(checkAuth).then(r => {
         if (!r.ok) return r.text().then(t => { throw new Error(t) });
+        status.textContent = 'Загрузка файла...';
         return r.blob();
     }).then(blob => {
+        loading.classList.add('d-none');
+        footer.querySelectorAll('button').forEach(b => b.disabled = false);
+        bootstrap.Modal.getInstance(document.getElementById('docFormModal'))?.hide();
+
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = 'documents-' + guid.slice(0,8) + '.zip';
         a.click();
         URL.revokeObjectURL(a.href);
-    }).catch(e => alert('Ошибка: ' + e.message));
+    }).catch(e => {
+        loading.classList.add('d-none');
+        footer.querySelectorAll('button').forEach(b => b.disabled = false);
+        // Show error inside modal body
+        const body = document.querySelector('#docFormModal .modal-body');
+        const errDiv = document.createElement('div');
+        errDiv.className = 'alert alert-danger alert-dismissible fade show mt-2 mb-0';
+        errDiv.role = 'alert';
+        errDiv.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i><span></span>' +
+            '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+        errDiv.querySelector('span').textContent = e.message;
+        body.prepend(errDiv);
+    });
 }
 </script>
 {% endblock %}

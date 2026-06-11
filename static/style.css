@@ -334,12 +334,13 @@ a { color: var(--primary); }
     color: #212529 !important;
 }
 [data-theme="light"] .btn-outline-light {
-    border-color: #dee2e6;
+    border-color: #adb5bd;
     color: #212529;
+    background: rgba(255,255,255,0.5);
 }
 [data-theme="light"] .btn-outline-light:hover {
-    background: #e9ecef;
-    border-color: #dee2e6;
+    background: #dee2e6;
+    border-color: #8a929c;
     color: #000;
 }
 

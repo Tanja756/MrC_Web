@@ -139,8 +139,8 @@ def dashboard():
 # --- TASKS ---
 
 TASK_FIELDS = {
-    'guid', 'number', 'name', 'status', 'name_department', 'user',
-    'guid_client', 'hasAttachments', 'date', 'period', 'priority',
+    'guid', 'number', 'name', 'description', 'status', 'name_department',
+    'user', 'guid_client', 'hasAttachments', 'date', 'period', 'priority',
     'comments',
 }
 
@@ -182,7 +182,7 @@ def api_tasks_my():
         return jsonify({"tasks": [], "total": 0})
     search = request.args.get('search')
     sort = request.args.get('sort')
-    limit = request.args.get('limit', 200, type=int)
+    limit = request.args.get('limit', 50, type=int)
     offset = request.args.get('offset', 0, type=int)
     data = client.get_tasks_user(search=search, limit=limit, offset=offset)
     tasks = _project_tasks(data.get('tasks', []))
@@ -199,7 +199,7 @@ def api_tasks_free():
         return jsonify({"tasks": [], "total": 0})
     search = request.args.get('search')
     sort = request.args.get('sort')
-    limit = request.args.get('limit', 200, type=int)
+    limit = request.args.get('limit', 50, type=int)
     offset = request.args.get('offset', 0, type=int)
     data = client.get_tasks_unallocated(search=search, limit=limit, offset=offset)
     tasks = _project_tasks(data.get('tasks', []))
@@ -272,6 +272,18 @@ def api_task_close():
     if result and result.get('_error'):
         return jsonify({'success': False, 'error': result['_error'], 'detail': result}), 400
     return jsonify({'success': True})
+
+
+@app.route('/api/tasks/<guid>/attachments')
+@api_login_required
+def api_task_attachments(guid):
+    client = get_api_client()
+    if not client:
+        return jsonify({'error': 'No connection'}), 400
+    data = client.get_task_attachments(guid)
+    if data is None:
+        return jsonify({'attachments': []})
+    return jsonify(data)
 
 
 @app.route('/api/tasks/documents')

@@ -117,6 +117,9 @@ class OneSApiClient:
         params = self._build_task_params(search, limit, offset)
         return self._get("closed-tasks-user", params) or {"docs": [], "tasks": []}
 
+    def get_task_attachments(self, guid: str):
+        return self._get("tasks-attachment", {"guid": guid})
+
     def get_salary(self, start_date: str, end_date: str):
         return self._get("salary", {
             "start_date": start_date,
