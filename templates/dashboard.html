@@ -1,5 +1,24 @@
 {% extends "base.html" %}
 {% block content %}
+<div id="startupOverlay">
+    <div class="startup-ring"></div>
+    <div class="startup-ring startup-ring-outer"></div>
+    <div class="startup-scanline"></div>
+    <div class="startup-text">
+        <div class="startup-logo">MrC Check</div>
+        <div class="startup-sub">SYSTEM INITIALIZATION</div>
+        <div class="startup-status">
+            <div class="startup-bar"><div class="startup-bar-fill"></div></div>
+            <div class="startup-label">LOADING MODULES...</div>
+        </div>
+        <div class="startup-items">
+            <div class="startup-item"><span class="startup-dot"></span>HUD CALIBRATION</div>
+            <div class="startup-item"><span class="startup-dot"></span>DATABASE LINK</div>
+            <div class="startup-item"><span class="startup-dot"></span>TASK ENGINE</div>
+            <div class="startup-item"><span class="startup-dot"></span>NAVIGATION</div>
+        </div>
+    </div>
+</div>
 <nav class="navbar navbar-dark bg-dark sticky-top py-2" id="mainNavbar">
     <div class="container-fluid">
         <a class="navbar-brand fw-semibold" href="#"><i class="bi bi-box-seam me-2"></i>MrC Check</a>
@@ -1346,8 +1365,29 @@ function loadClients() {
         });
 }
 
+// ============ STARTUP ============
+function runStartup() {
+    const ov = document.getElementById('startupOverlay');
+    if (!ov) return;
+    if (sessionStorage.getItem('startupDone')) {
+        ov.style.display = 'none';
+        return;
+    }
+    const items = ov.querySelectorAll('.startup-item');
+    const times = [1200, 1800, 2400, 3000];
+    times.forEach((t, i) => {
+        setTimeout(() => items[i]?.classList.add('done'), t);
+    });
+    setTimeout(() => {
+        ov.classList.add('hide');
+        sessionStorage.setItem('startupDone', '1');
+        setTimeout(() => ov.style.display = 'none', 600);
+    }, 4000);
+}
+
 // ============ INIT ============
 document.addEventListener('DOMContentLoaded', () => {
+    runStartup();
     // Restore sort
     const savedSort = lsGet('taskSort', '');
     if (savedSort) document.getElementById('taskSort').value = savedSort;
