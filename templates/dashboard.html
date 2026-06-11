@@ -12,7 +12,7 @@
     </div>
 </nav>
 
-<div class="container-fluid mt-3 pb-5" style="max-width:80%;margin:0 auto;padding:0 16px" id="mainContainer">
+<div class="container-fluid mt-3 pb-5" id="mainContainer">
     <ul class="nav nav-tabs" id="mainTabs" role="tablist">
         <li class="nav-item"><button class="nav-link active" id="tasks-tab" data-bs-toggle="tab" data-bs-target="#tasks" role="tab"><i class="bi bi-list-check me-1"></i>Заявки</button></li>
         <li class="nav-item"><button class="nav-link" id="warehouse-tab" data-bs-toggle="tab" data-bs-target="#warehouse" role="tab"><i class="bi bi-shop me-1"></i>Склад</button></li>
@@ -440,7 +440,17 @@ function formatComments(comments) {
 }
 
 // ============ STATE ============
-let pinnedTasks = JSON.parse(localStorage.getItem('pinnedTasks') || '[]');
+function lsGet(key, def) {
+    try { return localStorage.getItem(key) ?? def; } catch { return def; }
+}
+function lsGetJSON(key, def) {
+    try { return JSON.parse(localStorage.getItem(key)) ?? def; } catch { return def; }
+}
+function lsSet(key, val) {
+    try { localStorage.setItem(key, val); } catch {}
+}
+
+let pinnedTasks = lsGetJSON('pinnedTasks', []);
 let tasksMy = [], tasksFree = [], tasksClosed = [];
 let allBalances = [];
 let currentDate = new Date();
@@ -449,18 +459,18 @@ let multiSelectMode = false;
 let selectedGuids = new Set();
 let pendingAttachments = [];
 let pprPendingAttachments = [];
-let taskLocations = JSON.parse(localStorage.getItem('taskLocations') || '{}');
+let taskLocations = lsGetJSON('taskLocations', {});
 let clientsMap = {};  // guid → name
 
 // Profile
-let savedProfileName = localStorage.getItem('profileName') || '';
+let savedProfileName = lsGet('profileName', '');
 
 // Theme
-let currentTheme = localStorage.getItem('theme') || 'dark';
+let currentTheme = lsGet('theme', 'dark');
 
 function applyTheme(theme) {
     currentTheme = theme;
-    localStorage.setItem('theme', theme);
+    lsSet('theme', theme);
     document.documentElement.dataset.theme = theme;
     document.documentElement.dataset.bsTheme = theme;
 
@@ -501,7 +511,7 @@ function openSettings(firstLogin) {
     document.getElementById('settingsModal').querySelector('.theme-toggle').setAttribute('aria-checked', currentTheme === 'light');
 
     const ws = document.getElementById('settingsWarehouse');
-    const saved = localStorage.getItem('defaultWarehouse');
+    const saved = lsGet('defaultWarehouse', '');
     fetch('/api/warehouse/storages')
         .then(checkAuth).then(r => r.json())
         .then(data => {
@@ -514,9 +524,9 @@ function openSettings(firstLogin) {
 
 function saveProfile() {
     savedProfileName = document.getElementById('profileName').value.trim();
-    localStorage.setItem('profileName', savedProfileName);
+    lsSet('profileName', savedProfileName);
     const warehouseGuid = document.getElementById('settingsWarehouse').value;
-    localStorage.setItem('defaultWarehouse', warehouseGuid);
+    lsSet('defaultWarehouse', warehouseGuid);
     updateProfileAvatar();
 }
 
@@ -587,7 +597,7 @@ function onTaskSearch() {
 function filterTasks() {
     const query = document.getElementById('taskSearch').value.toLowerCase().trim();
     const sort = document.getElementById('taskSort').value;
-    localStorage.setItem('taskSort', sort);
+    lsSet('taskSort', sort);
     renderTasks('tasksMyList', tasksMy, query, sort, 'my');
     renderTasks('tasksFreeList', tasksFree, query, sort, 'free');
     renderTasks('tasksClosedList', tasksClosed, query, sort, 'closed');
@@ -596,7 +606,7 @@ function filterTasks() {
 function resetFilters() {
     document.getElementById('taskSearch').value = '';
     document.getElementById('taskSort').value = 'date';
-    localStorage.setItem('taskSort', 'date');
+    lsSet('taskSort', 'date');
     clearTimeout(taskSearchTimeout);
     loadTasks();
 }
@@ -657,7 +667,7 @@ function togglePin(guid) {
     const idx = pinnedTasks.indexOf(guid);
     if (idx >= 0) pinnedTasks.splice(idx, 1);
     else pinnedTasks.push(guid);
-    localStorage.setItem('pinnedTasks', JSON.stringify(pinnedTasks));
+    lsSet('pinnedTasks', JSON.stringify(pinnedTasks));
     filterTasks();
 }
 
@@ -929,7 +939,7 @@ function closeTask(guid, guidDoc) {
             if (data.success) {
                 if (lat || lng) {
                     taskLocations[guid] = { lat, lng, ts: Date.now() };
-                    localStorage.setItem('taskLocations', JSON.stringify(taskLocations));
+                    lsSet('taskLocations', JSON.stringify(taskLocations));
                 }
                 alert('Заявка закрыта! После проверки менеджером статус будет обновлён.');
                 pendingAttachments = [];
@@ -1037,7 +1047,7 @@ function loadStorages() {
             const sel = document.getElementById('storageSelect');
             sel.innerHTML = '<option value="">Выберите склад...</option>' +
                 data.map(s => `<option value="${s.guid}">${s.name}</option>`).join('');
-            const saved = localStorage.getItem('defaultWarehouse');
+            const saved = lsGet('defaultWarehouse', '');
             if (saved && [...sel.options].some(o => o.value === saved)) {
                 sel.value = saved;
                 loadBalances();
@@ -1336,26 +1346,10 @@ function loadClients() {
         });
 }
 
-// ============ RESPONSIVE ============
-function adjustContainer() {
-    const c = document.getElementById('mainContainer');
-    if (!c) return;
-    if (window.innerWidth <= 768) {
-        c.style.maxWidth = '100%';
-        c.style.padding = '0 8px';
-    } else {
-        c.style.maxWidth = '80%';
-        c.style.padding = '0 16px';
-    }
-}
-window.addEventListener('resize', adjustContainer);
-
 // ============ INIT ============
 document.addEventListener('DOMContentLoaded', () => {
-    adjustContainer();
-
     // Restore sort
-    const savedSort = localStorage.getItem('taskSort');
+    const savedSort = lsGet('taskSort', '');
     if (savedSort) document.getElementById('taskSort').value = savedSort;
 
     // Restore theme
@@ -1365,7 +1359,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateProfileAvatar();
 
     // First login — prompt to set up profile
-    const defaultWarehouse = localStorage.getItem('defaultWarehouse');
+    const defaultWarehouse = lsGet('defaultWarehouse', '');
     if (!savedProfileName || !defaultWarehouse) {
         openSettings(true);
     }
@@ -1440,7 +1434,7 @@ function loadDocStorages(sel) {
         .then(data => {
             sel.innerHTML = '<option value="">Выберите склад...</option>' +
                 data.map(s => `<option value="${s.guid}">${s.name}</option>`).join('');
-            const saved = localStorage.getItem('defaultWarehouse');
+            const saved = lsGet('defaultWarehouse', '');
             if (saved && [...sel.options].some(o => o.value === saved)) {
                 sel.value = saved;
                 loadDocProducts();

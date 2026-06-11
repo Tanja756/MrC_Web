@@ -40,6 +40,8 @@ body {
     transition: background 0.2s, color 0.2s;
 }
 
+#mainContainer { max-width: 100%; padding: 0 8px; }
+
 a { color: var(--primary); }
 
 .navbar { transition: background 0.2s, color 0.2s; }
@@ -414,6 +416,12 @@ a { color: var(--primary); }
 [data-theme="dark"] .text-muted {
     color: var(--text-muted) !important;
 }
+[data-theme="dark"] .form-label {
+    color: #e1e3e8 !important;
+}
+[data-theme="light"] .form-label {
+    color: #212529 !important;
+}
 
 /* Product items in doc form */
 .doc-product-item {
@@ -451,6 +459,7 @@ a { color: var(--primary); }
 }
 
 @media (min-width: 768px) {
+    #mainContainer { max-width: 80%; padding: 0 16px; }
     .filter-body { display: block !important; }
     .filter-header {
         display: flex;
