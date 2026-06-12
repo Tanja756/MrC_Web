@@ -1,21 +1,22 @@
 {% extends "base.html" %}
 {% block content %}
 <div id="startupOverlay">
+    <div class="startup-core"></div>
     <div class="startup-ring"></div>
     <div class="startup-ring startup-ring-outer"></div>
     <div class="startup-scanline"></div>
     <div class="startup-text">
         <div class="startup-logo">MrC Check</div>
-        <div class="startup-sub">SYSTEM INITIALIZATION</div>
+        <div class="startup-sub">ИНИЦИАЛИЗАЦИЯ СИСТЕМЫ</div>
         <div class="startup-status">
             <div class="startup-bar"><div class="startup-bar-fill"></div></div>
-            <div class="startup-label">LOADING MODULES...</div>
+            <div class="startup-label">ЗАГРУЗКА МОДУЛЕЙ...</div>
         </div>
         <div class="startup-items">
-            <div class="startup-item"><span class="startup-dot"></span>HUD CALIBRATION</div>
-            <div class="startup-item"><span class="startup-dot"></span>DATABASE LINK</div>
-            <div class="startup-item"><span class="startup-dot"></span>TASK ENGINE</div>
-            <div class="startup-item"><span class="startup-dot"></span>NAVIGATION</div>
+            <div class="startup-item"><span class="startup-dot"></span>КАЛИБРОВКА HUD</div>
+            <div class="startup-item"><span class="startup-dot"></span>ПОДКЛЮЧЕНИЕ К БД</div>
+            <div class="startup-item"><span class="startup-dot"></span>ДВИЖОК ЗАДАЧ</div>
+            <div class="startup-item"><span class="startup-dot"></span>НАВИГАЦИЯ</div>
         </div>
     </div>
 </div>
