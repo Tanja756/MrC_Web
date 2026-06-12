@@ -394,7 +394,6 @@ def api_ppr_add():
 
 
 @app.route('/api/tasks/documents', methods=['POST'])
-@api_login_required
 def api_task_documents():
     from docgen import generate_documents
     guid = request.json.get('guid')
@@ -407,13 +406,27 @@ def api_task_documents():
     include_m15 = request.json.get('include_m15', True)
     fields = request.json.get('fields') or None
 
+    login = request.json.get('login') or ''
+    password = request.json.get('password') or ''
+
+    if login and password:
+        client = OneSApiClient(
+            host=SERVER_HOST,
+            port=SERVER_PORT,
+            db_name=SERVER_DB,
+            username=login,
+            password=password,
+        )
+    else:
+        client = get_api_client()
+        if not client:
+            return jsonify({'error': 'Authentication required'}), 401
+
     all_tasks = []
-    client = get_api_client()
-    if client:
-        for fetcher in ('get_tasks_user', 'get_tasks_unallocated', 'get_closed_tasks_user'):
-            data = getattr(client, fetcher)()
-            if data and 'tasks' in data:
-                all_tasks.extend(data['tasks'])
+    for fetcher in ('get_tasks_user', 'get_tasks_unallocated', 'get_closed_tasks_user'):
+        data = getattr(client, fetcher)()
+        if data and 'tasks' in data:
+            all_tasks.extend(data['tasks'])
 
     task = next((t for t in all_tasks if t.get('guid') == guid), None)
     if not task:

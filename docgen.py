@@ -193,7 +193,7 @@ def build_replacements(parsed: dict, profile_name: str = '') -> dict:
         '{Y1}': now.strftime('%Y')[2], '{Y0}': now.strftime('%Y')[3],
         '{H1}': now.strftime('%H')[0], '{H0}': now.strftime('%H')[1],
         '{DATE}': now.strftime('%d.%m.%Y'),
-        '{KA}': profile_name or 'Колебанов Сергей Васильевич',
+        '{KA}': profile_name or '',
         '{MVZ}': 'X0UGSMP4',
         '{RVR}': parsed.get('rvr', ''),
         '{DOP}': parsed.get('dop', ''),
