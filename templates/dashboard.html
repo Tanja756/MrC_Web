@@ -6,7 +6,7 @@
     <div class="startup-ring startup-ring-outer"></div>
     <div class="startup-scanline"></div>
     <div class="startup-text">
-        <div class="startup-logo">MrC Check</div>
+        <div class="startup-logo">Mr.Check</div>
         <div class="startup-sub">ИНИЦИАЛИЗАЦИЯ СИСТЕМЫ</div>
         <div class="startup-status">
             <div class="startup-bar"><div class="startup-bar-fill"></div></div>
@@ -22,7 +22,7 @@
 </div>
 <nav class="navbar navbar-dark bg-dark sticky-top py-2" id="mainNavbar">
     <div class="container-fluid">
-        <a class="navbar-brand fw-semibold" href="#"><i class="bi bi-box-seam me-2"></i>MrC Check</a>
+        <a class="navbar-brand fw-semibold" href="#"><i class="bi bi-box-seam me-2"></i>Mr.Check</a>
         <div class="d-flex align-items-center gap-2">
             <div class="profile-avatar" id="profileAvatar" onclick="openSettings()" title="Профиль"></div>
             <span class="text-light me-2 small opacity-75 d-none d-md-inline"><i class="bi bi-person-circle me-1"></i>{{ session.username }}</span>
@@ -384,5 +384,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='dashboard.js') }}?v=2"></script>
+<script src="{{ url_for('static', filename='dashboard.js') }}?v=3"></script>
 {% endblock %}

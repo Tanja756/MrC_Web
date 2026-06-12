@@ -1061,6 +1061,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
+function getFilenameFromHeaders(headers, fallback) {
+    const cd = headers.get('Content-Disposition');
+    if (cd) {
+        const m = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
+        if (m) return m[1];
+    }
+    return fallback;
+}
+
 function downloadDocuments(guid) {
     fetch('/api/tasks/documents', {
         method: 'POST',
@@ -1068,11 +1077,12 @@ function downloadDocuments(guid) {
         body: JSON.stringify({guid, profile_name: savedProfileName})
     }).then(checkAuth).then(r => {
         if (!r.ok) return r.text().then(t => { throw new Error(t) });
-        return r.blob();
-    }).then(blob => {
+        const filename = getFilenameFromHeaders(r.headers, 'documents-' + guid.slice(0,8) + '.zip');
+        return r.blob().then(blob => ({blob, filename}));
+    }).then(({blob, filename}) => {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = 'documents-' + guid.slice(0,8) + '.zip';
+        a.download = filename;
         a.click();
         URL.revokeObjectURL(a.href);
     }).catch(e => alert('Ошибка: ' + e.message));
@@ -1291,15 +1301,16 @@ function generateDocForm() {
     }).then(checkAuth).then(r => {
         if (!r.ok) return r.text().then(t => { throw new Error(t) });
         status.textContent = 'Загрузка файла...';
-        return r.blob();
-    }).then(blob => {
+        const filename = getFilenameFromHeaders(r.headers, 'documents-' + guid.slice(0,8) + '.zip');
+        return r.blob().then(blob => ({blob, filename}));
+    }).then(({blob, filename}) => {
         loading.classList.add('d-none');
         footer.querySelectorAll('button').forEach(b => b.disabled = false);
         bootstrap.Modal.getInstance(document.getElementById('docFormModal'))?.hide();
 
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = 'documents-' + guid.slice(0,8) + '.zip';
+        a.download = filename;
         a.click();
         URL.revokeObjectURL(a.href);
     }).catch(e => {
