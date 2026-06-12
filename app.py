@@ -432,6 +432,11 @@ def api_task_documents():
     if not task:
         return jsonify({'error': 'Task not found'}), 404
 
+    from docgen import extract_task_data
+    parsed = extract_task_data(task)
+    sap = parsed.get('sap', 'unknown')
+    ts = datetime.now().strftime('%Y.%m.%d_%H.%M')
+
     try:
         pdfs = generate_documents(task, profile_name=profile_name,
                                   include_act=include_act, include_fn=include_fn,
@@ -452,7 +457,142 @@ def api_task_documents():
 
     return buf.getvalue(), 200, {
         'Content-Type': 'application/zip',
-        'Content-Disposition': f'attachment; filename="documents-{guid[:8]}.zip"',
+        'Content-Disposition': f'attachment; filename="{ts}_{sap}_doc.zip"',
+    }
+
+
+@app.route('/api/tasks/documents/act', methods=['POST'])
+def api_task_documents_act():
+    from docgen import generate_documents
+    guid = request.json.get('guid')
+    if not guid:
+        return jsonify({'error': 'GUID required'}), 400
+    login = request.json.get('login') or ''
+    password = request.json.get('password') or ''
+    fields = request.json.get('fields') or None
+    if login and password:
+        client = OneSApiClient(
+            host=SERVER_HOST, port=SERVER_PORT, db_name=SERVER_DB,
+            username=login, password=password,
+        )
+    else:
+        client = get_api_client()
+        if not client:
+            return jsonify({'error': 'Authentication required'}), 401
+    all_tasks = []
+    for fetcher in ('get_tasks_user', 'get_tasks_unallocated', 'get_closed_tasks_user'):
+        data = getattr(client, fetcher)()
+        if data and 'tasks' in data:
+            all_tasks.extend(data['tasks'])
+    task = next((t for t in all_tasks if t.get('guid') == guid), None)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    from docgen import extract_task_data
+    parsed = extract_task_data(task)
+    sap = parsed.get('sap', 'unknown')
+    ts = datetime.now().strftime('%Y.%m.%d_%H.%M')
+    try:
+        pdfs = generate_documents(task, include_act=True, include_fn=False, include_m15=False, field_overrides=fields)
+    except Exception as e:
+        logger.error(f"Document generation error: {e}")
+        return jsonify({'error': str(e)}), 500
+    pdf_path = pdfs[0]
+    with open(pdf_path, 'rb') as f:
+        data = f.read()
+    os.unlink(pdf_path)
+    return data, 200, {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': f'attachment; filename="{ts}_{sap}_AVR.pdf"',
+    }
+
+
+@app.route('/api/tasks/documents/fn', methods=['POST'])
+def api_task_documents_fn():
+    from docgen import generate_documents
+    guid = request.json.get('guid')
+    if not guid:
+        return jsonify({'error': 'GUID required'}), 400
+    login = request.json.get('login') or ''
+    password = request.json.get('password') or ''
+    fields = request.json.get('fields') or None
+    if login and password:
+        client = OneSApiClient(
+            host=SERVER_HOST, port=SERVER_PORT, db_name=SERVER_DB,
+            username=login, password=password,
+        )
+    else:
+        client = get_api_client()
+        if not client:
+            return jsonify({'error': 'Authentication required'}), 401
+    all_tasks = []
+    for fetcher in ('get_tasks_user', 'get_tasks_unallocated', 'get_closed_tasks_user'):
+        data = getattr(client, fetcher)()
+        if data and 'tasks' in data:
+            all_tasks.extend(data['tasks'])
+    task = next((t for t in all_tasks if t.get('guid') == guid), None)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    from docgen import extract_task_data
+    parsed = extract_task_data(task)
+    sap = parsed.get('sap', 'unknown')
+    ts = datetime.now().strftime('%Y.%m.%d_%H.%M')
+    try:
+        pdfs = generate_documents(task, include_act=False, include_fn=True, include_m15=False, field_overrides=fields)
+    except Exception as e:
+        logger.error(f"Document generation error: {e}")
+        return jsonify({'error': str(e)}), 500
+    pdf_path = pdfs[0]
+    with open(pdf_path, 'rb') as f:
+        data = f.read()
+    os.unlink(pdf_path)
+    return data, 200, {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': f'attachment; filename="{ts}_{sap}_FN.pdf"',
+    }
+
+
+@app.route('/api/tasks/documents/m15', methods=['POST'])
+def api_task_documents_m15():
+    from docgen import generate_documents
+    guid = request.json.get('guid')
+    if not guid:
+        return jsonify({'error': 'GUID required'}), 400
+    login = request.json.get('login') or ''
+    password = request.json.get('password') or ''
+    fields = request.json.get('fields') or None
+    if login and password:
+        client = OneSApiClient(
+            host=SERVER_HOST, port=SERVER_PORT, db_name=SERVER_DB,
+            username=login, password=password,
+        )
+    else:
+        client = get_api_client()
+        if not client:
+            return jsonify({'error': 'Authentication required'}), 401
+    all_tasks = []
+    for fetcher in ('get_tasks_user', 'get_tasks_unallocated', 'get_closed_tasks_user'):
+        data = getattr(client, fetcher)()
+        if data and 'tasks' in data:
+            all_tasks.extend(data['tasks'])
+    task = next((t for t in all_tasks if t.get('guid') == guid), None)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    from docgen import extract_task_data
+    parsed = extract_task_data(task)
+    sap = parsed.get('sap', 'unknown')
+    ts = datetime.now().strftime('%Y.%m.%d_%H.%M')
+    try:
+        pdfs = generate_documents(task, include_act=False, include_fn=False, include_m15=True, field_overrides=fields)
+    except Exception as e:
+        logger.error(f"Document generation error: {e}")
+        return jsonify({'error': str(e)}), 500
+    pdf_path = pdfs[0]
+    with open(pdf_path, 'rb') as f:
+        data = f.read()
+    os.unlink(pdf_path)
+    return data, 200, {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': f'attachment; filename="{ts}_{sap}_m15.pdf"',
     }
 
 
