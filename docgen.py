@@ -1,5 +1,6 @@
 import os
 import re
+import uuid
 import zipfile
 import xml.etree.ElementTree as ET
 import tempfile
@@ -30,17 +31,21 @@ class ODSFiller:
             )
             self._repack_ods(template_path, output_path, content_path)
 
-    def export_to_pdf(self, ods_path: str, pdf_path: str):
+    def export_to_pdf(self, ods_path: str, pdf_path: str, lo_dir: str = None):
         if not os.path.exists(ods_path):
             raise FileNotFoundError(f"ODS not found: {ods_path}")
         os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
 
+        if not lo_dir:
+            lo_dir = os.path.join(tempfile.gettempdir(), f'lo-{uuid.uuid4().hex[:12]}')
+        os.makedirs(lo_dir, exist_ok=True)
+
         import subprocess
         env = os.environ.copy()
-        env['HOME'] = '/tmp'
+        env['HOME'] = lo_dir
         result = subprocess.run(
             ['libreoffice', '--headless', '--norestore',
-             f'-env:UserInstallation=file:///tmp/lu-{os.getpid()}',
+             f'-env:UserInstallation=file:///{lo_dir}',
              '--convert-to', 'pdf', '--outdir', os.path.dirname(pdf_path), ods_path],
             capture_output=True, text=True, timeout=60, env=env
         )
@@ -225,35 +230,38 @@ def build_replacements(parsed: dict, profile_name: str = '') -> dict:
     return repl
 
 
-def generate_act(repl: dict) -> str:
+def generate_act(repl: dict, out_dir: str = None, lo_dir: str = None) -> str:
+    out_dir = out_dir or OUT_DIR
     with tempfile.NamedTemporaryFile(suffix=".ods", delete=False) as tmp:
         ods_path = tmp.name
-    pdf_path = os.path.join(OUT_DIR, f"{repl['{NUM}']}-{repl['{SAP}']}-ACT-{datetime.now():%Y%m%d%H%M%S}.pdf")
+    pdf_path = os.path.join(out_dir, f"{repl['{NUM}']}-{repl['{SAP}']}-ACT-{uuid.uuid4().hex[:8]}.pdf")
     try:
         filler = ODSFiller()
         filler.fill_and_save(TEMPLATE_ACT, ods_path, repl)
-        filler.export_to_pdf(ods_path, pdf_path)
+        filler.export_to_pdf(ods_path, pdf_path, lo_dir)
         return pdf_path
     finally:
         if os.path.exists(ods_path):
             os.unlink(ods_path)
 
 
-def generate_fn(repl: dict) -> str:
+def generate_fn(repl: dict, out_dir: str = None, lo_dir: str = None) -> str:
+    out_dir = out_dir or OUT_DIR
     with tempfile.NamedTemporaryFile(suffix=".ods", delete=False) as tmp:
         ods_path = tmp.name
-    pdf_path = os.path.join(OUT_DIR, f"{repl['{NUM}']}-{repl['{SAP}']}-FN-{datetime.now():%Y%m%d%H%M%S}.pdf")
+    pdf_path = os.path.join(out_dir, f"{repl['{NUM}']}-{repl['{SAP}']}-FN-{uuid.uuid4().hex[:8]}.pdf")
     try:
         filler = ODSFiller()
         filler.fill_and_save(TEMPLATE_FN, ods_path, repl)
-        filler.export_to_pdf(ods_path, pdf_path)
+        filler.export_to_pdf(ods_path, pdf_path, lo_dir)
         return pdf_path
     finally:
         if os.path.exists(ods_path):
             os.unlink(ods_path)
 
 
-def generate_m15(repl: dict, is_p: bool, in_value_for_in: Optional[str] = None, in_value_for_out: Optional[str] = None) -> list:
+def generate_m15(repl: dict, is_p: bool, in_value_for_in: Optional[str] = None, in_value_for_out: Optional[str] = None, out_dir: str = None, lo_dir: str = None) -> list:
+    out_dir = out_dir or OUT_DIR
     repl['{DATE}'] = datetime.now().strftime('%d.%m.%Y')
     pdf_files = []
     templates = [
@@ -266,11 +274,11 @@ def generate_m15(repl: dict, is_p: bool, in_value_for_in: Optional[str] = None, 
             current_repl['{IN}'] = override_in
         with tempfile.NamedTemporaryFile(suffix=".ods", delete=False) as tmp:
             ods_path = tmp.name
-        pdf_path = os.path.join(OUT_DIR, f"{current_repl['{NUM}']}-{current_repl['{SAP}']}-{suffix}-{datetime.now():%Y%m%d%H%M%S}.pdf")
+        pdf_path = os.path.join(out_dir, f"{current_repl['{NUM}']}-{current_repl['{SAP}']}-{suffix}-{uuid.uuid4().hex[:8]}.pdf")
         try:
             filler = ODSFiller()
             filler.fill_and_save(template, ods_path, current_repl)
-            filler.export_to_pdf(ods_path, pdf_path)
+            filler.export_to_pdf(ods_path, pdf_path, lo_dir)
             pdf_files.append(pdf_path)
         finally:
             if os.path.exists(ods_path):
@@ -300,10 +308,9 @@ def generate_documents(task: dict, profile_name: str = '',
                        include_act: bool = True, include_fn: bool = True,
                        include_m15: bool = True,
                        field_overrides: dict = None) -> list:
-    for f in os.listdir(OUT_DIR):
-        fp = os.path.join(OUT_DIR, f)
-        if os.path.isfile(fp) and f.endswith('.pdf'):
-            os.unlink(fp)
+    out_dir = tempfile.mkdtemp(prefix='mrc_doc_')
+    lo_dir = os.path.join(out_dir, 'lo')
+    os.makedirs(lo_dir, exist_ok=True)
     parsed = extract_task_data(task)
     shop = parsed.get('shop', '')
     sap = parsed.get('sap', '')
@@ -363,21 +370,21 @@ def generate_documents(task: dict, profile_name: str = '',
 
     try:
         if include_act:
-            act_pdf = generate_act(repl)
+            act_pdf = generate_act(repl, out_dir, lo_dir)
             temp_files.append(act_pdf)
             attachments.append(act_pdf)
 
         if include_fn:
-            fn_pdf = generate_fn(repl)
+            fn_pdf = generate_fn(repl, out_dir, lo_dir)
             temp_files.append(fn_pdf)
             attachments.append(fn_pdf)
 
         if include_m15:
             if is_p:
                 repl['{MVZ}'] = 'X0UGSMW6'
-            m15_pdfs = generate_m15(repl, is_p)
+            m15_pdfs = generate_m15(repl, is_p, out_dir=out_dir, lo_dir=lo_dir)
             temp_files.extend(m15_pdfs)
-            m15_combined = os.path.join(OUT_DIR, f"{repl['{NUM}']}-{repl['{SAP}']}-M15-{datetime.now():%Y%m%d%H%M%S}.pdf")
+            m15_combined = os.path.join(out_dir, f"{repl['{NUM}']}-{repl['{SAP}']}-M15-{uuid.uuid4().hex[:8]}.pdf")
             merge_pdfs_with_rotation(m15_pdfs, m15_combined)
             temp_files.append(m15_combined)
             attachments.append(m15_combined)
