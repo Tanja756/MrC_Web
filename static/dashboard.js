@@ -1070,22 +1070,32 @@ function getFilenameFromHeaders(headers, fallback) {
     return fallback;
 }
 
+function downloadMultiple(fetches, onProgress) {
+    return Promise.all(fetches.map((p, i) =>
+        p.then(({blob, filename}) => {
+            if (onProgress) onProgress(i + 1, fetches.length);
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(a.href);
+        })
+    ));
+}
+
 function downloadDocuments(guid) {
-    fetch('/api/tasks/documents', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({guid, profile_name: savedProfileName})
-    }).then(checkAuth).then(r => {
-        if (!r.ok) return r.text().then(t => { throw new Error(t) });
-        const filename = getFilenameFromHeaders(r.headers, 'documents-' + guid.slice(0,8) + '.zip');
-        return r.blob().then(blob => ({blob, filename}));
-    }).then(({blob, filename}) => {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(a.href);
-    }).catch(e => alert('Ошибка: ' + e.message));
+    const body = JSON.stringify({guid, profile_name: savedProfileName});
+    const endpoints = ['/api/tasks/documents/act', '/api/tasks/documents/fn', '/api/tasks/documents/m15'];
+    const fetches = endpoints.map(url =>
+        fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body})
+            .then(checkAuth)
+            .then(r => {
+                if (!r.ok) return null;
+                const filename = getFilenameFromHeaders(r.headers);
+                return r.blob().then(blob => ({blob, filename}));
+            })
+    );
+    downloadMultiple(fetches).catch(e => alert('Ошибка: ' + e.message));
 }
 
 // ============ DOCUMENT FORM ============
@@ -1256,67 +1266,73 @@ function generateDocForm() {
     const guid = document.getElementById('docFormGuid').value;
     if (!guid) return;
 
-    const fields = {
-        shop: document.getElementById('docShop').value.trim(),
-        sap: document.getElementById('docSap').value.trim(),
-        addr: document.getElementById('docAddr').value.trim(),
-        desc: document.getElementById('docDesc').value.trim(),
-        code: document.getElementById('docCode').value.trim(),
-        zd: document.getElementById('docZd').value.trim(),
-    };
-
+    const fields = {};
+    const shop = document.getElementById('docShop').value.trim();
+    const sap = document.getElementById('docSap').value.trim();
+    const addr = document.getElementById('docAddr').value.trim();
+    const desc = document.getElementById('docDesc').value.trim();
+    const code = document.getElementById('docCode').value.trim();
+    const zd = document.getElementById('docZd').value.trim();
+    if (shop || sap || addr || desc || code || zd) {
+        Object.assign(fields, {shop, sap, addr, desc, code, zd});
+    }
     if (docSelectedItems.length > 0) {
-        fields.items = docSelectedItems.map(item => ({
-            name: item.name,
-            series: item.series,
-        }));
+        fields.items = docSelectedItems.map(item => ({name: item.name, series: item.series}));
     }
 
     const includeAct = document.getElementById('docIncludeAct').checked;
     const includeFn = document.getElementById('docIncludeFn').checked;
     const includeM15 = document.getElementById('docIncludeM15').checked;
 
-    // Show loading overlay, disable buttons
     const loading = document.getElementById('docFormLoading');
     const footer = document.getElementById('docFormFooter');
-    const cancelBtn = document.getElementById('docFormCancelBtn');
-    const submitBtn = document.getElementById('docFormSubmitBtn');
     const status = document.getElementById('docFormStatus');
 
     loading.classList.remove('d-none');
     footer.querySelectorAll('button').forEach(b => b.disabled = true);
     status.textContent = 'Запрос на генерацию...';
 
-    fetch('/api/tasks/documents', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            guid,
-            profile_name: savedProfileName,
-            include_act: includeAct,
-            include_fn: includeFn,
-            include_m15: includeM15,
-            fields: fields,
-        })
-    }).then(checkAuth).then(r => {
-        if (!r.ok) return r.text().then(t => { throw new Error(t) });
-        status.textContent = 'Загрузка файла...';
-        const filename = getFilenameFromHeaders(r.headers, 'documents-' + guid.slice(0,8) + '.zip');
-        return r.blob().then(blob => ({blob, filename}));
-    }).then(({blob, filename}) => {
+    const endpoints = [];
+    if (includeAct) endpoints.push('/api/tasks/documents/act');
+    if (includeFn) endpoints.push('/api/tasks/documents/fn');
+    if (includeM15) endpoints.push('/api/tasks/documents/m15');
+
+    if (endpoints.length === 0) {
+        status.textContent = 'Выберите хотя бы один тип документа';
+        setTimeout(() => {
+            loading.classList.add('d-none');
+            footer.querySelectorAll('button').forEach(b => b.disabled = false);
+        }, 1500);
+        return;
+    }
+
+    const body = JSON.stringify({
+        guid,
+        profile_name: savedProfileName,
+        fields: Object.keys(fields).length > 0 ? fields : undefined,
+    });
+
+    status.textContent = 'Генерация документов...';
+
+    const fetches = endpoints.map(url =>
+        fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body})
+            .then(checkAuth)
+            .then(r => {
+                if (!r.ok) return r.text().then(t => { throw new Error(t) });
+                const filename = getFilenameFromHeaders(r.headers);
+                return r.blob().then(blob => ({blob, filename}));
+            })
+    );
+
+    downloadMultiple(fetches, (done, total) => {
+        status.textContent = `Загрузка... (${done}/${total})`;
+    }).then(() => {
         loading.classList.add('d-none');
         footer.querySelectorAll('button').forEach(b => b.disabled = false);
         bootstrap.Modal.getInstance(document.getElementById('docFormModal'))?.hide();
-
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(a.href);
     }).catch(e => {
         loading.classList.add('d-none');
         footer.querySelectorAll('button').forEach(b => b.disabled = false);
-        // Show error inside modal body
         const body = document.querySelector('#docFormModal .modal-body');
         const errDiv = document.createElement('div');
         errDiv.className = 'alert alert-danger alert-dismissible fade show mt-2 mb-0';

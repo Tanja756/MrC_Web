@@ -461,15 +461,14 @@ def api_task_documents():
     }
 
 
-@app.route('/api/tasks/documents/act', methods=['POST'])
-def api_task_documents_act():
-    from docgen import generate_documents
+def _make_doc_endpoint(include_act, include_fn, include_m15, suffix):
     guid = request.json.get('guid')
     if not guid:
         return jsonify({'error': 'GUID required'}), 400
     login = request.json.get('login') or ''
     password = request.json.get('password') or ''
     fields = request.json.get('fields') or None
+    profile_name = request.json.get('profile_name', '')
     if login and password:
         client = OneSApiClient(
             host=SERVER_HOST, port=SERVER_PORT, db_name=SERVER_DB,
@@ -491,8 +490,11 @@ def api_task_documents_act():
     parsed = extract_task_data(task)
     sap = parsed.get('sap', 'unknown')
     ts = datetime.now().strftime('%Y.%m.%d_%H.%M')
+    from docgen import generate_documents
     try:
-        pdfs = generate_documents(task, include_act=True, include_fn=False, include_m15=False, field_overrides=fields)
+        pdfs = generate_documents(task, include_act=include_act, include_fn=include_fn,
+                                  include_m15=include_m15, field_overrides=fields,
+                                  profile_name=profile_name)
     except Exception as e:
         logger.error(f"Document generation error: {e}")
         return jsonify({'error': str(e)}), 500
@@ -502,98 +504,23 @@ def api_task_documents_act():
     os.unlink(pdf_path)
     return data, 200, {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': f'attachment; filename="{ts}_{sap}_AVR.pdf"',
+        'Content-Disposition': f'attachment; filename="{ts}_{sap}_{suffix}.pdf"',
     }
+
+
+@app.route('/api/tasks/documents/act', methods=['POST'])
+def api_task_documents_act():
+    return _make_doc_endpoint(True, False, False, 'AVR')
 
 
 @app.route('/api/tasks/documents/fn', methods=['POST'])
 def api_task_documents_fn():
-    from docgen import generate_documents
-    guid = request.json.get('guid')
-    if not guid:
-        return jsonify({'error': 'GUID required'}), 400
-    login = request.json.get('login') or ''
-    password = request.json.get('password') or ''
-    fields = request.json.get('fields') or None
-    if login and password:
-        client = OneSApiClient(
-            host=SERVER_HOST, port=SERVER_PORT, db_name=SERVER_DB,
-            username=login, password=password,
-        )
-    else:
-        client = get_api_client()
-        if not client:
-            return jsonify({'error': 'Authentication required'}), 401
-    all_tasks = []
-    for fetcher in ('get_tasks_user', 'get_tasks_unallocated', 'get_closed_tasks_user'):
-        data = getattr(client, fetcher)()
-        if data and 'tasks' in data:
-            all_tasks.extend(data['tasks'])
-    task = next((t for t in all_tasks if t.get('guid') == guid), None)
-    if not task:
-        return jsonify({'error': 'Task not found'}), 404
-    from docgen import extract_task_data
-    parsed = extract_task_data(task)
-    sap = parsed.get('sap', 'unknown')
-    ts = datetime.now().strftime('%Y.%m.%d_%H.%M')
-    try:
-        pdfs = generate_documents(task, include_act=False, include_fn=True, include_m15=False, field_overrides=fields)
-    except Exception as e:
-        logger.error(f"Document generation error: {e}")
-        return jsonify({'error': str(e)}), 500
-    pdf_path = pdfs[0]
-    with open(pdf_path, 'rb') as f:
-        data = f.read()
-    os.unlink(pdf_path)
-    return data, 200, {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': f'attachment; filename="{ts}_{sap}_FN.pdf"',
-    }
+    return _make_doc_endpoint(False, True, False, 'FN')
 
 
 @app.route('/api/tasks/documents/m15', methods=['POST'])
 def api_task_documents_m15():
-    from docgen import generate_documents
-    guid = request.json.get('guid')
-    if not guid:
-        return jsonify({'error': 'GUID required'}), 400
-    login = request.json.get('login') or ''
-    password = request.json.get('password') or ''
-    fields = request.json.get('fields') or None
-    if login and password:
-        client = OneSApiClient(
-            host=SERVER_HOST, port=SERVER_PORT, db_name=SERVER_DB,
-            username=login, password=password,
-        )
-    else:
-        client = get_api_client()
-        if not client:
-            return jsonify({'error': 'Authentication required'}), 401
-    all_tasks = []
-    for fetcher in ('get_tasks_user', 'get_tasks_unallocated', 'get_closed_tasks_user'):
-        data = getattr(client, fetcher)()
-        if data and 'tasks' in data:
-            all_tasks.extend(data['tasks'])
-    task = next((t for t in all_tasks if t.get('guid') == guid), None)
-    if not task:
-        return jsonify({'error': 'Task not found'}), 404
-    from docgen import extract_task_data
-    parsed = extract_task_data(task)
-    sap = parsed.get('sap', 'unknown')
-    ts = datetime.now().strftime('%Y.%m.%d_%H.%M')
-    try:
-        pdfs = generate_documents(task, include_act=False, include_fn=False, include_m15=True, field_overrides=fields)
-    except Exception as e:
-        logger.error(f"Document generation error: {e}")
-        return jsonify({'error': str(e)}), 500
-    pdf_path = pdfs[0]
-    with open(pdf_path, 'rb') as f:
-        data = f.read()
-    os.unlink(pdf_path)
-    return data, 200, {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': f'attachment; filename="{ts}_{sap}_m15.pdf"',
-    }
+    return _make_doc_endpoint(False, False, True, 'm15')
 
 
 @app.route('/api/shop/by-sap')
