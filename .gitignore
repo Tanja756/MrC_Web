@@ -217,7 +217,11 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+*.xlsx
+*.xlsx#
 shops.db
 mrcheck-web.service
 deploy.sh
+info.md
 templates_docs/
+ППР_2.xlsx
