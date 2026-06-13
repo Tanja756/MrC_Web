@@ -1,13 +1,17 @@
 import os
+import re
 import json
+import uuid
 import base64
 import secrets
+import subprocess
+import tempfile
 import logging
 from datetime import datetime, timedelta
 from functools import wraps
 from dotenv import load_dotenv
 from flask import (Flask, render_template, request, redirect,
-                   url_for, session, jsonify, flash)
+                   url_for, session, jsonify, flash, send_file)
 
 from config import config
 from api_client import OneSApiClient
@@ -326,7 +330,134 @@ def api_movements():
     if not all([storage_guid, start_date, end_date, client]):
         return jsonify([])
     data = client.get_movements(storage_guid, start_date, end_date)
+    for item in data:
+        item['date_arrival'] = _short_date(item.get('date_arrival'))
+        item['date_writeoff'] = _short_date(item.get('date_writeoff'))
     return jsonify(data)
+
+
+def _short_date(val):
+    if not val:
+        return val
+    s = val[:10] if len(val) > 10 else val
+    try:
+        d = datetime.strptime(s, '%Y-%m-%d')
+        return d.strftime('%d.%m.%Y')
+    except ValueError:
+        return s
+
+def _warehouse_pdf_html(storage_name, date_str, balances):
+    rows = ''.join(
+        f'<tr><td class="num">{i+1}</td>'
+        f'<td>{b.get("name", "—")}</td>'
+        f'<td>{b.get("series", "—")}</td>'
+        f'<td>{b.get("inv", "—")}</td>'
+        f'<td>{_short_date(b.get("date_arrival")) or "—"}</td>'
+        f'<td>{_short_date(b.get("date_writeoff")) if b.get("date_writeoff") is not None else "В наличии"}</td>'
+        f'<td class="balance">{b.get("balance", 0)}</td></tr>'
+        for i, b in enumerate(balances)
+    )
+    total = sum(b.get('balance', 0) for b in balances)
+    return f'''<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="UTF-8">
+<style>
+@page {{ margin: 14mm 10mm; }}
+body {{ font-family: 'Liberation Sans', 'Arial', sans-serif; font-size: 9pt; color: #1a1a1a; }}
+.header {{ display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid #d32f2f; }}
+.header h1 {{ font-size: 13pt; margin: 0; color: #d32f2f; }}
+.header .meta {{ font-size: 8pt; color: #666; text-align: right; line-height: 1.4; }}
+table {{ width: 100%; border-collapse: collapse; }}
+th {{ background: #f5f5f5; font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.8px; padding: 5px 7px; text-align: left; border-bottom: 1px solid #ccc; color: #666; }}
+td {{ padding: 4px 7px; border-bottom: 1px solid #eee; font-size: 8.5pt; }}
+td.num {{ text-align: center; color: #999; width: 28px; }}
+td.balance {{ text-align: right; font-weight: 700; font-size: 9pt; }}
+tr:nth-child(even) td {{ background: #fafafa; }}
+.footer {{ margin-top: 16px; padding-top: 8px; border-top: 1px solid #ddd; font-size: 7.5pt; color: #999; text-align: center; }}
+.total {{ text-align: right; font-weight: 700; margin-top: 6px; font-size: 9pt; }}
+</style></head>
+<body>
+<div class="header">
+    <div><h1>Остатки склада</h1><div style="font-size:8.5pt;color:#444;margin-top:3px;">{storage_name}</div></div>
+    <div class="meta">Дата: {date_str}<br>Всего: {len(balances)} {plural(len(balances))}</div>
+</div>
+<table>
+<tr><th>#</th><th>Товар</th><th>Серия</th><th>Инв. номер</th><th>Поступление</th><th>Списание</th><th style="text-align:right">Остаток</th></tr>
+{rows}
+</table>
+<div class="total">Итого: {total} шт.</div>
+<div class="footer">Сгенерировано Mr.Check</div>
+</body></html>'''
+
+
+def plural(n):
+    n = abs(n) % 100
+    if n >= 5 and n <= 20: return 'позиций'
+    n %= 10
+    if n == 1: return 'позиция'
+    if n >= 2 and n <= 4: return 'позиции'
+    return 'позиций'
+
+
+@app.route('/api/warehouse/export-pdf', methods=['POST'])
+@api_login_required
+def api_warehouse_export_pdf():
+    data = request.get_json()
+    storage_name = data.get('storage_name', 'Склад')
+    date_str = data.get('date', datetime.now().strftime('%d.%m.%Y'))
+    balances = data.get('balances', [])
+
+    html = _warehouse_pdf_html(storage_name, date_str, balances)
+
+    tag = uuid.uuid4().hex[:12]
+    tmp_html = os.path.join(tempfile.gettempdir(), f'wh-{tag}.html')
+    tmp_pdf = os.path.join(tempfile.gettempdir(), f'wh-{tag}.pdf')
+
+    try:
+        with open(tmp_html, 'w', encoding='utf-8') as f:
+            f.write(html)
+
+        lo_dir = os.path.join(tempfile.gettempdir(), f'lo-wh-{tag}')
+        os.makedirs(lo_dir, exist_ok=True)
+        env = os.environ.copy()
+        env['HOME'] = lo_dir
+
+        result = subprocess.run(
+            ['libreoffice', '--headless', '--norestore',
+             f'-env:UserInstallation=file:///{lo_dir}',
+             '--convert-to', 'pdf', '--outdir', tempfile.gettempdir(), tmp_html],
+            capture_output=True, text=True, timeout=60, env=env
+        )
+
+        expected = os.path.join(tempfile.gettempdir(), f'wh-{tag}.pdf')
+        generated = os.path.join(tempfile.gettempdir(), f'wh-{tag}.html.pdf')
+        if os.path.exists(generated):
+            os.rename(generated, expected)
+        if not os.path.exists(expected) or os.path.getsize(expected) < 100:
+            raise RuntimeError(result.stderr or 'PDF not generated')
+
+        safe_name = re.sub(r'[^\w\s-]', '', storage_name).strip().replace(' ', '_')
+        filename = f'{safe_name}_{date_str.replace(".", "")}.pdf'
+
+        response = send_file(expected, mimetype='application/pdf',
+                             as_attachment=True, download_name=filename)
+
+        @response.call_on_close
+        def cleanup():
+            for p in [tmp_html, expected, lo_dir]:
+                try:
+                    if os.path.isfile(p): os.unlink(p)
+                    elif os.path.isdir(p): os.rmdir(p)
+                except Exception:
+                    pass
+        return response
+    except Exception as e:
+        for p in [tmp_html, tmp_pdf]:
+            try:
+                if os.path.exists(p): os.unlink(p)
+            except Exception:
+                pass
+        return jsonify({'error': str(e)}), 500
 
 
 # --- SALARY ---
@@ -390,6 +521,29 @@ def api_ppr_add():
     if not client:
         return jsonify({'error': 'No connection'}), 400
     result = client.ppr_add(**request.json)
+    return jsonify(result or {})
+
+
+@app.route('/api/profile')
+@api_login_required
+def api_profile_get():
+    client = get_api_client()
+    username = session.get('username', '')
+    if not client or not username:
+        return jsonify({"profile": {}})
+    data = client.get_profile(username)
+    return jsonify(data)
+
+
+@app.route('/api/profile', methods=['POST'])
+@api_login_required
+def api_profile_post():
+    client = get_api_client()
+    username = session.get('username', '')
+    if not client or not username:
+        return jsonify({'error': 'No connection'}), 400
+    profile = request.json.get('profile', {})
+    result = client.save_profile(username, profile)
     return jsonify(result or {})
 
 
