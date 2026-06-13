@@ -159,3 +159,9 @@ class OneSApiClient:
         return self._get("ppr_departments", {
             "year": year, "quarter": quarter
         })
+
+    def get_profile(self, username: str):
+        return self._get("profile", {"username": username}) or {}
+
+    def save_profile(self, username: str, profile: dict):
+        return self._post("profile", {"username": username, "profile": profile})

@@ -46,6 +46,15 @@ function formatDate(str) {
     return `${dd}.${mm}.${yy} ${hh}:${mi}`;
 }
 
+function formatDateShort(str) {
+    const d = parseDate(str);
+    if (!d) return '—';
+    const dd = String(d.getDate()).padStart(2,'0');
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const yy = String(d.getFullYear()).slice(-2);
+    return `${dd}.${mm}.${yy}`;
+}
+
 function formatHours(hours) {
     if (hours == null || isNaN(hours)) return '—';
     if (hours < 0) return '0 ч';
@@ -155,12 +164,49 @@ function openSettings(firstLogin) {
     modal.show();
 }
 
+function loadProfile() {
+    fetch('/api/profile')
+        .then(checkAuth).then(r => r.json())
+        .then(data => {
+            const p = data.profile;
+            if (!p) return;
+            let changed = false;
+            for (const key of Object.keys(p)) {
+                if (p[key]) lsSet(key, p[key]);
+            }
+            if (p.profileName && p.profileName !== savedProfileName) {
+                savedProfileName = p.profileName;
+                changed = true;
+            }
+            if (p.defaultWarehouse && p.defaultWarehouse !== lsGet('defaultWarehouse', '')) {
+                changed = true;
+            }
+            if (p.theme && p.theme !== currentTheme) {
+                applyTheme(p.theme);
+            }
+            if (changed) updateProfileAvatar();
+        })
+        .catch(() => {});
+}
+
 function saveProfile() {
     savedProfileName = document.getElementById('profileName').value.trim();
     lsSet('profileName', savedProfileName);
     const warehouseGuid = document.getElementById('settingsWarehouse').value;
     lsSet('defaultWarehouse', warehouseGuid);
     updateProfileAvatar();
+
+    fetch('/api/profile', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            profile: {
+                profileName: savedProfileName,
+                defaultWarehouse: warehouseGuid,
+                theme: currentTheme,
+            }
+        })
+    }).catch(() => {});
 }
 
 function updateProfileAvatar() {
@@ -194,484 +240,6 @@ function checkAuth(r) {
     return r;
 }
 
-// ============ TASKS ============
-let taskSearchTimeout;
-
-function loadTasks(search, types) {
-    const params = new URLSearchParams();
-    if (search) params.set('search', search);
-    const qs = params.toString() ? '?' + params.toString() : '';
-    const fetches = [];
-    const labels = types || ['my', 'free', 'closed'];
-    if (labels.includes('my')) fetches.push(fetch('/api/tasks/my' + qs).then(checkAuth).then(r => r.json()));
-    if (labels.includes('free')) fetches.push(fetch('/api/tasks/free' + qs).then(checkAuth).then(r => r.json()));
-    if (labels.includes('closed')) fetches.push(fetch('/api/tasks/closed' + qs).then(checkAuth).then(r => r.json()));
-    if (fetches.length === 0) return;
-    Promise.all(fetches).then(results => {
-        let i = 0;
-        if (labels.includes('my')) { tasksMy = (results[i] || {}).tasks || []; i++; }
-        if (labels.includes('free')) { tasksFree = (results[i] || {}).tasks || []; i++; }
-        if (labels.includes('closed')) { tasksClosed = (results[i] || {}).tasks || []; }
-        filterTasks();
-    });
-}
-
-function loadClosedTasks() {
-    loadTasks('', ['closed']);
-}
-
-function onTaskSearch() {
-    const q = document.getElementById('taskSearch').value.trim();
-    filterTasks();
-    clearTimeout(taskSearchTimeout);
-    taskSearchTimeout = setTimeout(() => loadTasks(q || undefined), 400);
-}
-
-function filterTasks() {
-    const query = document.getElementById('taskSearch').value.toLowerCase().trim();
-    const sort = document.getElementById('taskSort').value;
-    lsSet('taskSort', sort);
-    renderTasks('tasksMyList', tasksMy, query, sort, 'my');
-    renderTasks('tasksFreeList', tasksFree, query, sort, 'free');
-    renderTasks('tasksClosedList', tasksClosed, query, sort, 'closed');
-}
-
-function resetFilters() {
-    document.getElementById('taskSearch').value = '';
-    document.getElementById('taskSort').value = 'date';
-    lsSet('taskSort', 'date');
-    clearTimeout(taskSearchTimeout);
-    loadTasks();
-}
-
-function sortTasks(tasks, sort, reverse) {
-    const s = [...tasks];
-    const r = reverse ? -1 : 1;
-    switch (sort) {
-        case 'priority':
-            s.sort((a, b) => r * ((b.priority || 0) - (a.priority || 0)));
-            break;
-        case 'deadline': {
-            s.sort((a, b) => {
-                const da = parseDate(a.period), db = parseDate(b.period);
-                if (!da && !db) return 0;
-                if (!da) return 1;
-                if (!db) return -1;
-                return r * (da - db);
-            });
-            break;
-        }
-        default: {
-            s.sort((a, b) => {
-                const da = parseDate(a.date), db = parseDate(b.date);
-                if (!da && !db) return 0;
-                if (!da) return 1;
-                if (!db) return -1;
-                return r * (db - da);
-            });
-        }
-    }
-    return s;
-}
-
-function getUrgency(task) {
-    const d = parseDate(task.period);
-    if (!d) return { level: 0, label: '' };
-    const now = new Date();
-    const diffMs = d - now;
-    const diffHours = diffMs / (1000 * 60 * 60);
-
-    if (diffMs < 0) return { level: 3, label: 'Просрочено' };
-    if (diffHours < 2) return { level: 2, label: `< ${Math.round(diffHours)} ч` };
-    if (diffHours < 4) return { level: 1, label: `< ${Math.round(diffHours)} ч` };
-    return { level: 0, label: '' };
-}
-
-function urgencyClass(level) {
-    if (level === 3) return 'urgency-overdue';
-    if (level === 2) return 'urgency-overdue';
-    if (level === 1) return 'urgency-warning';
-    return 'urgency-normal';
-}
-
-function isPinned(guid) { return pinnedTasks.includes(guid); }
-
-function togglePin(guid) {
-    const idx = pinnedTasks.indexOf(guid);
-    if (idx >= 0) pinnedTasks.splice(idx, 1);
-    else pinnedTasks.push(guid);
-    lsSet('pinnedTasks', JSON.stringify(pinnedTasks));
-    filterTasks();
-}
-
-function renderTasks(containerId, tasks, query, sort, mode) {
-    const container = document.getElementById(containerId);
-    const filtered = tasks.filter(t => {
-        const searchStr = [
-            t.number, t.name, t.status, t.name_department, t.user,
-            clientName(t.guid_client)
-        ].filter(Boolean).join(' ').toLowerCase();
-        return searchStr.includes(query);
-    });
-
-    const reverse = (mode === 'closed');
-    const pinned = sortTasks(filtered.filter(t => isPinned(t.guid)), sort, reverse);
-    const unpinned = sortTasks(filtered.filter(t => !isPinned(t.guid)), sort, reverse);
-    const sorted = [...pinned, ...unpinned];
-
-    // Show only closed tasks with locations
-    const showLocation = (mode === 'closed');
-
-    document.getElementById('taskCount').textContent = sorted.length;
-
-    if (sorted.length === 0) {
-        container.innerHTML = '<div class="empty-state"><i class="bi bi-inbox"></i><p>Нет заявок</p></div>';
-        return;
-    }
-
-    container.innerHTML = sorted.map(t => {
-        const urgency = mode === 'closed' ? { level: 0, label: '' } : getUrgency(t);
-        const uc = urgencyClass(urgency.level);
-        const pinIcon = isPinned(t.guid) ? 'pinned bi-pin-fill' : 'bi-pin';
-        const pinHtml = mode === 'closed' ? '' : `<i class="bi ${pinIcon} pin-icon" onclick="togglePin('${t.guid}')"></i>`;
-        const hasLoc = !!taskLocations[t.guid];
-        const hasAttach = t.hasAttachments;
-        const waitMs = parseDate(t.date) ? Date.now() - parseDate(t.date).getTime() : null;
-        const waitHours = waitMs ? waitMs / (1000 * 60 * 60) : null;
-        const remainMs = parseDate(t.period) ? parseDate(t.period).getTime() - Date.now() : null;
-        const remainHours = remainMs ? remainMs / (1000 * 60 * 60) : null;
-
-        const multiCheck = multiSelectMode && mode === 'free'
-            ? `<input type="checkbox" class="form-check-input multi-check" ${selectedGuids.has(t.guid) ? 'checked' : ''} onchange="toggleSelect('${t.guid}')">`
-            : '';
-
-        let actionHtml = '';
-        if (mode === 'my' && t.status !== 'Closed') {
-            actionHtml = `<button class="btn btn-outline-secondary btn-action me-1" onclick="openTaskDetail('${t.guid}','${mode}')"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action me-1" onclick="openDocForm('${t.guid}')"><i class="bi bi-file-earmark-text"></i><span class="btn-label"> Документы</span></button><button class="btn btn-success btn-action" onclick="openTaskDetail('${t.guid}','user')"><i class="bi bi-check-lg"></i><span class="btn-label"> Завершить</span></button>`;
-        } else if (mode === 'free' && !multiSelectMode) {
-            actionHtml = `<button class="btn btn-outline-secondary btn-action me-1" onclick="openTaskDetail('${t.guid}','${mode}')"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-primary btn-action" onclick="takeTask('${t.guid}')"><i class="bi bi-hand-index-thumb"></i><span class="btn-label"> Взять</span></button>`;
-        } else if (mode === 'closed') {
-            actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button>`;
-        }
-
-        const statusHtml = t.status ? `<span class="fw-semibold">${t.status}</span>` : '';
-
-        return `<div class="card mb-2 task-card ${uc}">
-            <div class="card-body py-2">
-                <div class="d-flex align-items-center flex-nowrap mb-1">
-                    ${multiCheck}
-                    <span class="task-name flex-grow-1 me-1">${t.name || ''}</span>
-                    ${pinHtml}
-                    ${hasAttach ? '<i class="bi bi-paperclip meta-icon text-muted" title="Есть вложения"></i>' : ''}
-                    ${showLocation ? (hasLoc ? '<i class="bi bi-geo-alt-fill meta-icon text-success" title="Геолокация сохранена"></i>' : '<i class="bi bi-geo-alt meta-icon text-danger" title="Нет геолокации"></i>') : ''}
-                </div>
-                <div class="task-meta mb-1">
-                    <div>${statusHtml}${t.name_department ? ', ' + t.name_department : ''}</div>
-                    <div><i class="bi bi-calendar3 me-1"></i>${formatDate(t.date)}<span class="meta-sep">, </span><i class="bi bi-clock me-1"></i>${formatDate(t.period)}</div>
-                    <div><i class="bi bi-hourglass-split me-1"></i>${formatHours(waitHours)}<span class="meta-sep">, </span><i class="bi bi-hourglass-bottom me-1"></i>${formatHours(remainHours)}</div>
-                </div>
-                <div class="d-flex flex-wrap gap-1">
-                    ${urgency.label ? `<span class="urgency-badge ${urgency.level >= 2 ? 'overdue' : 'warning'} me-1">${urgency.label}</span>` : ''}
-                    ${actionHtml}
-                </div>
-            </div>
-        </div>`;
-    }).join('');
-}
-
-// ============ TASK DETAIL ============
-function openTaskDetail(guid, mode) {
-    const modal = new bootstrap.Modal(document.getElementById('taskDetailModal'));
-    const lists = {user: tasksMy, my: tasksMy, free: tasksFree, closed: tasksClosed};
-    const localTask = (lists[mode] || []).find(t => t.guid === guid);
-    const task = localTask || null;
-    if (!task) return;
-
-    if (task && task.description !== undefined) {
-        showTaskDetail(task, mode, guid);
-        modal.show();
-        return;
-    }
-
-    fetch('/api/tasks/' + guid).then(checkAuth).then(r => {
-        if (!r.ok) return null;
-        return r.json();
-    }).then(task => {
-        if (!task) {
-            const allTasks = [...tasksMy, ...tasksFree, ...tasksClosed];
-            task = allTasks.find(t => t.guid === guid);
-        }
-        if (!task) return;
-        showTaskDetail(task, mode, guid);
-        modal.show();
-    });
-}
-
-function showTaskDetail(task, mode, guid) {
-    document.getElementById('taskDetailTitle').innerHTML = `<i class="bi bi-info-circle me-2"></i>${task.name || ''}`;
-
-        let body = `
-            <div class="row g-3">
-                <div class="col-12">
-                    <div class="p-3 bg-light rounded-3">
-                        <small class="text-muted d-block mb-1">Описание</small>
-                        <p class="mb-0 task-description">${task.description || '—'}</p>
-                    </div>
-                </div>
-                <div class="col-6 col-md-4">
-                    <small class="text-muted d-block">Статус</small>
-                    <span class="fw-semibold">${task.status || '—'}</span>
-                </div>
-                <div class="col-6 col-md-4">
-                    <small class="text-muted d-block">Дата создания</small>
-                    <span class="fw-semibold">${formatDate(task.date)}</span>
-                </div>
-                <div class="col-6 col-md-4">
-                    <small class="text-muted d-block">Срок</small>
-                    <span class="fw-semibold">${formatDate(task.period)}</span>
-                </div>
-                <div class="col-6 col-md-4">
-                    <small class="text-muted d-block">Приоритет</small>
-                    <span class="fw-semibold">${task.priority != null ? task.priority : '—'}</span>
-                </div>
-                <div class="col-6 col-md-4">
-                    <small class="text-muted d-block">Отдел</small>
-                    <span class="fw-semibold">${task.name_department || '—'}</span>
-                </div>
-                <div class="col-6 col-md-4">
-                    <small class="text-muted d-block">Клиент</small>
-                    <span class="fw-semibold">${clientName(task.guid_client)}</span>
-                </div>
-            </div>`;
-
-        let footer = '';
-
-        if (mode === 'user') {
-            body += `
-                <hr class="my-3">
-                <div class="mb-3">
-                    <label class="form-label fw-semibold">Комментарий к закрытию</label>
-                    <textarea class="form-control" id="closeComment" rows="3" placeholder="Введите комментарий..."></textarea>
-                </div>
-                <div class="mb-2">
-                    <label class="form-label fw-semibold">Вложения</label>
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-outline-secondary btn-sm" onclick="attachFile('pdf')"><i class="bi bi-filetype-pdf me-1"></i>PDF</button>
-                        <button class="btn btn-outline-secondary btn-sm" onclick="attachFile('any')"><i class="bi bi-paperclip me-1"></i>Файл</button>
-                    </div>
-                    <div id="attachmentsList" class="mt-2"></div>
-                </div>`;
-            footer = `
-                <button class="btn btn-outline-secondary" onclick="bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();openDocForm('${guid}')"><i class="bi bi-file-earmark-text me-1"></i>Документы</button>
-                <button class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-                <button class="btn btn-success" onclick="closeTask('${guid}','${task.guid_client || ''}')"><i class="bi bi-check-lg me-1"></i>Завершить заявку</button>`;
-        } else if (mode === 'my') {
-            footer = `
-                <button class="btn btn-outline-secondary" onclick="bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();openDocForm('${guid}')"><i class="bi bi-file-earmark-text me-1"></i>Документы</button>
-                <button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
-        } else if (mode === 'free') {
-            footer = `
-                <button class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-                <button class="btn btn-primary" onclick="takeTask('${guid}')"><i class="bi bi-hand-index-thumb me-1"></i>Взять заявку</button>`;
-        } else if (mode === 'closed') {
-            body += `<hr class="my-3"><div><small class="text-muted d-block mb-1">Комментарий при закрытии</small>${formatComments(task.comments)}</div>`;
-            if (task.hasAttachments) {
-                body += `<hr class="my-3"><div><small class="text-muted d-block mb-1">Вложения</small><div id="closedAttachments"><button class="btn btn-outline-secondary btn-sm" onclick="loadClosedAttachments('${guid}')"><i class="bi bi-download me-1"></i>Загрузить вложения</button></div></div>`;
-            }
-            footer = `<button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
-        }
-
-    document.getElementById('taskDetailBody').innerHTML = body;
-    document.getElementById('taskDetailFooter').innerHTML = footer;
-}
-
-// ============ ATTACHMENTS ============
-function attachFile(type) {
-    const input = document.createElement('input');
-    input.type = 'file';
-    if (type === 'pdf') input.accept = '.pdf';
-    input.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const base64 = await fileToBase64(file);
-        pendingAttachments.push({
-            data: base64.split(',')[1],
-            extension: file.name.split('.').pop()
-        });
-        document.getElementById('attachmentsList').innerHTML = pendingAttachments.map(a =>
-            `<span class="badge bg-light text-dark me-1">📎 .${a.extension} (${(a.data.length * 0.75 / 1024).toFixed(0)} KB)</span>`
-        ).join('');
-    };
-    input.click();
-}
-
-function fileToBase64(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-    });
-}
-
-function loadClosedAttachments(guid) {
-    const container = document.getElementById('closedAttachments');
-    container.innerHTML = '<div class="spinner-border spinner-border-sm me-2" role="status"></div>Загрузка...';
-
-    fetch('/api/tasks/' + guid + '/attachments')
-        .then(checkAuth).then(r => r.json())
-        .then(data => {
-            const list = data.attachments || [];
-            if (!list.length) {
-                container.innerHTML = '<span class="text-muted">Нет вложений</span>';
-                return;
-            }
-            container.innerHTML = list.map(a => {
-                const dataUri = 'data:' + a.filetype + ';base64,' + a.content;
-                return `<div class="mb-1 d-flex gap-2 align-items-center flex-wrap">
-                    <span class="small text-truncate" style="max-width:300px"><i class="bi bi-paperclip me-1"></i>${a.filename}</span>
-                    <a href="${dataUri}" download="${a.filename}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download me-1"></i>Скачать</a>
-                    <a href="${dataUri}" target="_blank" class="btn btn-outline-secondary btn-sm"><i class="bi bi-eye me-1"></i>Просмотр</a>
-                </div>`;
-            }).join('');
-        })
-        .catch(() => {
-            container.innerHTML = '<span class="text-danger">Ошибка загрузки вложений</span>';
-        });
-}
-
-// ============ CLOSE TASK ============
-function closeTask(guid, guidDoc) {
-    const comment = document.getElementById('closeComment').value.trim();
-    const allTasks = [...tasksMy, ...tasksFree, ...tasksClosed];
-    const task = allTasks.find(t => t.guid === guid);
-    const hasExistingAttachments = task && task.hasAttachments;
-
-    if (!comment && pendingAttachments.length === 0 && !hasExistingAttachments) {
-        alert('Добавьте комментарий или вложение');
-        return;
-    }
-
-    const btn = document.querySelector('#taskDetailFooter .btn-success');
-    const origHtml = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Закрытие...';
-
-    const doClose = (lat, lng) => {
-        fetch('/api/tasks/close', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                guid, guidDoc, comment,
-                latitude: lat, longitude: lng,
-                attachments: pendingAttachments,
-            })
-        }).then(checkAuth).then(r => r.json()).then(data => {
-            btn.disabled = false;
-            btn.innerHTML = origHtml;
-            if (data.success) {
-                if (lat || lng) {
-                    taskLocations[guid] = { lat, lng, ts: Date.now() };
-                    lsSet('taskLocations', JSON.stringify(taskLocations));
-                }
-                alert('Заявка закрыта! После проверки менеджером статус будет обновлён.');
-                pendingAttachments = [];
-                bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
-                loadTasks();
-            } else {
-                const msg = data.error || data.detail?._error || data.detail?._raw || 'Ошибка при закрытии заявки';
-                alert('Ошибка: ' + msg);
-            }
-        }).catch(() => {
-            btn.disabled = false;
-            btn.innerHTML = origHtml;
-            alert('Ошибка сети');
-        });
-    };
-
-    if (!navigator.geolocation) { doClose(0, 0); return; }
-    navigator.geolocation.getCurrentPosition(
-        pos => doClose(pos.coords.latitude, pos.coords.longitude),
-        () => doClose(0, 0),
-        { timeout: 5000 }
-    );
-}
-
-// ============ TAKE TASK ============
-function takeTask(guid) {
-    const allTasks = [...tasksMy, ...tasksFree, ...tasksClosed];
-    const task = allTasks.find(t => t.guid === guid);
-    if (!task) return;
-
-    document.getElementById('confirmTakeName').textContent = task.name || '—';
-    document.getElementById('confirmTakeNumber').textContent = '#' + (cleanNumber(task.number) || task.guid.slice(0,8));
-    document.getElementById('confirmTakeDeadline').textContent = 'Срок: ' + formatDate(task.period);
-    document.getElementById('confirmTakePriority').textContent = 'Приоритет: ' + (task.priority ?? '—');
-
-    const modal = new bootstrap.Modal(document.getElementById('confirmTakeModal'));
-    const btn = document.getElementById('confirmTakeBtn');
-    const newBtn = btn.cloneNode(true);
-    btn.parentNode.replaceChild(newBtn, btn);
-
-    newBtn.addEventListener('click', () => {
-        modal.hide();
-        fetch('/api/tasks/take', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({guid})
-        }).then(checkAuth).then(r => r.json()).then(data => {
-            if (data.status === 'Выполнить' || data.status === 'OK') {
-                loadTasks();
-            } else {
-                alert(data.error || 'Не удалось взять заявку');
-            }
-        }).catch(() => alert('Ошибка сети'));
-    });
-    modal.show();
-}
-
-// ============ MULTI-SELECT ============
-function toggleSelect(guid) {
-    if (selectedGuids.has(guid)) selectedGuids.delete(guid);
-    else selectedGuids.add(guid);
-    document.getElementById('bulkActions').classList.toggle('d-none', selectedGuids.size === 0);
-    document.getElementById('bulkCount').textContent = `Выбрано: ${selectedGuids.size}`;
-    filterTasks();
-}
-
-function cancelMultiSelect() {
-    multiSelectMode = false;
-    selectedGuids.clear();
-    document.getElementById('bulkActions').classList.add('d-none');
-    filterTasks();
-}
-
-function bulkTakeTasks() {
-    if (selectedGuids.size === 0) return;
-    if (!confirm(`Взять ${selectedGuids.size} заявок?`)) return;
-
-    const promises = [];
-    selectedGuids.forEach(guid => {
-        promises.push(
-            fetch('/api/tasks/take', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({guid})
-            }).then(checkAuth).then(r => r.json())
-        );
-    });
-
-    Promise.allSettled(promises).then(results => {
-        const ok = results.filter(r =>
-            r.status === 'fulfilled' &&
-            (r.value.status === 'Выполнить' || r.value.status === 'OK')
-        ).length;
-        alert(`Взято: ${ok} из ${selectedGuids.size}`);
-        cancelMultiSelect();
-        loadTasks();
-    });
-}
-
 // ============ WAREHOUSE ============
 function loadStorages() {
     fetch('/api/warehouse/storages')
@@ -699,6 +267,8 @@ function loadBalances() {
         .then(data => {
             allBalances = data;
             filterBalances();
+            loadNotifications(guid);
+            loadAnnouncements();
         });
 }
 
@@ -715,7 +285,9 @@ function filterBalances() {
         filtered = filtered.filter(b =>
             (b.product_name || '').toLowerCase().includes(query) ||
             (b.series_name || '').toLowerCase().includes(query) ||
-            (b.inventory_number || '').toLowerCase().includes(query)
+            (b.inventory_number || '').toLowerCase().includes(query) ||
+            (b.date_arrival || '').toLowerCase().includes(query) ||
+            (b.date_writeoff || '').toLowerCase().includes(query)
         );
     }
 
@@ -732,6 +304,8 @@ function filterBalances() {
                 <div class="fw-semibold text-truncate">${b.product_name || '—'}</div>
                 <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.series_name ? 'Сер.: ' + b.series_name : ''}</div>
                 <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.inventory_number ? 'Инв.: ' + b.inventory_number : ''}</div>
+                <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.date_arrival ? 'Поступл.: ' + b.date_arrival : ''}</div>
+                <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.date_writeoff === null ? 'В наличии' : b.date_writeoff ? 'Списание: ' + b.date_writeoff : ''}</div>
             </div>
             <div class="fw-bold fs-5 text-end flex-shrink-0 align-self-center">${b.balance ?? 0}</div>
         </div>
@@ -739,11 +313,13 @@ function filterBalances() {
 
     // Desktop: table
     const desktopHtml = `<div class="table-responsive"><table class="table table-hover balance-table">
-        <thead><tr><th>Товар</th><th>Серия</th><th>Инв. номер</th><th class="text-end">Остаток</th></tr></thead>
+        <thead><tr><th>Товар</th><th>Серия</th><th>Инв. номер</th><th>Поступление</th><th>Списание</th><th class="text-end">Остаток</th></tr></thead>
         <tbody>${filtered.map(b => `<tr>
             <td>${b.product_name || '—'}</td>
             <td>${b.series_name || '—'}</td>
             <td>${b.inventory_number || '—'}</td>
+            <td style="font-size:0.75rem">${b.date_arrival || '—'}</td>
+            <td style="font-size:0.75rem">${b.date_writeoff ?? 'В наличии'}</td>
             <td class="text-end fw-bold">${b.balance ?? 0}</td>
         </tr>`).join('')}</tbody>
     </table></div>`;
@@ -757,6 +333,67 @@ function filterBalanceType(type) {
         document.getElementById('bf-'+t)?.classList.toggle('active', t === type);
     });
     filterBalances();
+}
+
+function exportWarehousePdf() {
+    const sel = document.getElementById('storageSelect');
+    if (!sel.value) { alert('Выберите склад'); return; }
+    const storageName = sel.options[sel.selectedIndex].text;
+
+    let balances = allBalances;
+    if (currentBalanceFilter === 'equipment') balances = balances.filter(b => b.series_name);
+    else if (currentBalanceFilter === 'zip') balances = balances.filter(b => !b.series_name);
+
+    const query = document.getElementById('balanceSearch').value.toLowerCase().trim();
+    if (query) {
+        balances = balances.filter(b =>
+            (b.product_name || '').toLowerCase().includes(query) ||
+            (b.series_name || '').toLowerCase().includes(query) ||
+            (b.inventory_number || '').toLowerCase().includes(query) ||
+            (b.date_arrival || '').toLowerCase().includes(query) ||
+            (b.date_writeoff || '').toLowerCase().includes(query)
+        );
+    }
+
+    const btn = document.querySelector('[onclick="exportWarehousePdf()"]');
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    const date = new Date().toLocaleDateString('ru-RU');
+    fetch('/api/warehouse/export-pdf', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            storage_name: storageName,
+            date,
+            balances: balances.map(b => ({
+                name: b.product_name || '',
+                series: b.series_name || '',
+                inv: b.inventory_number || '',
+                balance: b.balance ?? 0,
+                date_arrival: b.date_arrival || null,
+                date_writeoff: b.date_writeoff ?? null
+            }))
+        })
+    }).then(r => {
+        if (!r.ok) throw new Error('Ошибка сервера');
+        return r.blob();
+    }).then(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${storageName.replace(/[^a-zA-Zа-яА-Я0-9\s]/g, '_')}_${date.replace(/\./g, '')}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }).catch(err => {
+        alert('Ошибка экспорта: ' + err.message);
+    }).finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+    });
 }
 
 // ============ SALARY ============
@@ -777,21 +414,24 @@ function loadSalary() {
             const items = data.Data || data.data || [];
             const total = data.total_amount != null ? data.total_amount : (data.totalAmount || 0);
             const container = document.getElementById('salaryList');
-            document.getElementById('salaryTotal').textContent = total > 0 ? `Итого: ${total.toLocaleString('ru')} руб.` : '';
 
             if (items.length === 0) {
                 container.innerHTML = '<div class="empty-state"><i class="bi bi-cash-stack"></i><p>Нет данных за этот месяц</p></div>';
                 return;
             }
-            container.innerHTML = `<div class="table-responsive"><table class="table table-hover">
-                <tbody>${items.map((item, i) => {
-                    const val = item.value || 0;
-                    const bg = i % 2 === 0 ? '' : 'bg-light';
-                    return `<tr class="${bg}"><td>${item.title || '—'}</td><td class="text-end fw-semibold">${val.toLocaleString('ru')} руб.</td></tr>`;
-                }).join('')}
-                <tr class="salary-total"><td><strong>Итого</strong></td><td class="text-end"><strong>${total.toLocaleString('ru')} руб.</strong></td></tr>
-                </tbody>
-            </table></div>`;
+
+            container.innerHTML = `<div class="salary-cards">${items.map(item => {
+                const val = Math.round(item.value || 0);
+                const icon = val > 0 ? 'bi-arrow-up-circle text-success' : 'bi-dash-circle text-muted';
+                return `<div class="salary-card">
+                    <div class="salary-card-icon"><i class="bi ${icon}"></i></div>
+                    <div class="salary-card-body">
+                        <div class="salary-card-title">${item.title || '—'}</div>
+                        <div class="salary-card-value ${val > 0 ? 'text-success' : 'text-muted'}">${val.toLocaleString('ru')} <span class="salary-currency">₽</span></div>
+                    </div>
+                </div>`;
+            }).join('')}</div>
+            <div class="salary-total-bar"><span>Итого</span><span class="salary-total-amount">${Math.round(total).toLocaleString('ru')} ₽</span></div>`;
         }).catch(() => {
             document.getElementById('salaryList').innerHTML = '<div class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Ошибка загрузки</p></div>';
         });
@@ -800,174 +440,6 @@ function loadSalary() {
 function changeMonth(delta) {
     currentDate.setMonth(currentDate.getMonth() + delta);
     loadSalary();
-}
-
-// ============ PPR ============
-function loadPprDepartments() {
-    const year = document.getElementById('pprYear').value || new Date().getFullYear();
-    const quarter = document.getElementById('pprQuarter').value;
-    fetch(`/api/ppr/departments?year=${year}&quarter=${quarter}`)
-        .then(checkAuth).then(r => r.json())
-        .then(data => {
-            const sel = document.getElementById('pprDepartment');
-            sel.innerHTML = '<option value="">Все отделы</option>' +
-                (data.departments || []).map(d => `<option>${d}</option>`).join('');
-        });
-}
-
-function loadPpr() {
-    const year = document.getElementById('pprYear').value || new Date().getFullYear();
-    const quarter = document.getElementById('pprQuarter').value;
-    const department = document.getElementById('pprDepartment').value;
-
-    fetch(`/api/ppr/list?year=${year}&quarter=${quarter}&department=${encodeURIComponent(department)}`)
-        .then(checkAuth).then(r => r.json())
-        .then(data => {
-            const tasks = data.tasks || [];
-            const container = document.getElementById('pprList');
-            if (tasks.length === 0) {
-                container.innerHTML = '<div class="empty-state"><i class="bi bi-kanban"></i><p>Нет задач ППР</p></div>';
-                return;
-            }
-            // Mobile: cards
-            const mobileHtml = tasks.map(t => `
-                <div class="ppr-card d-flex align-items-center py-2 px-2 border-bottom gap-2">
-                    <div class="flex-grow-1 min-w-0">
-                        <div class="fw-semibold text-truncate">#${t.number || t.guid?.slice(0,8)} ${t.name || ''}</div>
-                        <div class="small text-muted">${t.name_department || '—'} · <span class="badge bg-info">${t.status || ''}</span> · ${formatDate(t.date)}</div>
-                    </div>
-                    <div class="flex-shrink-0 d-flex gap-1">
-                        <button class="btn btn-outline-secondary btn-sm" onclick="openPprDetail('${t.guid}')" title="Подробнее"><i class="bi bi-info-circle"></i></button>
-                        ${t.status !== 'Closed' ? `<button class="btn btn-success btn-sm" onclick="openPprClose('${t.guid}')" title="Закрыть"><i class="bi bi-check-lg"></i></button>` : ''}
-                    </div>
-                </div>
-            `).join('');
-
-            // Desktop: table
-            const desktopHtml = `<div class="table-responsive"><table class="table table-hover">
-                <thead><tr><th>Номер</th><th>Название</th><th>Отдел</th><th>Статус</th><th>Дата</th><th></th></tr></thead>
-                <tbody>${tasks.map(t => `<tr>
-                    <td><strong>#${t.number || t.guid?.slice(0,8)}</strong></td>
-                    <td>${t.name || ''}</td>
-                    <td>${t.name_department || '—'}</td>
-                    <td><span class="badge bg-info">${t.status || ''}</span></td>
-                    <td>${formatDate(t.date)}</td>
-                    <td class="text-end">
-                        <button class="btn btn-outline-secondary btn-sm me-1" onclick="openPprDetail('${t.guid}')" title="Подробнее"><i class="bi bi-info-circle"></i></button>
-                        ${t.status !== 'Closed' ? `<button class="btn btn-success btn-sm" onclick="openPprClose('${t.guid}')" title="Закрыть"><i class="bi bi-check-lg"></i></button>` : ''}
-                    </td>
-                </tr>`).join('')}</tbody>
-            </table></div>`;
-
-            container.innerHTML = `<div class="d-md-none">${mobileHtml}</div><div class="d-none d-md-block">${desktopHtml}</div>`;
-        });
-}
-
-function openPprDetail(guid) {
-    const year = document.getElementById('pprYear').value;
-    const quarter = document.getElementById('pprQuarter').value;
-    fetch(`/api/ppr/list?year=${year}&quarter=${quarter}`)
-        .then(checkAuth).then(r => r.json())
-        .then(data => {
-            const task = (data.tasks || []).find(t => t.guid === guid);
-            if (!task) return;
-            const modal = new bootstrap.Modal(document.getElementById('pprDetailModal'));
-            document.getElementById('pprDetailTitle').innerHTML = `<i class="bi bi-kanban me-2"></i>ППР #${task.number || task.guid.slice(0,8)}`;
-            document.getElementById('pprDetailBody').innerHTML = `
-                <div class="row g-3">
-                    <div class="col-md-6"><div class="p-3 bg-light rounded-3"><small class="text-muted d-block mb-1">Название</small><p class="mb-0 fw-semibold">${task.name || '—'}</p></div></div>
-                    <div class="col-md-6"><div class="p-3 bg-light rounded-3"><small class="text-muted d-block mb-1">Отдел</small><p class="mb-0">${task.name_department || '—'}</p></div></div>
-                    <div class="col-12"><div class="p-3 bg-light rounded-3"><small class="text-muted d-block mb-1">Описание</small><p class="mb-0 task-description">${task.description || '—'}</p></div></div>
-                    <div class="col-md-4"><small class="text-muted d-block">Статус</small><span class="fw-semibold">${task.status || '—'}</span></div>
-                    <div class="col-md-4"><small class="text-muted d-block">Дата</small><span class="fw-semibold">${formatDate(task.date)}</span></div>
-                    <div class="col-md-4"><small class="text-muted d-block">Комментарий</small><span class="fw-semibold">${task.closeComment || '—'}</span></div>
-                </div>`;
-            document.getElementById('pprDetailFooter').innerHTML = `<button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
-            modal.show();
-        });
-}
-
-function pprAttachFile(type) {
-    const input = document.createElement('input');
-    input.type = 'file';
-    if (type === 'pdf') input.accept = '.pdf';
-    input.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const base64 = await fileToBase64(file);
-        pprPendingAttachments.push({
-            data: base64.split(',')[1],
-            extension: file.name.split('.').pop()
-        });
-        document.getElementById('pprAttachmentsList').innerHTML = pprPendingAttachments.map(a =>
-            `<span class="badge bg-light text-dark me-1">📎 .${a.extension} (${(a.data.length * 0.75 / 1024).toFixed(0)} KB)</span>`
-        ).join('');
-    };
-    input.click();
-}
-
-function openPprClose(guid) {
-    pprPendingAttachments = [];
-    const modal = new bootstrap.Modal(document.getElementById('pprDetailModal'));
-    document.getElementById('pprDetailTitle').innerHTML = '<i class="bi bi-check-circle me-2"></i>Закрыть задачу ППР';
-    document.getElementById('pprDetailBody').innerHTML = `
-        <div class="mb-3">
-            <label class="form-label fw-semibold">Комментарий</label>
-            <textarea class="form-control" id="pprCloseComment" rows="3" placeholder="Введите комментарий..."></textarea>
-        </div>
-        <div class="mb-2">
-            <label class="form-label fw-semibold">Вложения</label>
-            <div class="d-flex gap-2">
-                <button class="btn btn-outline-secondary btn-sm" onclick="pprAttachFile('pdf')"><i class="bi bi-filetype-pdf me-1"></i>PDF</button>
-                <button class="btn btn-outline-secondary btn-sm" onclick="pprAttachFile('any')"><i class="bi bi-paperclip me-1"></i>Файл</button>
-            </div>
-            <div id="pprAttachmentsList" class="mt-2"></div>
-        </div>`;
-    document.getElementById('pprDetailFooter').innerHTML = `
-        <button class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-        <button class="btn btn-success" onclick="doPprClose('${guid}')"><i class="bi bi-check-lg me-1"></i>Закрыть</button>`;
-    modal.show();
-}
-
-function doPprClose(guid) {
-    const comment = document.getElementById('pprCloseComment')?.value.trim() || '';
-    if (!comment && pprPendingAttachments.length === 0) {
-        alert('Добавьте комментарий или вложение');
-        return;
-    }
-
-    const btn = document.querySelector('#pprDetailFooter .btn-success');
-    const origHtml = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Закрытие...';
-
-    const doRequest = (lat, lng) => {
-        fetch('/api/ppr/close', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({guid, comment, latitude: lat, longitude: lng, attachments: pprPendingAttachments})
-        }).then(checkAuth).then(r => r.json()).then(data => {
-            btn.disabled = false;
-            btn.innerHTML = origHtml;
-            if (data.success) {
-                pprPendingAttachments = [];
-                bootstrap.Modal.getInstance(document.getElementById('pprDetailModal'))?.hide();
-                loadPpr();
-            } else {
-                alert('Ошибка при закрытии задачи ППР');
-            }
-        }).catch(() => {
-            btn.disabled = false;
-            btn.innerHTML = origHtml;
-            alert('Ошибка сети');
-        });
-    };
-    if (!navigator.geolocation) { doRequest(0, 0); return; }
-    navigator.geolocation.getCurrentPosition(
-        pos => doRequest(pos.coords.latitude, pos.coords.longitude),
-        () => doRequest(0, 0),
-        { timeout: 5000 }
-    );
 }
 
 // ============ CLIENT DIRECTORY ============
@@ -987,21 +459,17 @@ function runStartup() {
         ov.style.display = 'none';
         return;
     }
-    const items = ov.querySelectorAll('.startup-item');
-    const times = [1200, 1800, 2400, 3000];
-    times.forEach((t, i) => {
-        setTimeout(() => items[i]?.classList.add('done'), t);
-    });
     setTimeout(() => {
         ov.classList.add('hide');
         sessionStorage.setItem('startupDone', '1');
-        setTimeout(() => ov.style.display = 'none', 600);
-    }, 4000);
+        setTimeout(() => ov.style.display = 'none', 400);
+    }, 800);
 }
 
 // ============ INIT ============
 document.addEventListener('DOMContentLoaded', () => {
     runStartup();
+    initPushNotifications();
     // Restore sort
     const savedSort = lsGet('taskSort', '');
     if (savedSort) document.getElementById('taskSort').value = savedSort;
@@ -1019,8 +487,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     loadClients();
+    loadProfile();
     loadTasks('', ['my', 'free']);
-    loadPprDepartments();
+    initUploadTab();
 
     setInterval(() => loadTasks('', ['my', 'free']), 60000);
 
@@ -1031,6 +500,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!multiSelectMode) cancelMultiSelect();
         else { selectedGuids.clear(); filterTasks(); }
     });
+
+    // Load notifications + announcements (tasks tab is active by default, so call directly too)
+    const currentStorage = () => document.getElementById('storageSelect')?.value || '';
+    loadNotifications(currentStorage(), true);
+    loadAnnouncements();
+    document.getElementById('tasks-tab')?.addEventListener('shown.bs.tab', () => {
+        loadNotifications(currentStorage(), true);
+        loadAnnouncements();
+    });
+
+    // Auto-check tasks every 10 minutes
+    setInterval(() => loadNotifications(currentStorage(), true), 600000);
 
     // Load storages + balances when warehouse tab is first shown
     document.getElementById('warehouse-tab')?.addEventListener('shown.bs.tab', () => {
@@ -1043,6 +524,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const list = document.getElementById('salaryList');
         if (!list || list.children.length) return;
         loadSalary();
+    });
+
+    // Load PPR when reports tab is first shown
+    document.getElementById('reports-tab')?.addEventListener('shown.bs.tab', () => {
+        const list = document.getElementById('pprList');
+        if (!list || list.children.length) return;
+        loadPprDepartments();
+        loadPpr();
     });
 
     // Load closed tasks when closed pill is first activated
@@ -1059,8 +548,13 @@ document.addEventListener('DOMContentLoaded', () => {
             footer.querySelectorAll('button').forEach(b => b.disabled = false);
         }
     });
-});
 
+    // Scroll-to-top button
+    window.addEventListener('scroll', () => {
+        const btn = document.getElementById('scrollTopBtn');
+        if (btn) btn.classList.toggle('show', window.scrollY > 400);
+    });
+});
 function getFilenameFromHeaders(headers, fallback) {
     const cd = headers.get('Content-Disposition');
     if (cd) {
@@ -1342,4 +836,142 @@ function generateDocForm() {
         errDiv.querySelector('span').textContent = e.message;
         body.prepend(errDiv);
     });
+}
+
+// ============ NOTIFICATIONS ============
+
+function esc(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function timeAgo(iso) {
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'только что';
+    if (mins < 60) return `${mins} мин назад`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours} ч назад`;
+    const days = Math.floor(hours / 24);
+    if (days === 1) return 'вчера';
+    return `${days} д назад`;
+}
+
+function loadNotifications(storageGuid, checkTasks) {
+    const container = document.getElementById('notificationsList');
+    if (!container) return;
+
+    const params = [];
+    if (storageGuid) params.push('storage=' + encodeURIComponent(storageGuid));
+    if (checkTasks) params.push('check_tasks=1');
+    const url = '/api/notifications' + (params.length ? '?' + params.join('&') : '');
+    fetch(url)
+        .then(checkAuth).then(r => r.json())
+        .then(list => {
+            if (!list || !list.length) {
+                container.innerHTML = '<div class="text-muted small">Нет уведомлений</div>';
+                return;
+            }
+            container.innerHTML = list.map(n => {
+                const typeClass = n.type === 'warehouse_arrival' ? 'type-arrival'
+                    : n.type === 'warehouse_writeoff' ? 'type-writeoff'
+                    : n.type === 'task_deadline' ? 'type-deadline'
+                    : n.type === 'new_task' ? 'type-new-task'
+                    : 'type-default';
+                return `
+                <div class="notification-card mb-1 ${typeClass}">
+                    <div class="notif-title">${esc(n.title)}</div>
+                    <div class="notif-description">${esc(n.description).replace(/\n/g, '<br>')}</div>
+                    <div class="notif-time">${timeAgo(n.created_at)}</div>
+                    <button class="btn-close notif-close" onclick="dismissNotification(${n.id})"></button>
+                </div>`;
+            }).join('');
+        })
+        .catch(() => {
+            container.innerHTML = '<div class="text-muted small">Ошибка загрузки</div>';
+        });
+}
+
+function dismissNotification(id) {
+    const storage = document.getElementById('storageSelect')?.value || '';
+    fetch(`/api/notifications/${id}/dismiss`, {method: 'POST'})
+        .then(checkAuth)
+        .then(() => loadNotifications(storage))
+        .catch(() => {});
+}
+
+// ============ ANNOUNCEMENTS ============
+
+function loadAnnouncements() {
+    const container = document.getElementById('announcementsList');
+    if (!container) return;
+
+    fetch('/api/announcements')
+        .then(checkAuth).then(r => r.json())
+        .then(list => {
+            if (!list || !list.length) {
+                container.innerHTML = '<div class="text-muted small">Нет объявлений</div>';
+                return;
+            }
+            container.innerHTML = list.map(a => `
+                <div class="announcement-card mb-1">
+                    <div class="ann-title">${esc(a.title)}</div>
+                    <div class="ann-content">${esc(a.content)}</div>
+                    <div class="ann-time">${timeAgo(a.created_at)}</div>
+                </div>
+            `).join('');
+        })
+        .catch(() => {
+            container.innerHTML = '<div class="text-muted small">Ошибка загрузки</div>';
+        });
+}
+
+// ============ ANNOUNCEMENTS TOGGLE ============
+
+function toggleAnnouncements() {
+    const list = document.getElementById('announcementsList');
+    const icon = document.getElementById('annToggleIcon');
+    if (!list || !icon) return;
+    const collapsed = list.classList.toggle('announcements-collapsed');
+    icon.className = 'bi bi-chevron-' + (collapsed ? 'up' : 'down');
+}
+
+// ============ WEB PUSH ============
+
+function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64);
+    const uint8Array = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+        uint8Array[i] = rawData.charCodeAt(i);
+    }
+    return uint8Array;
+}
+
+async function initPushNotifications() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    try {
+        const reg = await navigator.serviceWorker.register('/sw.js');
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') return;
+        const resp = await fetch('/api/push/vapid-public-key');
+        const { publicKey } = await resp.json();
+        if (!publicKey) return;
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+            sub = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(publicKey),
+            });
+        }
+        await fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sub.toJSON()),
+        });
+    } catch (e) {
+        console.warn('Push init failed', e);
+    }
 }

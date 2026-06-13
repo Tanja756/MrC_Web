@@ -11,10 +11,18 @@ from datetime import datetime, timedelta
 from functools import wraps
 from dotenv import load_dotenv
 from flask import (Flask, render_template, request, redirect,
-                   url_for, session, jsonify, flash, send_file)
+                   url_for, session, jsonify, flash, send_file, Response)
 
 from config import config
 from api_client import OneSApiClient
+from db import (
+    create_notification, get_active_notifications, dismiss_notification,
+    get_snapshot, save_snapshot, get_snapshot_updated_at,
+    get_announcements,
+    get_task_snapshot, save_task_snapshot, notification_exists,
+    save_subscription, get_subscriptions, delete_subscription,
+    delete_user_subscriptions,
+)
 
 load_dotenv()
 
@@ -30,6 +38,10 @@ SERVER_HOST = os.environ.get('SERVER_HOST', '127.0.0.1')
 SERVER_PORT = os.environ.get('SERVER_PORT', '5000')
 SERVER_DB = os.environ.get('SERVER_DB', 'my_db')
 
+VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
+VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
+VAPID_CLAIM_EMAIL = os.environ.get('VAPID_CLAIM_EMAIL', 'admin@example.com')
+
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 
@@ -39,17 +51,18 @@ def inject_now():
 
 
 def get_api_client():
+    if not session.get('authenticated'):
+        return None
     host = session.get('server_host', SERVER_HOST)
     port = session.get('server_port', SERVER_PORT)
     db_name = session.get('db_name', SERVER_DB)
-    if 'authenticated' not in session:
+    username = session.get('username')
+    password = session.get('password')
+    if not username or not password:
         return None
     return OneSApiClient(
-        host=host,
-        port=port,
-        db_name=db_name,
-        username=session['username'],
-        password=session['password'],
+        host=host, port=port, db_name=db_name,
+        username=username, password=password,
     )
 
 
@@ -130,6 +143,9 @@ def login():
 
 @app.route('/logout')
 def logout():
+    username = session.get('username', '')
+    if username:
+        delete_user_subscriptions(username)
     session.clear()
     return redirect(url_for('login'))
 
@@ -317,7 +333,55 @@ def api_balances():
     if not storage_guid or not client:
         return jsonify([])
     data = client.get_balances(storage_guid)
+    _check_balance_changes(session.get('username', ''), storage_guid, data)
     return jsonify(data)
+
+
+def _check_balance_changes(username, storage_guid, new_data):
+    if not username:
+        return
+    old = get_snapshot(username, storage_guid)
+    if old is None:
+        save_snapshot(username, storage_guid, new_data)
+        return
+
+    def key(item):
+        return f"{item.get('product_name','')}|{item.get('series_name','') or ''}|{item.get('inventory_number','') or ''}"
+
+    old_map = {key(item): item for item in old}
+    new_map = {key(item): item for item in new_data}
+
+    added = []
+    removed = []
+
+    for k, item in new_map.items():
+        old_item = old_map.get(k)
+        if not old_item:
+            added.append((item.get('balance', 0), item.get('product_name', '?')))
+        else:
+            diff = (item.get('balance', 0) or 0) - (old_item.get('balance', 0) or 0)
+            if diff > 0:
+                added.append((diff, item.get('product_name', '?')))
+            elif diff < 0:
+                removed.append((-diff, item.get('product_name', '?')))
+
+    for k, item in old_map.items():
+        if k not in new_map:
+            removed.append((item.get('balance', 0) or 0, item.get('product_name', '?')))
+
+    if added:
+        lines = '\n'.join(f'+ {diff} шт\t{name}' for diff, name in added)
+        create_notification(username, 'warehouse_arrival',
+            'Поступление на склад', lines, storage_guid)
+        send_push_notification(username, 'Поступление на склад', lines)
+
+    if removed:
+        lines = '\n'.join(f'- {diff} шт\t{name}' for diff, name in removed)
+        create_notification(username, 'warehouse_writeoff',
+            'Списание со склада', lines, storage_guid)
+        send_push_notification(username, 'Списание со склада', lines)
+
+    save_snapshot(username, storage_guid, new_data)
 
 
 @app.route('/api/warehouse/movements')
@@ -458,6 +522,229 @@ def api_warehouse_export_pdf():
             except Exception:
                 pass
         return jsonify({'error': str(e)}), 500
+
+
+# --- NOTIFICATIONS ---
+
+@app.route('/api/notifications')
+@api_login_required
+def api_notifications():
+    username = session.get('username', '')
+    if not username:
+        return jsonify([])
+
+    # Refresh balance check if storage provided and snapshot is older than 1 hour
+    storage_guid = request.args.get('storage')
+    if storage_guid:
+        try:
+            _refresh_balance_if_stale(username, storage_guid)
+        except Exception:
+            pass
+
+    # Check tasks (deadlines + new free) if requested, at most once per 10 min
+    if request.args.get('check_tasks'):
+        try:
+            _check_tasks(username)
+        except Exception:
+            pass
+
+    notifs = get_active_notifications(username)
+    if not notifs:
+        _copy_seed_notifications(username)
+        notifs = get_active_notifications(username)
+    return jsonify(notifs)
+
+
+def _refresh_balance_if_stale(username, storage_guid):
+    updated_at = get_snapshot_updated_at(username, storage_guid)
+    if updated_at:
+        try:
+            from datetime import datetime
+            dt = datetime.strptime(updated_at, '%Y-%m-%d %H:%M:%S')
+            if (datetime.now() - dt).total_seconds() < 3600:
+                return
+        except (ValueError, TypeError):
+            pass
+
+    client = get_api_client()
+    if not client:
+        return
+    data = client.get_balances(storage_guid)
+    if data is not None:
+        _check_balance_changes(username, storage_guid, data)
+
+
+def _check_tasks(username):
+    if not username:
+        return
+
+    old_data, updated_at = get_task_snapshot(username)
+    if updated_at:
+        try:
+            from datetime import datetime
+            dt = datetime.strptime(updated_at, '%Y-%m-%d %H:%M:%S')
+            if (datetime.now() - dt).total_seconds() < 600:
+                return
+        except (ValueError, TypeError):
+            pass
+
+    client = get_api_client()
+    if not client:
+        return
+
+    now = datetime.now()
+
+    # Fetch user's tasks (in progress)
+    user_data = client.get_tasks_user(limit=200)
+    user_tasks = _project_tasks(user_data.get('tasks', []))
+
+    # Fetch free tasks
+    free_data = client.get_tasks_unallocated(limit=200)
+    free_tasks = _project_tasks(free_data.get('tasks', []))
+
+    all_tasks = user_tasks + free_tasks
+
+    # Check deadlines for all tasks (in progress + free)
+    for task in all_tasks:
+        period_str = task.get('period') or task.get('date')
+        if not period_str:
+            continue
+
+        try:
+            m = re.match(r'(\d{2})\.(\d{2})\.(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})', period_str)
+            if m:
+                deadline = datetime(int(m[3]), int(m[2]), int(m[1]), int(m[4]), int(m[5]), int(m[6]))
+            else:
+                m2 = re.match(r'(\d{2})\.(\d{2})\.(\d{4})', period_str)
+                if m2:
+                    deadline = datetime(int(m2[3]), int(m2[2]), int(m2[1]), 23, 59, 59)
+                else:
+                    continue
+
+            diff = (deadline - now).total_seconds()
+            task_label = f'Заявка {task.get("number", "")} "{task.get("name", "")}"'
+
+            if diff < 0:
+                title = 'Срок заявки истёк'
+                desc = f'{task_label}\nСрок был: {period_str}'
+            elif diff < 7200:
+                title = 'Срок заявки истекает'
+                desc = f'{task_label}\nОсталось менее 2 часов'
+            else:
+                continue
+
+            if not notification_exists(username, 'task_deadline', desc, 60):
+                create_notification(username, 'task_deadline', title, desc)
+                send_push_notification(username, title,
+                    desc.replace('\n', ' — '))
+        except Exception:
+            continue
+
+    # Check for new free tasks
+    current_free_guids = {t.get('guid', '') for t in free_tasks if t.get('guid')}
+    old_free_guids = set(old_data) if old_data else set()
+    new_guids = current_free_guids - old_free_guids
+
+    for task in free_tasks:
+        if task.get('guid') in new_guids:
+            title = 'Новая свободная заявка'
+            desc = f'Заявка {task.get("number", "")} "{task.get("name", "")}"'
+            if not notification_exists(username, 'new_task', desc, 60):
+                create_notification(username, 'new_task', title, desc)
+                send_push_notification(username, title, desc)
+
+    save_task_snapshot(username, list(current_free_guids))
+
+
+def _copy_seed_notifications(username):
+    seeds = get_active_notifications('__seed__')
+    for s in seeds:
+        create_notification(username, s['type'], s['title'], s['description'], None)
+        send_push_notification(username, s['title'], s['description'])
+
+
+# --- PUSH NOTIFICATIONS ---
+
+def send_push_notification(username, title, body):
+    if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
+        return
+    subs = get_subscriptions(username)
+    if not subs:
+        return
+    from pywebpush import webpush
+    payload = json.dumps({'title': title, 'body': body})
+    for sub in subs:
+        try:
+            webpush(
+                subscription_info={
+                    'endpoint': sub['endpoint'],
+                    'keys': {'auth': sub['auth'], 'p256dh': sub['p256dh']},
+                },
+                data=payload,
+                vapid_private_key=VAPID_PRIVATE_KEY,
+                vapid_claims={'sub': f'mailto:{VAPID_CLAIM_EMAIL}'},
+            )
+        except Exception as e:
+            err_str = str(e)
+            if '410' in err_str or '404' in err_str:
+                delete_subscription(sub['endpoint'])
+            else:
+                logger.warning(f"push failed for {username}: {err_str[:120]}")
+
+
+@app.route('/sw.js')
+def service_worker():
+    return Response(
+        open('static/sw.js', 'rb').read(),
+        mimetype='application/javascript',
+    )
+
+
+@app.route('/api/push/vapid-public-key')
+@api_login_required
+def api_vapid_public_key():
+    return jsonify({'publicKey': VAPID_PUBLIC_KEY})
+
+
+@app.route('/api/push/subscribe', methods=['POST'])
+@api_login_required
+def api_push_subscribe():
+    username = session.get('username', '')
+    data = request.get_json(force=True)
+    endpoint = data.get('endpoint', '')
+    keys = data.get('keys', {})
+    auth = keys.get('auth', '')
+    p256dh = keys.get('p256dh', '')
+    if not endpoint or not auth or not p256dh:
+        return jsonify({'error': 'missing fields'}), 400
+    save_subscription(username, endpoint, auth, p256dh)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/push/unsubscribe', methods=['POST'])
+@api_login_required
+def api_push_unsubscribe():
+    data = request.get_json(force=True)
+    endpoint = data.get('endpoint', '')
+    if endpoint:
+        delete_subscription(endpoint)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/notifications/<int:notif_id>/dismiss', methods=['POST'])
+@api_login_required
+def api_notification_dismiss(notif_id):
+    username = session.get('username', '')
+    dismiss_notification(notif_id, username)
+    return jsonify({'ok': True})
+
+
+# --- ANNOUNCEMENTS ---
+
+@app.route('/api/announcements')
+@api_login_required
+def api_announcements():
+    return jsonify(get_announcements())
 
 
 # --- SALARY ---

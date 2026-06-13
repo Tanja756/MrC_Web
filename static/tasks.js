@@ -291,7 +291,6 @@ function showTaskDetail(task, mode, guid) {
                 <button class="btn btn-success" onclick="closeTask('${guid}','${task.guid_client || ''}')"><i class="bi bi-check-lg me-1"></i>Завершить заявку</button>`;
         } else if (mode === 'my') {
             footer = `
-                <button class="btn btn-outline-secondary" onclick="bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();openDocForm('${guid}')"><i class="bi bi-file-earmark-text me-1"></i>Документы</button>
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
         } else if (mode === 'free') {
             footer = `

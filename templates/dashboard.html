@@ -36,46 +36,70 @@
                 <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tasks-closed" id="closed-pill">Закрытые</button></li>
             </ul>
 
-            <div class="filter-bar">
-                <div class="filter-header" onclick="toggleFilter(this)">
-                    <i class="bi bi-funnel"></i> Фильтры <span class="badge bg-secondary ms-auto" id="taskCount">0</span>
-                    <button class="btn btn-sm btn-outline-secondary border-0 ms-1" onclick="event.stopPropagation();loadTasks()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
-                </div>
-                <div class="filter-body">
-                <div class="row g-2 align-items-center">
-                    <div class="col-md-5">
-                        <div class="input-group">
-                            <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
-                            <input type="text" class="form-control" id="taskSearch" placeholder="Поиск по номеру, названию, клиенту..." oninput="onTaskSearch()">
-                            <button class="btn btn-outline-secondary btn-reset-filter" onclick="document.getElementById('taskSearch').value='';clearTimeout(taskSearchTimeout);loadTasks()"><i class="bi bi-x-lg"></i></button>
+            <div class="row">
+                <div class="col-lg-9">
+                    <div class="filter-bar">
+                        <div class="filter-header" onclick="toggleFilter(this)">
+                            <i class="bi bi-funnel"></i> Фильтры <span class="badge bg-secondary ms-auto" id="taskCount">0</span>
+                            <button class="btn btn-sm btn-outline-secondary border-0 ms-1" onclick="event.stopPropagation();loadTasks()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
+                        </div>
+                        <div class="filter-body">
+                        <div class="row g-2 align-items-center">
+                            <div class="col-md-5">
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                                    <input type="text" class="form-control" id="taskSearch" placeholder="Поиск по номеру, названию, клиенту..." oninput="onTaskSearch()">
+                                    <button class="btn btn-outline-secondary btn-reset-filter" onclick="document.getElementById('taskSearch').value='';clearTimeout(taskSearchTimeout);loadTasks()"><i class="bi bi-x-lg"></i></button>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <select class="form-select" id="taskSort" onchange="filterTasks()">
+                                    <option value="date">По дате создания</option>
+                                    <option value="deadline">По сроку</option>
+                                    <option value="priority">По приоритету</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <button class="btn btn-outline-secondary btn-sm w-100" onclick="resetFilters()"><i class="bi bi-arrow-counterclockwise me-1"></i>Сброс</button>
+                            </div>
+                            <div class="col-md-2 text-end d-none d-md-block"></div>
+                        </div>
                         </div>
                     </div>
-                    <div class="col-md-3">
-                        <select class="form-select" id="taskSort" onchange="filterTasks()">
-                            <option value="date">По дате создания</option>
-                            <option value="deadline">По сроку</option>
-                            <option value="priority">По приоритету</option>
-                        </select>
-                    </div>
-                    <div class="col-md-2">
-                        <button class="btn btn-outline-secondary btn-sm w-100" onclick="resetFilters()"><i class="bi bi-arrow-counterclockwise me-1"></i>Сброс</button>
-                    </div>
-                    <div class="col-md-2 text-end d-none d-md-block"></div>
-                </div>
-                </div>
-            </div>
 
-            <div class="tab-content">
-                <div class="tab-pane fade show active" id="tasks-my"><div id="tasksMyList" class="task-list"></div></div>
-                <div class="tab-pane fade" id="tasks-free">
-                    <div id="tasksFreeList" class="task-list"></div>
-                    <div id="bulkActions" class="d-none">
-                        <span class="me-3 fw-semibold" id="bulkCount">0</span>
-                        <button class="btn btn-success btn-sm me-2" onclick="bulkTakeTasks()"><i class="bi bi-check-all me-1"></i>Взять выбранные</button>
-                        <button class="btn btn-outline-secondary btn-sm" onclick="cancelMultiSelect()">Отмена</button>
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="tasks-my"><div id="tasksMyList" class="task-list"></div></div>
+                        <div class="tab-pane fade" id="tasks-free">
+                            <div id="tasksFreeList" class="task-list"></div>
+                            <div id="bulkActions" class="d-none">
+                                <span class="me-3 fw-semibold" id="bulkCount">0</span>
+                                <button class="btn btn-success btn-sm me-2" onclick="bulkTakeTasks()"><i class="bi bi-check-all me-1"></i>Взять выбранные</button>
+                                <button class="btn btn-outline-secondary btn-sm" onclick="cancelMultiSelect()">Отмена</button>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="tasks-closed"><div id="tasksClosedList" class="task-list"></div></div>
                     </div>
                 </div>
-                <div class="tab-pane fade" id="tasks-closed"><div id="tasksClosedList" class="task-list"></div></div>
+
+                <div class="col-lg-3 d-none d-lg-block">
+                    <div class="right-sidebar">
+                        <div class="sidebar-scroll">
+                            <section>
+                                <div class="sidebar-section-title">Уведомления</div>
+                                <div id="notificationsList"><div class="text-muted small">Загрузка...</div></div>
+                            </section>
+                        </div>
+                        <div class="sidebar-announcements">
+                            <section>
+                                <div class="sidebar-section-title sidebar-ann-toggle" onclick="toggleAnnouncements()">
+                                    Объявления
+                                    <i class="bi bi-chevron-down ms-auto" id="annToggleIcon"></i>
+                                </div>
+                                <div id="announcementsList" class="announcements-list"><div class="text-muted small">Загрузка...</div></div>
+                            </section>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -98,10 +122,13 @@
                         </div>
                     </div>
                     <div class="col-md-5">
-                        <div class="btn-group w-100">
-                            <button class="btn btn-outline-secondary" onclick="filterBalanceType('all')" id="bf-all">Все</button>
-                            <button class="btn btn-outline-secondary" onclick="filterBalanceType('equipment')" id="bf-equipment">Оборудование</button>
-                            <button class="btn btn-outline-secondary" onclick="filterBalanceType('zip')" id="bf-zip">ЗИП</button>
+                        <div class="d-flex gap-1">
+                            <div class="btn-group flex-grow-1">
+                                <button class="btn btn-outline-secondary" onclick="filterBalanceType('all')" id="bf-all">Все</button>
+                                <button class="btn btn-outline-secondary" onclick="filterBalanceType('equipment')" id="bf-equipment">Оборудование</button>
+                                <button class="btn btn-outline-secondary" onclick="filterBalanceType('zip')" id="bf-zip">ЗИП</button>
+                            </div>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="exportWarehousePdf()" title="Экспорт PDF"><i class="bi bi-filetype-pdf"></i></button>
                         </div>
                     </div>
                 </div>
@@ -435,7 +462,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='dashboard.js') }}?v=9"></script>
+<script src="{{ url_for('static', filename='dashboard.js') }}?v=20"></script>
 <script src="{{ url_for('static', filename='tasks.js') }}?v=2"></script>
 <script src="{{ url_for('static', filename='ppr.js') }}?v=2"></script>
 {% endblock %}
