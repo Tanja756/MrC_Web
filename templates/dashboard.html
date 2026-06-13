@@ -1,31 +1,16 @@
 {% extends "base.html" %}
 {% block content %}
 <div id="startupOverlay">
-    <div class="startup-core"></div>
-    <div class="startup-ring"></div>
-    <div class="startup-ring startup-ring-outer"></div>
-    <div class="startup-scanline"></div>
-    <div class="startup-text">
-        <div class="startup-logo">Mr.Check</div>
-        <div class="startup-sub">ИНИЦИАЛИЗАЦИЯ СИСТЕМЫ</div>
-        <div class="startup-status">
-            <div class="startup-bar"><div class="startup-bar-fill"></div></div>
-            <div class="startup-label">ЗАГРУЗКА МОДУЛЕЙ...</div>
-        </div>
-        <div class="startup-items">
-            <div class="startup-item"><span class="startup-dot"></span>КАЛИБРОВКА HUD</div>
-            <div class="startup-item"><span class="startup-dot"></span>ПОДКЛЮЧЕНИЕ К БД</div>
-            <div class="startup-item"><span class="startup-dot"></span>ДВИЖОК ЗАДАЧ</div>
-            <div class="startup-item"><span class="startup-dot"></span>НАВИГАЦИЯ</div>
-        </div>
-    </div>
+    <div class="startup-spinner"></div>
+    <div class="startup-logo">Mr.Check</div>
+    <div class="startup-sub">Загрузка...</div>
 </div>
 <nav class="navbar navbar-dark bg-dark sticky-top py-2" id="mainNavbar">
     <div class="container-fluid">
         <a class="navbar-brand fw-semibold" href="#"><i class="bi bi-box-seam me-2"></i>Mr.Check</a>
         <div class="d-flex align-items-center gap-2">
             <div class="profile-avatar" id="profileAvatar" onclick="openSettings()" title="Профиль"></div>
-            <span class="text-light me-2 small opacity-75 d-none d-md-inline"><i class="bi bi-person-circle me-1"></i>{{ session.username }}</span>
+            <span class="me-2 small opacity-75 d-none d-md-inline"><i class="bi bi-person-circle me-1"></i>{{ session.username }}</span>
             <button class="btn btn-outline-light btn-sm px-2" onclick="openSettings()" title="Настройки"><i class="bi bi-gear"></i></button>
             <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm px-3">Выйти</a>
         </div>
@@ -38,6 +23,7 @@
         <li class="nav-item"><button class="nav-link" id="warehouse-tab" data-bs-toggle="tab" data-bs-target="#warehouse" role="tab"><i class="bi bi-shop me-1"></i>Склад</button></li>
         <li class="nav-item"><button class="nav-link" id="salary-tab" data-bs-toggle="tab" data-bs-target="#salary" role="tab"><i class="bi bi-cash me-1"></i>Моя зарплата</button></li>
         <li class="nav-item"><button class="nav-link" id="reports-tab" data-bs-toggle="tab" data-bs-target="#reports" role="tab"><i class="bi bi-file-earmark-pdf me-1"></i>ППР</button></li>
+        <li class="nav-item d-none d-md-block"><button class="nav-link" id="upload-tab" data-bs-toggle="tab" data-bs-target="#upload" role="tab"><i class="bi bi-upload me-1"></i>Загрузка</button></li>
     </ul>
 
     <div class="tab-content mt-3" id="mainTabsContent">
@@ -53,6 +39,7 @@
             <div class="filter-bar">
                 <div class="filter-header" onclick="toggleFilter(this)">
                     <i class="bi bi-funnel"></i> Фильтры <span class="badge bg-secondary ms-auto" id="taskCount">0</span>
+                    <button class="btn btn-sm btn-outline-secondary border-0 ms-1" onclick="event.stopPropagation();loadTasks()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
                 </div>
                 <div class="filter-body">
                 <div class="row g-2 align-items-center">
@@ -126,20 +113,17 @@
         <!-- ========== SALARY TAB ========== -->
         <div class="tab-pane fade" id="salary" role="tabpanel">
             <div class="filter-bar">
-                <div class="filter-header d-md-none" onclick="toggleFilter(this)"><i class="bi bi-funnel"></i> Фильтры зарплаты</div>
+                <div class="filter-header d-md-none" onclick="toggleFilter(this)"><i class="bi bi-calendar3"></i> Выбор месяца</div>
                 <div class="filter-body">
-                <div class="row g-2 align-items-center">
-                    <div class="col-3 col-md-2 text-center text-md-end">
+                <div class="row g-2 align-items-center justify-content-center">
+                    <div class="col-auto">
                         <button class="btn btn-outline-secondary btn-sm" onclick="changeMonth(-1)"><i class="bi bi-chevron-left"></i></button>
                     </div>
-                    <div class="col-6 col-md-4 text-center">
+                    <div class="col-auto text-center">
                         <span class="fw-semibold salary-month" id="salaryMonth"></span>
                     </div>
-                    <div class="col-3 col-md-2 text-center text-md-start">
+                    <div class="col-auto">
                         <button class="btn btn-outline-secondary btn-sm" onclick="changeMonth(1)"><i class="bi bi-chevron-right"></i></button>
-                    </div>
-                    <div class="col-12 col-md-4 text-center text-md-end mt-1 mt-md-0">
-                        <span class="text-muted small" id="salaryTotal"></span>
                     </div>
                 </div>
                 </div>
@@ -160,25 +144,91 @@
                                 <input type="number" class="form-control" id="pprYear" value="{{ now().year }}" placeholder="Год">
                             </div>
                             <div class="col-md-3">
-                                <select class="form-select" id="pprQuarter">
-                                    <option value="1">1 квартал</option>
-                                    <option value="2">2 квартал</option>
-                                    <option value="3">3 квартал</option>
-                                    <option value="4">4 квартал</option>
+                                <select class="form-select" id="pprQuarter" onchange="loadPprDepartments(); loadPpr()">
+                                    <option value="1" {% if (now().month - 1) // 3 + 1 == 1 %}selected{% endif %}>1 квартал</option>
+                                    <option value="2" {% if (now().month - 1) // 3 + 1 == 2 %}selected{% endif %}>2 квартал</option>
+                                    <option value="3" {% if (now().month - 1) // 3 + 1 == 3 %}selected{% endif %}>3 квартал</option>
+                                    <option value="4" {% if (now().month - 1) // 3 + 1 == 4 %}selected{% endif %}>4 квартал</option>
                                 </select>
                             </div>
                             <div class="col-md-3">
-                                <select class="form-select" id="pprDepartment">
-                                    <option value="">Все отделы</option>
+                                <select class="form-select" id="pprDepartment" onchange="savePprDepartment(); loadPpr()">
+                                    <option value="">Все регионы</option>
                                 </select>
                             </div>
                             <div class="col-md-3">
-                                <button class="btn btn-primary w-100" onclick="loadPpr()"><i class="bi bi-search me-1"></i>Загрузить</button>
+                                <button class="btn btn-primary w-100" onclick="loadPpr()"><i class="bi bi-search me-1"></i>Поиск</button>
                             </div>
                         </div>
                         </div>
                     </div>
                     <div id="pprList"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== UPLOAD TAB ========== -->
+        <div class="tab-pane fade" id="upload" role="tabpanel">
+            <ul class="nav nav-pills mb-3" id="uploadTabs">
+                <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#upload-ppr">График ППР</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#upload-fn">График ФН</button></li>
+            </ul>
+
+            <div class="tab-content">
+                <div class="tab-pane fade show active" id="upload-ppr" role="tabpanel">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title"><i class="bi bi-upload me-2"></i>Загрузка графика ППР</h5>
+                            <div class="filter-bar mt-2 px-0">
+                                <div class="filter-header d-md-none" onclick="toggleFilter(this)"><i class="bi bi-funnel"></i> Параметры загрузки</div>
+                                <div class="filter-body">
+                                <div class="row g-2 align-items-center">
+                                    <div class="col-md-2">
+                                        <select class="form-select" id="uploadQuarter"></select>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <select class="form-select" id="uploadRegion">
+                                            <option value="">Все регионы</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <select class="form-select" id="uploadSort">
+                                            <option value="region-date">Регион + Срок</option>
+                                            <option value="date-region">Срок + Регион</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="upload-dropzone" id="uploadDropzone">
+                                            <input type="file" id="uploadFile" accept=".xlsx" hidden>
+                                            <i class="bi bi-file-earmark-arrow-up"></i>
+                                            <span class="upload-dropzone-text">Выберите файл или перетащите сюда</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                </div>
+                            </div>
+                            <div id="uploadPreview"></div>
+                            <div id="uploadActions" class="d-none mt-3 d-flex align-items-center gap-3">
+                                <button class="btn btn-primary" onclick="submitPprBatch()" id="uploadSubmitBtn">
+                                    <i class="bi bi-send me-1"></i>Создать записи
+                                </button>
+                                <button class="btn btn-outline-danger" onclick="deleteSelectedUploadRows()" id="uploadDeleteBtn">
+                                    <i class="bi bi-trash me-1"></i>Удалить выбранные
+                                </button>
+                                <span class="text-muted small" id="uploadStats"></span>
+                            </div>
+                            <div id="uploadResult" class="mt-2"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-pane fade" id="upload-fn" role="tabpanel">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title"><i class="bi bi-calendar-range me-2"></i>График ФН</h5>
+                            <div class="empty-state"><i class="bi bi-calendar-range"></i><p>Раздел в разработке</p></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -189,9 +239,9 @@
 <div class="modal fade" id="confirmTakeModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
-            <div class="modal-header bg-primary text-white">
+            <div class="modal-header bg-primary">
                 <h6 class="modal-title"><i class="bi bi-hand-index-thumb me-2"></i>Подтверждение</h6>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <p class="mb-2">Взять заявку?</p>
@@ -244,9 +294,9 @@
 <div class="modal fade" id="settingsModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
-            <div class="modal-header bg-primary text-white">
+            <div class="modal-header bg-primary">
                 <h5 class="modal-title"><i class="bi bi-gear me-2"></i>Настройки</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div class="settings-section">
@@ -287,9 +337,9 @@
 <div class="modal fade" id="docFormModal" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content position-relative">
-            <div class="modal-header bg-primary text-white">
+            <div class="modal-header bg-primary">
                 <h5 class="modal-title"><i class="bi bi-file-earmark-text me-2"></i>Формирование документов</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <input type="hidden" id="docFormGuid">
@@ -381,8 +431,11 @@
         </div>
     </div>
 </div>
+<button id="scrollTopBtn" class="scroll-top-btn" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Наверх"><i class="bi bi-arrow-up"></i></button>
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='dashboard.js') }}?v=3"></script>
+<script src="{{ url_for('static', filename='dashboard.js') }}?v=9"></script>
+<script src="{{ url_for('static', filename='tasks.js') }}?v=2"></script>
+<script src="{{ url_for('static', filename='ppr.js') }}?v=2"></script>
 {% endblock %}
