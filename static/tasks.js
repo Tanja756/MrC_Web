@@ -157,7 +157,8 @@ function renderTasks(containerId, tasks, query, sort, mode) {
 
         // Status badge class
         const isClosed = t.status === 'Closed' || t.status === 'closed';
-        const statusClass = isClosed ? 'closed' : 'open';
+        const isConfirming = t.status && (t.status.includes('Подтвердить') || t.status.includes('подтвердить'));
+        const statusClass = isConfirming ? 'confirming' : (isClosed ? 'closed' : 'open');
 
         const multiCheck = multiSelectMode && mode === 'free'
             ? `<input type="checkbox" class="form-check-input multi-check" ${selectedGuids.has(t.guid) ? 'checked' : ''} onchange="toggleSelect('${t.guid}')">`

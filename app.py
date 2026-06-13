@@ -7,6 +7,7 @@ import secrets
 import subprocess
 import tempfile
 import logging
+import threading
 from datetime import datetime, timedelta
 from functools import wraps
 from dotenv import load_dotenv
@@ -20,8 +21,10 @@ from db import (
     get_snapshot, save_snapshot, get_snapshot_updated_at,
     get_announcements,
     get_task_snapshot, save_task_snapshot, notification_exists,
-    save_subscription, get_subscriptions, delete_subscription,
-    delete_user_subscriptions,
+    save_subscription, get_subscriptions, get_all_subscriptions,
+    get_all_task_snapshot_users,
+    delete_subscription, delete_user_subscriptions,
+    save_user_credentials, get_user_credentials, get_all_users_with_credentials,
 )
 
 load_dotenv()
@@ -136,6 +139,12 @@ def login():
         session['divisions'] = data.get('divisions', [])
         session['last_login'] = datetime.now().isoformat()
 
+        # Сохраняем credentials в БД для фоновой проверки уведомлений
+        try:
+            save_user_credentials(username, password)
+        except Exception as e:
+            logger.warning(f"Failed to save credentials for {username}: {e}")
+
         return redirect(url_for('dashboard'))
 
     return render_template('login.html')
@@ -176,12 +185,17 @@ def _filter_tasks(tasks, search=None, sort=None):
             q in (str(t.get(f)) or '').lower()
             for f in ('number', 'name', 'status', 'name_department', 'user')
         )]
+    # Сортируем в два прохода (стабильная сортировка):
+    # 1) сначала по основному полю (date DESC / period ASC / priority DESC)
+    # 2) потом стабильно по статусу — "Подтвердить выполнение" вверху
     if sort == 'priority':
         tasks.sort(key=lambda t: -(t.get('priority') or 0))
     elif sort == 'deadline':
         tasks.sort(key=lambda t: t.get('period') or '')
     else:
         tasks.sort(key=lambda t: t.get('date') or '', reverse=True)
+    # Стабильная сортировка: "Подтвердить выполнение" выше остальных
+    tasks.sort(key=lambda t: 0 if 'Подтвердить' in (t.get('status') or '') or 'подтвердить' in (t.get('status') or '') else 1)
     return tasks
 
 
@@ -202,9 +216,10 @@ def api_tasks_my():
         return jsonify({"tasks": [], "total": 0})
     search = request.args.get('search')
     sort = request.args.get('sort')
-    limit = request.args.get('limit', 50, type=int)
+    limit = request.args.get('limit', 30, type=int)
     offset = request.args.get('offset', 0, type=int)
-    data = client.get_tasks_user(search=search, limit=limit, offset=offset)
+    # Получаем все заявки с сервера (5000), поиск и сортировка — локально
+    data = client.get_tasks_user(limit=5000, offset=0)
     tasks = _project_tasks(data.get('tasks', []))
     tasks = _filter_tasks(tasks, search, sort)
     tasks, total = _paginate(tasks, limit, offset)
@@ -219,9 +234,10 @@ def api_tasks_free():
         return jsonify({"tasks": [], "total": 0})
     search = request.args.get('search')
     sort = request.args.get('sort')
-    limit = request.args.get('limit', 50, type=int)
+    limit = request.args.get('limit', 30, type=int)
     offset = request.args.get('offset', 0, type=int)
-    data = client.get_tasks_unallocated(search=search, limit=limit, offset=offset)
+    # Получаем все заявки с сервера (5000), поиск и сортировка — локально
+    data = client.get_tasks_unallocated(limit=5000, offset=0)
     tasks = _project_tasks(data.get('tasks', []))
     tasks = _filter_tasks(tasks, search, sort)
     tasks, total = _paginate(tasks, limit, offset)
@@ -236,11 +252,13 @@ def api_tasks_closed():
         return jsonify({"tasks": [], "total": 0})
     search = request.args.get('search')
     sort = request.args.get('sort')
-    limit = request.args.get('limit', 50, type=int)
+    limit = request.args.get('limit', 30, type=int)
     offset = request.args.get('offset', 0, type=int)
-    data = client.get_closed_tasks_user(search=search, limit=limit, offset=offset)
+    # Получаем все закрытые заявки с сервера (5000), поиск и сортировка — локально
+    data = client.get_closed_tasks_user(limit=5000, offset=0)
     tasks = _project_tasks(data.get('tasks', []))
     tasks = _filter_tasks(tasks, search, sort)
+    # _filter_tasks уже поднимает "Подтвердить выполнение" наверх
     tasks, total = _paginate(tasks, limit, offset)
     return jsonify({"tasks": tasks, "total": total})
 
@@ -286,6 +304,7 @@ def api_task_close():
     comment = data.get('comment', '')
     latitude = data.get('latitude', 0.0)
     longitude = data.get('longitude', 0.0)
+
     attachments = data.get('attachments', [])
 
     result = client.task_close(guid, guid_doc, comment, latitude, longitude, attachments)
@@ -642,18 +661,24 @@ def _check_tasks(username):
 
     # Check for new free tasks
     current_free_guids = {t.get('guid', '') for t in free_tasks if t.get('guid')}
-    old_free_guids = set(old_data) if old_data else set()
-    new_guids = current_free_guids - old_free_guids
 
-    for task in free_tasks:
-        if task.get('guid') in new_guids:
-            title = 'Новая свободная заявка'
-            desc = f'Заявка {task.get("number", "")} "{task.get("name", "")}"'
-            if not notification_exists(username, 'new_task', desc, 60):
-                create_notification(username, 'new_task', title, desc)
-                send_push_notification(username, title, desc)
+    if old_data is None:
+        # Первый запуск после очистки кеша — просто сохраняем снимок, без уведомлений
+        save_task_snapshot(username, list(current_free_guids))
+        logger.info(f"Initial task snapshot saved for '{username}' (cache was empty)")
+    else:
+        old_free_guids = set(old_data)
+        new_guids = current_free_guids - old_free_guids
 
-    save_task_snapshot(username, list(current_free_guids))
+        for task in free_tasks:
+            if task.get('guid') in new_guids:
+                title = 'Новая свободная заявка'
+                desc = f'Заявка {task.get("number", "")} "{task.get("name", "")}"'
+                if not notification_exists(username, 'new_task', desc, 60):
+                    create_notification(username, 'new_task', title, desc)
+                    send_push_notification(username, title, desc)
+
+        save_task_snapshot(username, list(current_free_guids))
 
 
 def _copy_seed_notifications(username):
@@ -834,6 +859,22 @@ def api_profile_post():
     return jsonify(result or {})
 
 
+@app.route('/api/profile/clear-cache', methods=['POST'])
+@api_login_required
+def api_profile_clear_cache():
+    username = session.get('username', '')
+    if not username:
+        return jsonify({'error': 'Not authenticated'}), 401
+    try:
+        from db import clear_user_cache
+        clear_user_cache(username)
+        logger.info(f"User '{username}' cleared their cache")
+        return jsonify({'success': True, 'message': 'Кеш очищен'})
+    except Exception as e:
+        logger.error(f"Failed to clear cache for '{username}': {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/tasks/documents', methods=['POST'])
 def api_task_documents():
     from docgen import generate_documents
@@ -977,6 +1018,208 @@ def api_shop_by_sap():
     return jsonify({})
 
 
+# ============= ФОНОВЫЙ ПРОЦЕСС ПРОВЕРКИ УВЕДОМЛЕНИЙ =============
+
+BACKGROUND_CHECK_INTERVAL = 300  # 5 минут
+
+_background_timer = None
+_background_stop = threading.Event()
+
+
+def _background_check_loop():
+    """Фоновый цикл проверки задач и отправки push-уведомлений для всех пользователей."""
+    while not _background_stop.is_set():
+        try:
+            _background_check_all_users()
+        except Exception as e:
+            logger.error(f"Background check error: {e}", exc_info=True)
+        _background_stop.wait(BACKGROUND_CHECK_INTERVAL)
+
+
+def _background_check_all_users():
+    """Проверяет дедлайны и новые задачи для всех пользователей, у которых есть push-подписки."""
+    subs = get_all_subscriptions()
+    if not subs:
+        return
+
+    # Группируем подписки по пользователям
+    users = {}
+    for sub in subs:
+        username = sub['username']
+        if username not in users:
+            users[username] = []
+        users[username].append(sub)
+
+    for username, user_subs in users.items():
+        _background_check_user(username)
+
+    # Также проверяем всех, кто есть в таблице task_snapshots (чтобы не пропустить пользователей без push)
+    all_snapshot_users = get_all_task_snapshot_users()
+    for username in all_snapshot_users:
+        if username not in users:
+            _background_check_user(username)
+
+
+def _background_check_user(username):
+    """Проверяет задачи для конкретного пользователя в фоне."""
+    if not username:
+        return
+
+    old_data, updated_at = get_task_snapshot(username)
+    if updated_at:
+        try:
+            dt = datetime.strptime(updated_at, '%Y-%m-%d %H:%M:%S')
+            if (datetime.now() - dt).total_seconds() < BACKGROUND_CHECK_INTERVAL:
+                return
+        except (ValueError, TypeError):
+            pass
+
+    # Используем временного клиента с логином/паролем
+    # ВАЖНО: для фоновой проверки нужно хранить пароли
+    # Используем сохранённые credentials из сессий или env-переменные
+    client = _get_background_api_client(username)
+    if not client:
+        return
+
+    now = datetime.now()
+
+    try:
+        user_data = client.get_tasks_user(limit=200)
+        user_tasks = _project_tasks(user_data.get('tasks', []))
+    except Exception as e:
+        logger.warning(f"Background: failed to fetch user tasks for {username}: {e}")
+        user_tasks = []
+
+    try:
+        free_data = client.get_tasks_unallocated(limit=200)
+        free_tasks = _project_tasks(free_data.get('tasks', []))
+    except Exception as e:
+        logger.warning(f"Background: failed to fetch free tasks for {username}: {e}")
+        free_tasks = []
+
+    all_tasks = user_tasks + free_tasks
+
+    for task in all_tasks:
+        period_str = task.get('period') or task.get('date')
+        if not period_str:
+            continue
+
+        try:
+            m = re.match(r'(\d{2})\.(\d{2})\.(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})', period_str)
+            if m:
+                deadline = datetime(int(m[3]), int(m[2]), int(m[1]), int(m[4]), int(m[5]), int(m[6]))
+            else:
+                m2 = re.match(r'(\d{2})\.(\d{2})\.(\d{4})', period_str)
+                if m2:
+                    deadline = datetime(int(m2[3]), int(m2[2]), int(m2[1]), 23, 59, 59)
+                else:
+                    continue
+
+            diff = (deadline - now).total_seconds()
+            task_label = f'Заявка {task.get("number", "")} "{task.get("name", "")}"'
+
+            if diff < 0:
+                title = 'Срок заявки истёк'
+                desc = f'{task_label}\nСрок был: {period_str}'
+            elif diff < 7200:
+                title = 'Срок заявки истекает'
+                desc = f'{task_label}\nОсталось менее 2 часов'
+            else:
+                continue
+
+            if not notification_exists(username, 'task_deadline', desc, 60):
+                create_notification(username, 'task_deadline', title, desc)
+                send_push_notification(username, title, desc.replace('\n', ' — '))
+        except Exception:
+            continue
+
+    current_free_guids = {t.get('guid', '') for t in free_tasks if t.get('guid')}
+
+    if old_data is None:
+        save_task_snapshot(username, list(current_free_guids))
+        logger.info(f"Background: initial task snapshot saved for '{username}' (cache was empty)")
+    else:
+        old_free_guids = set(old_data)
+        new_guids = current_free_guids - old_free_guids
+
+        for task in free_tasks:
+            if task.get('guid') in new_guids:
+                title = 'Новая свободная заявка'
+                desc = f'Заявка {task.get("number", "")} "{task.get("name", "")}"'
+                if not notification_exists(username, 'new_task', desc, 60):
+                    create_notification(username, 'new_task', title, desc)
+                    send_push_notification(username, title, desc)
+
+        save_task_snapshot(username, list(current_free_guids))
+
+    # Фоновая проверка складов (не чаще раза в час на склад)
+    _background_check_balances(client, username)
+
+
+def _background_check_balances(client, username):
+    """Проверяет изменения остатков на складах для пользователя в фоне."""
+    if not client or not username:
+        return
+    try:
+        storages = client.get_storages()
+        if not storages:
+            return
+        for storage in storages:
+            storage_guid = storage.get('guid')
+            if not storage_guid:
+                continue
+            # Проверяем, не обновляли ли этот склад недавно
+            updated_at = get_snapshot_updated_at(username, storage_guid)
+            if updated_at:
+                try:
+                    dt = datetime.strptime(updated_at, '%Y-%m-%d %H:%M:%S')
+                    if (datetime.now() - dt).total_seconds() < 3600:
+                        continue  # Обновляли менее часа назад — пропускаем
+                except (ValueError, TypeError):
+                    pass
+            data = client.get_balances(storage_guid)
+            if data is not None:
+                _check_balance_changes(username, storage_guid, data)
+                logger.info(f"Background: balance checked for '{username}' storage '{storage_guid}'")
+    except Exception as e:
+        logger.warning(f"Background: failed to check balances for {username}: {e}")
+
+
+def _get_background_api_client(username):
+    """Создаёт API-клиент для фоновой проверки.
+    Использует credentials, сохранённые в БД при логине пользователя."""
+    host = SERVER_HOST
+    port = SERVER_PORT
+    db_name = SERVER_DB
+
+    password = get_user_credentials(username)
+    if not password:
+        logger.warning(f"Background: no stored credentials for {username}")
+        return None
+
+    return OneSApiClient(
+        host=host, port=port, db_name=db_name,
+        username=username, password=password,
+    )
+
+
+def start_background_worker():
+    """Запускает фоновый поток проверки уведомлений."""
+    global _background_timer
+    if _background_timer is not None:
+        return
+    _background_stop.clear()
+    thread = threading.Thread(target=_background_check_loop, daemon=True)
+    thread.start()
+    logger.info("Background push notification worker started (interval=%ds)", BACKGROUND_CHECK_INTERVAL)
+
+
+def stop_background_worker():
+    """Останавливает фоновый поток."""
+    _background_stop.set()
+
+
 if __name__ == '__main__':
+    start_background_worker()
     debug = env == 'development'
     app.run(host='0.0.0.0', port=5000, debug=debug)

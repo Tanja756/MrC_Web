@@ -169,6 +169,11 @@ a:hover { color: var(--primary-hover); }
     background: rgba(29,172,75,0.12);
     color: var(--success);
 }
+.task-status.confirming {
+    background: rgba(255,140,0,0.25);
+    color: var(--warning);
+    font-weight: 600;
+}
 [data-theme="light"] .task-status.open {
     background: rgba(0,120,212,0.08);
 }

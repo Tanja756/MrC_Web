@@ -330,6 +330,17 @@ def get_subscriptions(username):
         for r in rows
     ]
 
+def get_all_subscriptions():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT username, endpoint, auth, p256dh FROM push_subscriptions")
+    rows = c.fetchall()
+    conn.close()
+    return [
+        {'username': r[0], 'endpoint': r[1], 'auth': r[2], 'p256dh': r[3]}
+        for r in rows
+    ]
+
 def delete_subscription(endpoint):
     conn = get_db_connection()
     c = conn.cursor()
@@ -344,6 +355,73 @@ def delete_user_subscriptions(username):
     conn.commit()
     conn.close()
 
+def get_all_task_snapshot_users():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT username FROM task_snapshots")
+    rows = c.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+# --- USER CREDENTIALS (для фоновой проверки push-уведомлений) ---
+
+def init_user_credentials_table():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS user_credentials (
+            username TEXT NOT NULL PRIMARY KEY,
+            password TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def save_user_credentials(username, password):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        INSERT OR REPLACE INTO user_credentials (username, password, updated_at)
+        VALUES (?, ?, datetime('now'))
+    """, (username, password))
+    conn.commit()
+    conn.close()
+
+def get_user_credentials(username):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT password FROM user_credentials WHERE username=?", (username,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+def get_all_users_with_credentials():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT username FROM user_credentials")
+    rows = c.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+def clear_user_cache(username):
+    """Удаляет все данные пользователя из кеша, кроме таблицы shops.
+    Очищает: notifications, balance_snapshots, task_snapshots, push_subscriptions, user_credentials."""
+    if not username:
+        return
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM notifications WHERE username=?", (username,))
+    c.execute("DELETE FROM balance_snapshots WHERE username=?", (username,))
+    c.execute("DELETE FROM task_snapshots WHERE username=?", (username,))
+    c.execute("DELETE FROM push_subscriptions WHERE username=?", (username,))
+    c.execute("DELETE FROM user_credentials WHERE username=?", (username,))
+    conn.commit()
+    conn.close()
+    logger.info(f"Cache cleared for user '{username}'")
+
 
 # Инициализация БД при импорте модуля
 try:
@@ -352,5 +430,6 @@ try:
     init_announcements_table()
     init_task_snapshots_table()
     init_push_subscriptions_table()
+    init_user_credentials_table()
 except Exception as e:
     logger.warning(f"init_db failed (readonly?): {e}")

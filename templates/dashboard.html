@@ -352,6 +352,14 @@
                         <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" role="switch" aria-checked="false"></button>
                     </div>
                 </div>
+                <hr>
+                <div class="settings-section">
+                    <label class="mb-2"><i class="bi bi-eraser me-1"></i>Кеш пользователя</label>
+                    <p class="small text-muted mb-2">Очищает сохранённые уведомления, снимки складов, push-подписки и сохранённый пароль. Данные магазинов и настройки профиля сохранятся. Потребуется повторный вход.</p>
+                    <button class="btn btn-outline-danger w-100" onclick="clearUserCache()">
+                        <i class="bi bi-trash3 me-1"></i>Очистить кеш
+                    </button>
+                </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="saveProfile()" data-bs-dismiss="modal">Закрыть</button>

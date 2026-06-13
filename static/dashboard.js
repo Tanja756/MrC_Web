@@ -209,6 +209,30 @@ function saveProfile() {
     }).catch(() => {});
 }
 
+function clearUserCache() {
+    if (!confirm('Вы уверены, что хотите очистить кеш? Это удалит уведомления, снимки складов, push-подписки и сохранённый пароль. Потребуется повторный вход.')) return;
+
+    const btn = document.querySelector('button[onclick="clearUserCache()"]');
+    if (btn) btn.disabled = true;
+
+    fetch('/api/profile/clear-cache', {method: 'POST'})
+        .then(checkAuth).then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('Кеш очищен. Вы будете перенаправлены на страницу входа.');
+                window.location.href = '/logout';
+            } else {
+                alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+            }
+        })
+        .catch(err => {
+            alert('Ошибка при очистке кеша: ' + err.message);
+        })
+        .finally(() => {
+            if (btn) btn.disabled = false;
+        });
+}
+
 function updateProfileAvatar() {
     const avatar = document.getElementById('profileAvatar');
     if (!avatar) return;
@@ -491,7 +515,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadTasks('', ['my', 'free']);
     initUploadTab();
 
-    setInterval(() => loadTasks('', ['my', 'free']), 60000);
+    setInterval(() => loadTasks('', ['my', 'free']), 600000);
 
     // Right-click on free tasks for multi-select
     document.getElementById('tasksFreeList')?.addEventListener('contextmenu', (e) => {
