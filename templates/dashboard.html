@@ -1,9 +1,28 @@
 {% extends "base.html" %}
 {% block content %}
 <div id="startupOverlay">
-    <div class="startup-spinner"></div>
-    <div class="startup-logo">Mr.Check</div>
-    <div class="startup-sub">Загрузка...</div>
+    <div class="startup-ring">
+        <div class="startup-ring-inner"></div>
+    </div>
+    <div class="startup-logo startup-shimmer">
+        <span class="letter" style="--i:0">M</span>
+        <span class="letter" style="--i:1">r</span>
+        <span class="letter" style="--i:2">.</span>
+        <span class="letter" style="--i:3">C</span>
+        <span class="letter" style="--i:4">h</span>
+        <span class="letter" style="--i:5">e</span>
+        <span class="letter" style="--i:6">c</span>
+        <span class="letter-dot" style="--i:7">k</span>
+    </div>
+    <div class="startup-bar">
+        <div class="startup-bar-fill"></div>
+    </div>
+    <div class="startup-sub">
+        <span>Загрузка</span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+    </div>
 </div>
 <nav class="navbar navbar-dark bg-dark sticky-top py-2" id="mainNavbar">
     <div class="container-fluid">
@@ -52,17 +71,22 @@
                                     <button class="btn btn-outline-secondary btn-reset-filter" onclick="document.getElementById('taskSearch').value='';clearTimeout(taskSearchTimeout);loadTasks()"><i class="bi bi-x-lg"></i></button>
                                 </div>
                             </div>
-                            <div class="col-md-3">
-                                <select class="form-select" id="taskSort" onchange="filterTasks()">
-                                    <option value="date">По дате создания</option>
-                                    <option value="deadline">По сроку</option>
-                                    <option value="priority">По приоритету</option>
-                                </select>
+                            <div class="col-md-4">
+                                <div class="d-flex gap-1">
+                                    <select class="form-select" id="taskSort" onchange="filterTasks()">
+                                        <option value="date">По дате создания</option>
+                                        <option value="deadline">По сроку</option>
+                                        <option value="priority">По приоритету</option>
+                                    </select>
+                                    <div class="btn-group btn-group-sm" role="group" id="sortDirGroup">
+                                        <button class="btn btn-outline-secondary" data-dir="asc" onclick="setSortDir('asc')" title="По возрастанию"><i class="bi bi-sort-up"></i></button>
+                                        <button class="btn btn-outline-secondary active" data-dir="desc" onclick="setSortDir('desc')" title="По убыванию"><i class="bi bi-sort-down"></i></button>
+                                    </div>
+                                </div>
                             </div>
                             <div class="col-md-2">
                                 <button class="btn btn-outline-secondary btn-sm w-100" onclick="resetFilters()"><i class="bi bi-arrow-counterclockwise me-1"></i>Сброс</button>
                             </div>
-                            <div class="col-md-2 text-end d-none d-md-block"></div>
                         </div>
                         </div>
                     </div>
@@ -77,7 +101,14 @@
                                 <button class="btn btn-outline-secondary btn-sm" onclick="cancelMultiSelect()">Отмена</button>
                             </div>
                         </div>
-                        <div class="tab-pane fade" id="tasks-closed"><div id="tasksClosedList" class="task-list"></div></div>
+                        <div class="tab-pane fade" id="tasks-closed">
+                            <div id="tasksClosedList" class="task-list"></div>
+                            <nav id="closedPagination" class="d-none mt-2 d-flex justify-content-center align-items-center gap-2" aria-label="Страницы">
+                                <button class="btn btn-outline-secondary btn-sm" id="prevPage" onclick="changeClosedPage(-1)">‹ Назад</button>
+                                <span class="small text-muted" id="pageInfo">1 / 1</span>
+                                <button class="btn btn-outline-secondary btn-sm" id="nextPage" onclick="changeClosedPage(1)">Вперед ›</button>
+                            </nav>
+                        </div>
                     </div>
                 </div>
 
@@ -263,6 +294,39 @@
 </div>
 
 <!-- Confirm Take Modal -->
+<!-- Universal Alert Modal -->
+<div class="modal fade" id="alertModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header" id="alertModalHeader">
+                <h6 class="modal-title" id="alertModalTitle"><i class="bi bi-info-circle me-2"></i>Сообщение</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="alertModalBody"></div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">OK</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Universal Confirm Modal -->
+<div class="modal fade" id="confirmModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-primary">
+                <h6 class="modal-title"><i class="bi bi-question-circle me-2"></i>Подтверждение</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="confirmModalBody"></div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal" id="confirmModalNo">Отмена</button>
+                <button class="btn btn-primary" id="confirmModalYes"><i class="bi bi-check-lg me-1"></i>Да</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="modal fade" id="confirmTakeModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -470,7 +534,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='dashboard.js') }}?v=20"></script>
-<script src="{{ url_for('static', filename='tasks.js') }}?v=2"></script>
-<script src="{{ url_for('static', filename='ppr.js') }}?v=2"></script>
+<script src="{{ url_for('static', filename='dashboard.js') }}?v=21"></script>
+<script src="{{ url_for('static', filename='tasks.js') }}?v=3"></script>
+<script src="{{ url_for('static', filename='ppr.js') }}?v=3"></script>
 {% endblock %}

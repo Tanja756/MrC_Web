@@ -1,5 +1,37 @@
 // ============ UTILITY ============
 
+// Request deduplication + in-memory cache (avoids redundant fetches on slow networks)
+const inflight = new Map();
+const reqCache = new Map();
+function fetchDeduped(url, options, ttl) {
+  const key = url + (options ? JSON.stringify(options) : '');
+  if (inflight.has(key)) return inflight.get(key);
+  if (ttl && reqCache.has(key)) {
+    const cached = reqCache.get(key);
+    if (Date.now() - cached.ts < ttl) return Promise.resolve(cached.data);
+    reqCache.delete(key);
+  }
+  const p = fetch(url, options).then(r => {
+    inflight.delete(key);
+    if (r.status === 401) { window.location.href = '/login'; throw new Error('Session expired'); }
+    const ct = r.headers.get('content-type') || '';
+    if (r.ok && ct.includes('json') && ttl) {
+      return r.clone().json().then(data => {
+        reqCache.set(key, { data, ts: Date.now() });
+        return data;
+      });
+    }
+    return r;
+  }).catch(e => {
+    inflight.delete(key);
+    throw e;
+  });
+  inflight.set(key, p);
+  return p;
+}
+
+const currentStorage = () => document.getElementById('storageSelect')?.value || '';
+
 // Android back button — close modals instead of navigating away
 document.addEventListener('shown.bs.modal', () => {
     if (!document.querySelectorAll('.modal.show').length) {
@@ -10,6 +42,110 @@ window.addEventListener('popstate', () => {
     const modal = document.querySelector('.modal.show');
     if (modal) bootstrap.Modal.getInstance(modal)?.hide();
 });
+
+// ============ SWIPE GESTURES (MOBILE) ============
+
+const TAB_ORDER = ['tasks-tab', 'warehouse-tab', 'salary-tab', 'reports-tab'];
+const TASK_PILL_SELECTOR = '#taskTabs .nav-link';
+
+let touchStartX = 0, touchDeltaX = 0;
+let isSwiping = false;
+
+document.addEventListener('touchstart', e => {
+    const t = e.changedTouches[0];
+    touchStartX = t.clientX;
+    touchDeltaX = 0;
+    isSwiping = true;
+}, {passive: true});
+
+document.addEventListener('touchmove', e => {
+    if (!isSwiping) return;
+    const t = e.changedTouches[0];
+    touchDeltaX = t.clientX - touchStartX;
+}, {passive: true});
+
+document.addEventListener('touchend', e => {
+    if (!isSwiping) return;
+    isSwiping = false;
+    if (Math.abs(touchDeltaX) < 80) return;
+    if (document.querySelector('.modal.show')) return;
+
+    const activeMain = document.querySelector('#mainTabs .nav-link.active');
+    if (!activeMain) return;
+
+    if (activeMain.id === 'tasks-tab') {
+        const pills = document.querySelectorAll(TASK_PILL_SELECTOR);
+        const activePill = document.querySelector(TASK_PILL_SELECTOR + '.active');
+        const idx = Array.from(pills).indexOf(activePill);
+        if (idx === -1) return;
+        const next = touchDeltaX < 0 ? pills[idx + 1] : pills[idx - 1];
+        if (next) bootstrap.Tab.getOrCreateInstance(next).show();
+        return;
+    }
+
+    const idx = TAB_ORDER.indexOf(activeMain.id);
+    if (idx === -1) return;
+    const next = touchDeltaX < 0 ? TAB_ORDER[idx + 1] : TAB_ORDER[idx - 1];
+    if (next) bootstrap.Tab.getOrCreateInstance(document.getElementById(next)).show();
+}, {passive: true});
+
+// ============ CUSTOM ALERT / CONFIRM ============
+
+function showAlert(message, type) {
+    type = type || 'info';
+    const modalEl = document.getElementById('alertModal');
+    const header = document.getElementById('alertModalHeader');
+    const title = document.getElementById('alertModalTitle');
+    const body = document.getElementById('alertModalBody');
+
+    header.className = 'modal-header';
+    if (type === 'danger') {
+        header.classList.add('bg-danger', 'text-white');
+        title.innerHTML = '<i class="bi bi-x-circle me-2"></i>Ошибка';
+    } else if (type === 'success') {
+        header.classList.add('bg-success', 'text-white');
+        title.innerHTML = '<i class="bi bi-check-circle me-2"></i>Успех';
+    } else if (type === 'warning') {
+        header.classList.add('bg-warning');
+        title.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>Предупреждение';
+    } else {
+        title.innerHTML = '<i class="bi bi-info-circle me-2"></i>Сообщение';
+    }
+
+    body.textContent = message;
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
+}
+
+function showConfirm(message) {
+    return new Promise(resolve => {
+        const modalEl = document.getElementById('confirmModal');
+        const body = document.getElementById('confirmModalBody');
+        const yesBtn = document.getElementById('confirmModalYes');
+        const noBtn = document.getElementById('confirmModalNo');
+
+        body.textContent = message;
+
+        const modal = new bootstrap.Modal(modalEl);
+
+        const cleanup = () => {
+            modal.hide();
+            modalEl.removeEventListener('hidden.bs.modal', onHide);
+            yesBtn.removeEventListener('click', onYes);
+            noBtn.removeEventListener('click', onNo);
+        };
+
+        const onYes = () => { cleanup(); resolve(true); };
+        const onNo = () => { cleanup(); resolve(false); };
+        const onHide = () => { cleanup(); resolve(false); };
+
+        modalEl.addEventListener('hidden.bs.modal', onHide);
+        yesBtn.addEventListener('click', onYes);
+        noBtn.addEventListener('click', onNo);
+
+        modal.show();
+    });
+}
 
 function toggleFilter(el) {
     el.closest('.filter-bar').classList.toggle('show');
@@ -154,8 +290,8 @@ function openSettings(firstLogin) {
 
     const ws = document.getElementById('settingsWarehouse');
     const saved = lsGet('defaultWarehouse', '');
-    fetch('/api/warehouse/storages')
-        .then(checkAuth).then(r => r.json())
+    fetchDeduped('/api/warehouse/storages', undefined, 60000)
+        .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(data => {
             ws.innerHTML = '<option value="">Не выбран</option>' +
                 data.map(s => `<option value="${s.guid}" ${s.guid === saved ? 'selected' : ''}>${s.name}</option>`).join('');
@@ -165,26 +301,29 @@ function openSettings(firstLogin) {
 }
 
 function loadProfile() {
-    fetch('/api/profile')
-        .then(checkAuth).then(r => r.json())
+    return fetchDeduped('/api/profile', undefined, 60000)
+        .then(r => r instanceof Response ? r.json().catch(() => ({})) : r)
         .then(data => {
             const p = data.profile;
             if (!p) return;
-            let changed = false;
             for (const key of Object.keys(p)) {
                 if (p[key]) lsSet(key, p[key]);
             }
             if (p.profileName && p.profileName !== savedProfileName) {
                 savedProfileName = p.profileName;
-                changed = true;
             }
-            if (p.defaultWarehouse && p.defaultWarehouse !== lsGet('defaultWarehouse', '')) {
-                changed = true;
+            if (p.defaultWarehouse) {
+                lsSet('defaultWarehouse', p.defaultWarehouse);
             }
             if (p.theme && p.theme !== currentTheme) {
                 applyTheme(p.theme);
             }
-            if (changed) updateProfileAvatar();
+            updateProfileAvatar();
+            // Update form fields if settings modal is open
+            const profileNameInput = document.getElementById('profileName');
+            if (profileNameInput && !profileNameInput.value && savedProfileName) {
+                profileNameInput.value = savedProfileName;
+            }
         })
         .catch(() => {});
 }
@@ -210,26 +349,29 @@ function saveProfile() {
 }
 
 function clearUserCache() {
-    if (!confirm('Вы уверены, что хотите очистить кеш? Это удалит уведомления, снимки складов, push-подписки и сохранённый пароль. Потребуется повторный вход.')) return;
+    showConfirm('Вы уверены, что хотите очистить кеш? Это удалит уведомления, снимки складов, push-подписки и сохранённый пароль. Потребуется повторный вход.')
+        .then(ok => {
+            if (!ok) return;
 
-    const btn = document.querySelector('button[onclick="clearUserCache()"]');
-    if (btn) btn.disabled = true;
+            const btn = document.querySelector('button[onclick="clearUserCache()"]');
+            if (btn) btn.disabled = true;
 
-    fetch('/api/profile/clear-cache', {method: 'POST'})
-        .then(checkAuth).then(r => r.json())
-        .then(data => {
-            if (data.success) {
-                alert('Кеш очищен. Вы будете перенаправлены на страницу входа.');
-                window.location.href = '/logout';
-            } else {
-                alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
-            }
-        })
-        .catch(err => {
-            alert('Ошибка при очистке кеша: ' + err.message);
-        })
-        .finally(() => {
-            if (btn) btn.disabled = false;
+            fetch('/api/profile/clear-cache', {method: 'POST'})
+                .then(checkAuth).then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        showAlert('Кеш очищен. Вы будете перенаправлены на страницу входа.', 'success');
+                        window.location.href = '/logout';
+                    } else {
+                        showAlert('Ошибка: ' + (data.error || 'Неизвестная ошибка'), 'danger');
+                    }
+                })
+                .catch(err => {
+                    showAlert('Ошибка при очистке кеша: ' + err.message, 'danger');
+                })
+                .finally(() => {
+                    if (btn) btn.disabled = false;
+                });
         });
 }
 
@@ -266,8 +408,8 @@ function checkAuth(r) {
 
 // ============ WAREHOUSE ============
 function loadStorages() {
-    fetch('/api/warehouse/storages')
-    .then(checkAuth).then(r => r.json())
+    fetchDeduped('/api/warehouse/storages', undefined, 60000)
+    .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(data => {
             const sel = document.getElementById('storageSelect');
             sel.innerHTML = '<option value="">Выберите склад...</option>' +
@@ -286,8 +428,8 @@ function loadBalances() {
         document.getElementById('balancesList').innerHTML = '<div class="empty-state"><i class="bi bi-shop"></i><p>Выберите склад</p></div>';
         return;
     }
-    fetch(`/api/warehouse/balances?storage=${guid}`)
-        .then(checkAuth).then(r => r.json())
+    fetchDeduped(`/api/warehouse/balances?storage=${guid}`, undefined, 30000)
+        .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(data => {
             allBalances = data;
             filterBalances();
@@ -361,7 +503,7 @@ function filterBalanceType(type) {
 
 function exportWarehousePdf() {
     const sel = document.getElementById('storageSelect');
-    if (!sel.value) { alert('Выберите склад'); return; }
+    if (!sel.value) { showAlert('Выберите склад', 'warning'); return; }
     const storageName = sel.options[sel.selectedIndex].text;
 
     let balances = allBalances;
@@ -413,7 +555,7 @@ function exportWarehousePdf() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
     }).catch(err => {
-        alert('Ошибка экспорта: ' + err.message);
+        showAlert('Ошибка экспорта: ' + err.message, 'danger');
     }).finally(() => {
         btn.disabled = false;
         btn.innerHTML = orig;
@@ -432,8 +574,8 @@ function loadSalary() {
                         'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
     document.getElementById('salaryMonth').textContent = `${monthNames[currentDate.getMonth()]} ${year}`;
 
-    fetch(`/api/salary?start_date=${startDate}&end_date=${endDate}`)
-        .then(checkAuth).then(r => r.json())
+    fetchDeduped(`/api/salary?start_date=${startDate}&end_date=${endDate}`, undefined, 60000)
+        .then(r => r instanceof Response ? r.json().catch(() => ({})) : r)
         .then(data => {
             const items = data.Data || data.data || [];
             const total = data.total_amount != null ? data.total_amount : (data.totalAmount || 0);
@@ -468,8 +610,8 @@ function changeMonth(delta) {
 
 // ============ CLIENT DIRECTORY ============
 function loadClients() {
-    fetch('/api/tasks/documents')
-        .then(checkAuth).then(r => r.json())
+    fetchDeduped('/api/tasks/documents', undefined, 300000)
+        .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(data => {
             (data || []).forEach(c => { if (c.guid) clientsMap[c.guid] = c.name || c.guid; });
         });
@@ -483,20 +625,24 @@ function runStartup() {
         ov.style.display = 'none';
         return;
     }
+    // Total startup duration: ~1.6s (letters animate in by ~0.7s, then we wait)
     setTimeout(() => {
         ov.classList.add('hide');
         sessionStorage.setItem('startupDone', '1');
-        setTimeout(() => ov.style.display = 'none', 400);
-    }, 800);
+        setTimeout(() => {
+            ov.style.display = 'none';
+        }, 600);
+    }, 1600);
 }
+
+
 
 // ============ INIT ============
 document.addEventListener('DOMContentLoaded', () => {
     runStartup();
     initPushNotifications();
-    // Restore sort
-    const savedSort = lsGet('taskSort', '');
-    if (savedSort) document.getElementById('taskSort').value = savedSort;
+    // Restore sort per active tab
+    loadTabIntoUI('my');
 
     // Restore theme
     applyTheme(currentTheme);
@@ -504,14 +650,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // Restore profile avatar
     updateProfileAvatar();
 
-    // First login — prompt to set up profile
-    const defaultWarehouse = lsGet('defaultWarehouse', '');
-    if (!savedProfileName || !defaultWarehouse) {
-        openSettings(true);
-    }
+    loadProfile().then(() => {
+        const defaultWarehouse = lsGet('defaultWarehouse', '');
+        if (!savedProfileName || !defaultWarehouse) {
+            openSettings(true);
+        }
+    });
 
     loadClients();
-    loadProfile();
     loadTasks('', ['my', 'free']);
     initUploadTab();
 
@@ -526,7 +672,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Load notifications + announcements (tasks tab is active by default, so call directly too)
-    const currentStorage = () => document.getElementById('storageSelect')?.value || '';
     loadNotifications(currentStorage(), true);
     loadAnnouncements();
     document.getElementById('tasks-tab')?.addEventListener('shown.bs.tab', () => {
@@ -558,9 +703,13 @@ document.addEventListener('DOMContentLoaded', () => {
         loadPpr();
     });
 
-    // Load closed tasks when closed pill is first activated
-    document.getElementById('closed-pill')?.addEventListener('shown.bs.tab', () => {
-            if (!tasksClosed.length) loadClosedTasks();
+    // Handle task tab switching — per-tab sort save/restore
+    document.querySelectorAll('#taskTabs .nav-link').forEach(pill => {
+        pill.addEventListener('shown.bs.tab', () => {
+            const id = pill.getAttribute('data-bs-target');
+            const tab = id === '#tasks-my' ? 'my' : id === '#tasks-free' ? 'free' : 'closed';
+            switchTab(tab);
+        });
     });
 
     // Reset loading state if modal is dismissed manually
@@ -613,7 +762,7 @@ function downloadDocuments(guid) {
                 return r.blob().then(blob => ({blob, filename}));
             })
     );
-    downloadMultiple(fetches).catch(e => alert('Ошибка: ' + e.message));
+    downloadMultiple(fetches).catch(e => showAlert('Ошибка: ' + e.message, 'danger'));
 }
 
 // ============ DOCUMENT FORM ============
@@ -621,8 +770,8 @@ let docAllProducts = [];
 let docSelectedItems = [];
 
 function loadDocStorages(sel) {
-    fetch('/api/warehouse/storages')
-        .then(checkAuth).then(r => r.json())
+    fetchDeduped('/api/warehouse/storages', undefined, 60000)
+        .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(data => {
             sel.innerHTML = '<option value="">Выберите склад...</option>' +
                 data.map(s => `<option value="${s.guid}">${s.name}</option>`).join('');
@@ -643,8 +792,8 @@ function loadDocProducts() {
         renderDocProducts();
         return;
     }
-    fetch(`/api/warehouse/balances?storage=${guid}`)
-        .then(checkAuth).then(r => r.json())
+    fetchDeduped(`/api/warehouse/balances?storage=${guid}`, undefined, 15000)
+        .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(data => {
             docAllProducts = (data || []).filter(p => p.series_name);
             renderDocProducts();
@@ -890,8 +1039,8 @@ function loadNotifications(storageGuid, checkTasks) {
     if (storageGuid) params.push('storage=' + encodeURIComponent(storageGuid));
     if (checkTasks) params.push('check_tasks=1');
     const url = '/api/notifications' + (params.length ? '?' + params.join('&') : '');
-    fetch(url)
-        .then(checkAuth).then(r => r.json())
+    fetchDeduped(url, undefined, 30000)
+        .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(list => {
             if (!list || !list.length) {
                 container.innerHTML = '<div class="text-muted small">Нет уведомлений</div>';
@@ -921,7 +1070,13 @@ function dismissNotification(id) {
     const storage = document.getElementById('storageSelect')?.value || '';
     fetch(`/api/notifications/${id}/dismiss`, {method: 'POST'})
         .then(checkAuth)
-        .then(() => loadNotifications(storage))
+        .then(() => {
+            const params = [];
+            if (storage) params.push('storage=' + encodeURIComponent(storage));
+            const url = '/api/notifications' + (params.length ? '?' + params.join('&') : '');
+            reqCache.delete(url);
+            loadNotifications(storage);
+        })
         .catch(() => {});
 }
 
@@ -931,8 +1086,8 @@ function loadAnnouncements() {
     const container = document.getElementById('announcementsList');
     if (!container) return;
 
-    fetch('/api/announcements')
-        .then(checkAuth).then(r => r.json())
+    fetchDeduped('/api/announcements', undefined, 60000)
+        .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(list => {
             if (!list || !list.length) {
                 container.innerHTML = '<div class="text-muted small">Нет объявлений</div>';

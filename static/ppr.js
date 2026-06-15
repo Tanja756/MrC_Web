@@ -47,8 +47,8 @@ function fmtPprDate(str) {
 function loadPprDepartments() {
     const year = document.getElementById('pprYear').value || new Date().getFullYear();
     const quarter = document.getElementById('pprQuarter').value;
-    fetch(`/api/ppr/departments?year=${year}&quarter=${quarter}`)
-        .then(checkAuth).then(r => r.json())
+    fetchDeduped(`/api/ppr/departments?year=${year}&quarter=${quarter}`, undefined, 30000)
+        .then(r => r instanceof Response ? r.json().catch(() => ({})) : r)
         .then(data => {
             const sel = document.getElementById('pprDepartment');
             const saved = lsGet('pprDepartment', '');
@@ -71,8 +71,8 @@ function loadPpr() {
     const quarter = document.getElementById('pprQuarter').value;
     const department = document.getElementById('pprDepartment').value;
 
-    fetch(`/api/ppr/list?year=${year}&quarter=${quarter}&department=${encodeURIComponent(department)}`)
-        .then(checkAuth).then(r => r.json())
+    fetchDeduped(`/api/ppr/list?year=${year}&quarter=${quarter}&department=${encodeURIComponent(department)}`, undefined, 15000)
+        .then(r => r instanceof Response ? r.json().catch(() => ({})) : r)
         .then(data => {
             const tasks = (data.tasks || []).sort((a, b) => {
                 const aClosed = a.status === 'Closed' || a.status === 'Завершена' ? 1 : 0;
@@ -132,8 +132,8 @@ function loadPpr() {
 function openPprDetail(guid) {
     const year = document.getElementById('pprYear').value;
     const quarter = document.getElementById('pprQuarter').value;
-    fetch(`/api/ppr/list?year=${year}&quarter=${quarter}`)
-        .then(checkAuth).then(r => r.json())
+    fetchDeduped(`/api/ppr/list?year=${year}&quarter=${quarter}`, undefined, 15000)
+        .then(r => r instanceof Response ? r.json().catch(() => ({})) : r)
         .then(data => {
             const task = (data.tasks || []).find(t => t.guid === guid);
             if (!task) return;
@@ -198,7 +198,7 @@ function openPprClose(guid) {
 function doPprClose(guid) {
     const comment = document.getElementById('pprCloseComment')?.value.trim() || '';
     if (!comment && pprPendingAttachments.length === 0) {
-        alert('Добавьте комментарий или вложение');
+        showAlert('Добавьте комментарий или вложение', 'warning');
         return;
     }
 
@@ -218,14 +218,18 @@ function doPprClose(guid) {
             if (data.success) {
                 pprPendingAttachments = [];
                 bootstrap.Modal.getInstance(document.getElementById('pprDetailModal'))?.hide();
+                const year = document.getElementById('pprYear').value || new Date().getFullYear();
+                const quarter = document.getElementById('pprQuarter').value;
+                const department = document.getElementById('pprDepartment').value;
+                ['departments', 'list'].forEach(p => { reqCache.delete('/api/ppr/' + p); });
                 loadPpr();
             } else {
-                alert('Ошибка при закрытии задачи ППР');
+                showAlert('Ошибка при закрытии задачи ППР', 'danger');
             }
         }).catch(() => {
             btn.disabled = false;
             btn.innerHTML = origHtml;
-            alert('Ошибка сети');
+            showAlert('Ошибка сети', 'danger');
         });
     };
     if (!navigator.geolocation) { doRequest(0, 0); return; }

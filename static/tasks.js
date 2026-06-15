@@ -1,56 +1,160 @@
 // ============ TASKS ============
 let taskSearchTimeout;
 
+let currentTab = 'my';
+let tabPrefs = {
+    my: { sort: lsGet('taskSort_my', 'deadline'), dir: lsGet('taskSortDir_my', 'asc') },
+    free: { sort: lsGet('taskSort_free', 'deadline'), dir: lsGet('taskSortDir_free', 'asc') },
+    closed: { sort: lsGet('taskSort_closed', 'deadline'), dir: lsGet('taskSortDir_closed', 'desc') },
+};
+
+function saveTabPrefs(tab) {
+    if (!tab) tab = currentTab;
+    lsSet('taskSort_' + tab, tabPrefs[tab].sort);
+    lsSet('taskSortDir_' + tab, tabPrefs[tab].dir);
+}
+
+function loadTabIntoUI(tab) {
+    const prefs = tabPrefs[tab];
+    document.getElementById('taskSort').value = prefs.sort;
+    document.querySelectorAll('#sortDirGroup .btn').forEach(b => b.classList.toggle('active', b.dataset.dir === prefs.dir));
+}
+
+function switchTab(tab) {
+    saveTabPrefs(currentTab);
+    currentTab = tab;
+    loadTabIntoUI(tab);
+    if (tab === 'closed') {
+        loadClosedTasks('', tabPrefs.closed.sort, 1);
+    } else {
+        filterTasks();
+    }
+}
+
+function setSortDir(dir) {
+    tabPrefs[currentTab].dir = dir;
+    saveTabPrefs();
+    document.querySelectorAll('#sortDirGroup .btn').forEach(b => b.classList.toggle('active', b.dataset.dir === dir));
+    filterTasks();
+}
+
 function loadTasks(search, types) {
+    const sort = document.getElementById('taskSort').value;
     const params = new URLSearchParams();
     if (search) params.set('search', search);
+    params.set('sort', sort);
+    params.set('dir', tabPrefs[currentTab].dir);
     const qs = params.toString() ? '?' + params.toString() : '';
     const fetches = [];
-    const labels = types || ['my', 'free', 'closed'];
-    if (labels.includes('my')) fetches.push(fetch('/api/tasks/my' + qs).then(checkAuth).then(r => r.json()));
-    if (labels.includes('free')) fetches.push(fetch('/api/tasks/free' + qs).then(checkAuth).then(r => r.json()));
-    if (labels.includes('closed')) fetches.push(fetch('/api/tasks/closed' + qs).then(checkAuth).then(r => r.json()));
+    const labels = types || ['my', 'free'];
+    const ttl = document.hidden ? 0 : 15000;
+    if (labels.includes('my')) fetches.push(fetchDeduped('/api/tasks/my' + qs, undefined, ttl).then(r => { if (r instanceof Response) return r.json().catch(() => ({})); return r; }));
+    if (labels.includes('free')) fetches.push(fetchDeduped('/api/tasks/free' + qs, undefined, ttl).then(r => { if (r instanceof Response) return r.json().catch(() => ({})); return r; }));
     if (fetches.length === 0) return;
     Promise.all(fetches).then(results => {
         let i = 0;
         if (labels.includes('my')) { tasksMy = (results[i] || {}).tasks || []; i++; }
         if (labels.includes('free')) { tasksFree = (results[i] || {}).tasks || []; i++; }
-        if (labels.includes('closed')) { tasksClosed = (results[i] || {}).tasks || []; }
         filterTasks();
     });
 }
 
-function loadClosedTasks() {
-    loadTasks('', ['closed']);
+let tasksClosedPage = 1;
+let tasksClosedTotal = 0;
+let tasksClosedSort = 'date';
+let tasksClosedDir = 'desc';
+
+function loadClosedTasks(search, sort, page) {
+    if (search === undefined) search = document.getElementById('taskSearch').value.trim();
+    if (sort === undefined) sort = tabPrefs.closed.sort;
+    if (page === undefined) page = 1;
+
+    tasksClosedSort = sort;
+    tasksClosedDir = tabPrefs.closed.dir;
+    tasksClosedPage = page;
+
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    params.set('sort', sort);
+    params.set('dir', tabPrefs.closed.dir);
+    params.set('limit', '30');
+    if (page > 1) params.set('offset', (page - 1) * 30);
+    const qs = '?' + params.toString();
+
+    console.log('[loadClosedTasks] fetching', qs);
+    fetchDeduped('/api/tasks/closed' + qs, undefined, 15000).then(r => r instanceof Response ? r.json().catch(() => ({})) : r).then(data => {
+        tasksClosed = data.tasks || [];
+        tasksClosedTotal = data.total || 0;
+        console.log('[loadClosedTasks] received', tasksClosed.length, 'items, total=', tasksClosedTotal);
+        filterTasks();
+    });
+}
+
+function renderClosedPagination() {
+    const nav = document.getElementById('closedPagination');
+    if (!nav) { console.warn('[pagin] nav not found'); return; }
+    const total = tasksClosedTotal;
+    const page = tasksClosedPage;
+    const pages = Math.ceil(total / 30);
+    console.log('[pagin] total=' + total + ' page=' + page + ' pages=' + pages);
+    if (pages <= 1) { nav.classList.add('d-none'); return; }
+    nav.classList.remove('d-none');
+    document.getElementById('pageInfo').textContent = page + ' / ' + pages;
+    document.getElementById('prevPage').disabled = page <= 1;
+    document.getElementById('nextPage').disabled = page >= pages;
+}
+
+function changeClosedPage(delta) {
+    const page = tasksClosedPage + delta;
+    if (page < 1) return;
+    const pages = Math.ceil(tasksClosedTotal / 30);
+    if (page > pages) return;
+    loadClosedTasks(undefined, undefined, page);
 }
 
 function onTaskSearch() {
     const q = document.getElementById('taskSearch').value.trim();
     filterTasks();
     clearTimeout(taskSearchTimeout);
-    taskSearchTimeout = setTimeout(() => loadTasks(q || undefined), 400);
+    taskSearchTimeout = setTimeout(() => {
+        loadTasks(q || undefined);
+        loadClosedTasks(q || '', tabPrefs.closed.sort, 1);
+    }, 400);
 }
 
 function filterTasks() {
     const query = document.getElementById('taskSearch').value.toLowerCase().trim();
-    const sort = document.getElementById('taskSort').value;
-    lsSet('taskSort', sort);
-    renderTasks('tasksMyList', tasksMy, query, sort, 'my');
-    renderTasks('tasksFreeList', tasksFree, query, sort, 'free');
-    renderTasks('tasksClosedList', tasksClosed, query, sort, 'closed');
+    tabPrefs[currentTab].sort = document.getElementById('taskSort').value;
+    saveTabPrefs();
+
+    const closedDir = tabPrefs.closed.dir;
+    if (tabPrefs.closed.sort !== tasksClosedSort || closedDir !== tasksClosedDir) {
+        loadClosedTasks(undefined, tabPrefs.closed.sort, 1);
+    }
+
+    renderTasks('tasksMyList', tasksMy, query, 'my');
+    renderTasks('tasksFreeList', tasksFree, query, 'free');
+    renderTasks('tasksClosedList', tasksClosed, query, 'closed');
+    renderClosedPagination();
 }
 
 function resetFilters() {
     document.getElementById('taskSearch').value = '';
-    document.getElementById('taskSort').value = 'date';
-    lsSet('taskSort', 'date');
+    for (const t of ['my', 'free', 'closed']) {
+        tabPrefs[t].sort = 'deadline';
+        tabPrefs[t].dir = t === 'closed' ? 'desc' : 'asc';
+        saveTabPrefs(t);
+    }
+    document.getElementById('taskSort').value = 'deadline';
+    document.querySelectorAll('#sortDirGroup .btn').forEach(b => b.classList.toggle('active', b.dataset.dir === 'asc'));
     clearTimeout(taskSearchTimeout);
     loadTasks();
+    loadClosedTasks('', 'deadline', 1);
 }
 
-function sortTasks(tasks, sort, reverse) {
+function sortTasks(tasks, sort, dir) {
     const s = [...tasks];
-    const r = reverse ? -1 : 1;
+    const r = dir === 'asc' ? 1 : -1;
     switch (sort) {
         case 'priority':
             s.sort((a, b) => r * ((b.priority || 0) - (a.priority || 0)));
@@ -108,8 +212,10 @@ function togglePin(guid) {
     filterTasks();
 }
 
-function renderTasks(containerId, tasks, query, sort, mode) {
+function renderTasks(containerId, tasks, query, mode) {
     const container = document.getElementById(containerId);
+    const sort = tabPrefs[mode]?.sort || 'date';
+    const dir = tabPrefs[mode]?.dir || 'desc';
     const filtered = tasks.filter(t => {
         const searchStr = [
             t.number, t.name, t.status, t.name_department, t.user,
@@ -118,10 +224,20 @@ function renderTasks(containerId, tasks, query, sort, mode) {
         return searchStr.includes(query);
     });
 
-    const reverse = (mode === 'closed');
-    const pinned = sortTasks(filtered.filter(t => isPinned(t.guid)), sort, reverse);
-    const unpinned = sortTasks(filtered.filter(t => !isPinned(t.guid)), sort, reverse);
-    const sorted = [...pinned, ...unpinned];
+    let sorted;
+    if (mode === 'closed') {
+        if (sort === 'deadline') {
+            const confirming = filtered.filter(t => t.status && (t.status.includes('Подтвердить') || t.status.includes('подтвердить')));
+            const rest = filtered.filter(t => !t.status || (!t.status.includes('Подтвердить') && !t.status.includes('подтвердить')));
+            sorted = [...confirming, ...rest];
+        } else {
+            sorted = filtered;
+        }
+    } else {
+        const pinned = sortTasks(filtered.filter(t => isPinned(t.guid)), sort, dir);
+        const unpinned = sortTasks(filtered.filter(t => !isPinned(t.guid)), sort, dir);
+        sorted = [...pinned, ...unpinned];
+    }
 
     // Show only closed tasks with locations
     const showLocation = (mode === 'closed');
@@ -372,7 +488,7 @@ function closeTask(guid, guidDoc) {
     const hasExistingAttachments = task && task.hasAttachments;
 
     if (!comment && pendingAttachments.length === 0 && !hasExistingAttachments) {
-        alert('Добавьте комментарий или вложение');
+        showAlert('Добавьте комментарий или вложение', 'warning');
         return;
     }
 
@@ -398,18 +514,20 @@ function closeTask(guid, guidDoc) {
                     taskLocations[guid] = { lat, lng, ts: Date.now() };
                     lsSet('taskLocations', JSON.stringify(taskLocations));
                 }
-                alert('Заявка закрыта! После проверки менеджером статус будет обновлён.');
+                showAlert('Заявка закрыта! После проверки менеджером статус будет обновлён.', 'success');
                 pendingAttachments = [];
                 bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
-                loadTasks();
+                tasksMy = tasksMy.filter(t => t.guid !== guid);
+                reqCache.delete('/api/tasks/my');
+                filterTasks();
             } else {
                 const msg = data.error || data.detail?._error || data.detail?._raw || 'Ошибка при закрытии заявки';
-                alert('Ошибка: ' + msg);
+                showAlert('Ошибка: ' + msg, 'danger');
             }
         }).catch(() => {
             btn.disabled = false;
             btn.innerHTML = origHtml;
-            alert('Ошибка сети');
+            showAlert('Ошибка сети', 'danger');
         });
     };
 
@@ -445,11 +563,12 @@ function takeTask(guid) {
             body: JSON.stringify({guid})
         }).then(checkAuth).then(r => r.json()).then(data => {
             if (data.status === 'Выполнить' || data.status === 'OK') {
+                ['my', 'free', 'closed'].forEach(t => { reqCache.delete('/api/tasks/' + t); });
                 loadTasks();
             } else {
-                alert(data.error || 'Не удалось взять заявку');
+                showAlert(data.error || 'Не удалось взять заявку', 'danger');
             }
-        }).catch(() => alert('Ошибка сети'));
+        }).catch(() => showAlert('Ошибка сети', 'danger'));
     });
     modal.show();
 }
@@ -472,26 +591,23 @@ function cancelMultiSelect() {
 
 function bulkTakeTasks() {
     if (selectedGuids.size === 0) return;
-    if (!confirm(`Взять ${selectedGuids.size} заявок?`)) return;
+    showConfirm(`Взять ${selectedGuids.size} заявок?`)
+        .then(ok => {
+            if (!ok) return;
 
-    const promises = [];
-    selectedGuids.forEach(guid => {
-        promises.push(
-            fetch('/api/tasks/take', {
+            const guids = Array.from(selectedGuids);
+            fetch('/api/tasks/take-bulk', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({guid})
-            }).then(checkAuth).then(r => r.json())
-        );
-    });
-
-    Promise.allSettled(promises).then(results => {
-        const ok = results.filter(r =>
-            r.status === 'fulfilled' &&
-            (r.value.status === 'Выполнить' || r.value.status === 'OK')
-        ).length;
-        alert(`Взято: ${ok} из ${selectedGuids.size}`);
-        cancelMultiSelect();
-        loadTasks();
-    });
+                body: JSON.stringify({guids})
+            }).then(checkAuth).then(r => r.json()).then(data => {
+                const taken = data.taken || 0;
+                showAlert(`Взято: ${taken} из ${guids.length}`, 'success');
+                cancelMultiSelect();
+                ['my', 'free', 'closed'].forEach(t => {
+                  reqCache.delete('/api/tasks/' + t);
+                });
+                loadTasks();
+            }).catch(() => showAlert('Ошибка сети', 'danger'));
+        });
 }

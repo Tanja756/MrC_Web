@@ -36,6 +36,7 @@ app = Flask(__name__)
 env = os.environ.get('FLASK_ENV', 'development')
 app.config.from_object(config.get(env, config['development']))
 app.config['ENV'] = env
+app.jinja_env.auto_reload = True
 
 SERVER_HOST = os.environ.get('SERVER_HOST', '127.0.0.1')
 SERVER_PORT = os.environ.get('SERVER_PORT', '5000')
@@ -178,23 +179,33 @@ def _project_tasks(tasks):
     return [{k: v for k, v in t.items() if k in TASK_FIELDS} for t in tasks]
 
 
-def _filter_tasks(tasks, search=None, sort=None):
+def _parse_1c_date(s):
+    """Парсит дату формата dd.MM.yyyy HH:mm:ss или dd.MM.yyyy в datetime."""
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, '%d.%m.%Y %H:%M:%S')
+    except ValueError:
+        try:
+            return datetime.strptime(s, '%d.%m.%Y')
+        except ValueError:
+            return None
+
+
+def _filter_tasks(tasks, search=None, sort=None, dir='desc'):
     if search:
         q = search.lower()
         tasks = [t for t in tasks if any(
             q in (str(t.get(f)) or '').lower()
             for f in ('number', 'name', 'status', 'name_department', 'user')
         )]
-    # Сортируем в два прохода (стабильная сортировка):
-    # 1) сначала по основному полю (date DESC / period ASC / priority DESC)
-    # 2) потом стабильно по статусу — "Подтвердить выполнение" вверху
+    reverse = (dir == 'desc')
     if sort == 'priority':
-        tasks.sort(key=lambda t: -(t.get('priority') or 0))
+        tasks.sort(key=lambda t: t.get('priority') or 0, reverse=reverse)
     elif sort == 'deadline':
-        tasks.sort(key=lambda t: t.get('period') or '')
+        tasks.sort(key=lambda t: _parse_1c_date(t.get('period')) or (datetime.max if not reverse else datetime.min), reverse=reverse)
     else:
-        tasks.sort(key=lambda t: t.get('date') or '', reverse=True)
-    # Стабильная сортировка: "Подтвердить выполнение" выше остальных
+        tasks.sort(key=lambda t: _parse_1c_date(t.get('date')) or (datetime.min if reverse else datetime.max), reverse=reverse)
     tasks.sort(key=lambda t: 0 if 'Подтвердить' in (t.get('status') or '') or 'подтвердить' in (t.get('status') or '') else 1)
     return tasks
 
@@ -216,12 +227,13 @@ def api_tasks_my():
         return jsonify({"tasks": [], "total": 0})
     search = request.args.get('search')
     sort = request.args.get('sort')
+    dir = request.args.get('dir', 'desc')
     limit = request.args.get('limit', 30, type=int)
     offset = request.args.get('offset', 0, type=int)
     # Получаем все заявки с сервера (5000), поиск и сортировка — локально
     data = client.get_tasks_user(limit=5000, offset=0)
     tasks = _project_tasks(data.get('tasks', []))
-    tasks = _filter_tasks(tasks, search, sort)
+    tasks = _filter_tasks(tasks, search, sort, dir)
     tasks, total = _paginate(tasks, limit, offset)
     return jsonify({"tasks": tasks, "total": total})
 
@@ -234,12 +246,13 @@ def api_tasks_free():
         return jsonify({"tasks": [], "total": 0})
     search = request.args.get('search')
     sort = request.args.get('sort')
+    dir = request.args.get('dir', 'desc')
     limit = request.args.get('limit', 30, type=int)
     offset = request.args.get('offset', 0, type=int)
     # Получаем все заявки с сервера (5000), поиск и сортировка — локально
     data = client.get_tasks_unallocated(limit=5000, offset=0)
     tasks = _project_tasks(data.get('tasks', []))
-    tasks = _filter_tasks(tasks, search, sort)
+    tasks = _filter_tasks(tasks, search, sort, dir)
     tasks, total = _paginate(tasks, limit, offset)
     return jsonify({"tasks": tasks, "total": total})
 
@@ -252,12 +265,13 @@ def api_tasks_closed():
         return jsonify({"tasks": [], "total": 0})
     search = request.args.get('search')
     sort = request.args.get('sort')
+    dir = request.args.get('dir', 'desc')
     limit = request.args.get('limit', 30, type=int)
     offset = request.args.get('offset', 0, type=int)
     # Получаем все закрытые заявки с сервера (5000), поиск и сортировка — локально
     data = client.get_closed_tasks_user(limit=5000, offset=0)
     tasks = _project_tasks(data.get('tasks', []))
-    tasks = _filter_tasks(tasks, search, sort)
+    tasks = _filter_tasks(tasks, search, sort, dir)
     # _filter_tasks уже поднимает "Подтвердить выполнение" наверх
     tasks, total = _paginate(tasks, limit, offset)
     return jsonify({"tasks": tasks, "total": total})
@@ -289,6 +303,23 @@ def api_task_take():
         return jsonify({'error': 'GUID required'}), 400
     result = client.task_take(guid)
     return jsonify(result or {'error': 'Failed to take task'})
+
+
+@app.route('/api/tasks/take-bulk', methods=['POST'])
+@api_login_required
+def api_task_take_bulk():
+    client = get_api_client()
+    if not client:
+        return jsonify({'error': 'No connection'}), 400
+    guids = request.json.get('guids', [])
+    if not guids or not isinstance(guids, list):
+        return jsonify({'error': 'Array of GUIDs required'}), 400
+    results = []
+    for guid in guids:
+        result = client.task_take(guid)
+        ok = bool(result and (result.get('status') in ('Выполнить', 'OK')))
+        results.append({'guid': guid, 'ok': ok, 'error': None if ok else (result.get('error') or 'Failed')})
+    return jsonify({'results': results, 'total': len(results), 'taken': sum(1 for r in results if r['ok'])})
 
 
 @app.route('/api/tasks/close', methods=['POST'])
