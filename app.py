@@ -738,7 +738,7 @@ def _check_tasks(username):
                         desc.replace('\n', ' — '))
             elif diff < 7200:
                 desc = f'{task_label}\nОсталось менее 2 часов'
-                if not notification_exists(username, 'task_deadline', desc, 60):
+                if not notification_exists(username, 'task_deadline', desc, None):
                     create_notification(username, 'task_deadline', 'Срок заявки истекает', desc)
                     send_push_notification(username, 'Срок заявки истекает',
                         desc.replace('\n', ' — '))
@@ -1218,7 +1218,7 @@ def _background_check_user(username):
                     send_push_notification(username, 'Срок заявки истёк', desc.replace('\n', ' — '))
             elif diff < 7200:
                 desc = f'{task_label}\nОсталось менее 2 часов'
-                if not notification_exists(username, 'task_deadline', desc, 60):
+                if not notification_exists(username, 'task_deadline', desc, None):
                     create_notification(username, 'task_deadline', 'Срок заявки истекает', desc)
                     send_push_notification(username, 'Срок заявки истекает', desc.replace('\n', ' — '))
         except Exception:
