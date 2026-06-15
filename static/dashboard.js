@@ -728,6 +728,25 @@ document.addEventListener('DOMContentLoaded', () => {
     // Auto-check tasks every 10 minutes
     setInterval(() => loadNotifications(currentStorage(), true), 600000);
 
+    // Refresh stale cache when user returns to tab (>30 min since last fetch)
+    const REFRESH_AGE = 30 * 60 * 1000;
+    function refreshStaleCache() {
+        const now = Date.now();
+        for (const [key, entry] of reqCache) {
+            if (now - entry.ts > REFRESH_AGE) {
+                reqCache.delete(key);
+            }
+        }
+    }
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            refreshStaleCache();
+            loadNotifications(currentStorage(), true);
+            loadTasks('', ['my', 'free']);
+            loadBalances();
+        }
+    });
+
     // Load storages + balances when warehouse tab is first shown
     document.getElementById('warehouse-tab')?.addEventListener('shown.bs.tab', () => {
         const sel = document.getElementById('storageSelect');
