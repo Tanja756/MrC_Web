@@ -5,7 +5,7 @@ let currentTab = 'my';
 let tabPrefs = {
     my: { sort: lsGet('taskSort_my', 'deadline'), dir: lsGet('taskSortDir_my', 'asc') },
     free: { sort: lsGet('taskSort_free', 'deadline'), dir: lsGet('taskSortDir_free', 'asc') },
-    closed: { sort: lsGet('taskSort_closed', 'deadline'), dir: lsGet('taskSortDir_closed', 'desc') },
+    closed: { sort: lsGet('taskSort_closed', 'closed_at'), dir: lsGet('taskSortDir_closed', 'desc') },
 };
 
 function saveTabPrefs(tab) {
@@ -141,15 +141,15 @@ function filterTasks() {
 function resetFilters() {
     document.getElementById('taskSearch').value = '';
     for (const t of ['my', 'free', 'closed']) {
-        tabPrefs[t].sort = 'deadline';
+        tabPrefs[t].sort = t === 'closed' ? 'closed_at' : 'deadline';
         tabPrefs[t].dir = t === 'closed' ? 'desc' : 'asc';
         saveTabPrefs(t);
     }
-    document.getElementById('taskSort').value = 'deadline';
+    document.getElementById('taskSort').value = tabPrefs[currentTab].sort;
     document.querySelectorAll('#sortDirGroup .btn').forEach(b => b.classList.toggle('active', b.dataset.dir === 'asc'));
     clearTimeout(taskSearchTimeout);
     loadTasks();
-    loadClosedTasks('', 'deadline', 1);
+    loadClosedTasks('', tabPrefs.closed.sort, 1);
 }
 
 function sortTasks(tasks, sort, dir) {
@@ -162,6 +162,16 @@ function sortTasks(tasks, sort, dir) {
         case 'deadline': {
             s.sort((a, b) => {
                 const da = parseDate(a.period), db = parseDate(b.period);
+                if (!da && !db) return 0;
+                if (!da) return 1;
+                if (!db) return -1;
+                return r * (da - db);
+            });
+            break;
+        }
+        case 'closed_at': {
+            s.sort((a, b) => {
+                const da = parseDate(a.closed_at), db = parseDate(b.closed_at);
                 if (!da && !db) return 0;
                 if (!da) return 1;
                 if (!db) return -1;
@@ -197,7 +207,7 @@ function getUrgency(task) {
 
 function urgencyClass(level) {
     if (level === 3) return 'urgency-overdue';
-    if (level === 2) return 'urgency-overdue';
+    if (level === 2) return 'urgency-imminent';
     if (level === 1) return 'urgency-warning';
     return 'urgency-normal';
 }
@@ -299,6 +309,7 @@ function renderTasks(containerId, tasks, query, mode) {
                     ${multiCheck}
                     <span class="task-priority ${priorityClass}"></span>
                     ${t.status ? `<span class="task-status ${statusClass}">${t.status}</span>` : ''}
+                    ${isOverdue && mode !== 'closed' ? '<span class="badge bg-danger ms-1">Просрочено</span>' : ''}
                     ${t.name_department ? `<span class="task-dept">${t.name_department}</span>` : ''}
                     <div class="task-header-end">
                         ${hasAttach ? '<i class="bi bi-paperclip meta-icon text-muted" title="Есть вложения"></i>' : ''}
@@ -311,6 +322,8 @@ function renderTasks(containerId, tasks, query, mode) {
                     ${t.user ? `<span class="task-meta-item"><i class="bi bi-person"></i>${t.user}</span>` : ''}
                     ${t.guid_client && clientName(t.guid_client) ? `<span class="task-meta-item"><i class="bi bi-building"></i>${clientName(t.guid_client)}</span>` : ''}
                     ${t.date ? `<span class="task-meta-item"><i class="bi bi-calendar3"></i>${formatDate(t.date)}</span>` : ''}
+                    ${t.taken_at && mode === 'my' ? `<span class="task-meta-item"><i class="bi bi-play-fill"></i>${formatDate(t.taken_at)}</span>` : ''}
+                    ${t.closed_at ? `<span class="task-meta-item"><i class="bi bi-check-circle"></i>${formatDate(t.closed_at)}</span>` : ''}
                     <span class="task-meta-item ${deadlineClass}"><i class="bi bi-alarm"></i>${deadlineLabel}</span>
                 </div>
                 <div class="task-actions">
@@ -519,6 +532,9 @@ function closeTask(guid, guidDoc) {
                 bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
                 tasksMy = tasksMy.filter(t => t.guid !== guid);
                 reqCache.delete('/api/tasks/my');
+                for (const key of reqCache.keys()) {
+                    if (key.startsWith('/api/tasks/closed')) reqCache.delete(key);
+                }
                 filterTasks();
             } else {
                 const msg = data.error || data.detail?._error || data.detail?._raw || 'Ошибка при закрытии заявки';

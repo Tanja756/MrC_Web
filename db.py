@@ -107,7 +107,7 @@ def init_notifications_table():
             title TEXT NOT NULL,
             description TEXT NOT NULL,
             storage_guid TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
             dismissed INTEGER NOT NULL DEFAULT 0
         )
     """)
@@ -144,7 +144,7 @@ def get_active_notifications(username, hours=72):
         SELECT id, type, title, description, created_at, dismissed
         FROM notifications
         WHERE username = ? AND dismissed = 0
-          AND datetime(created_at) > datetime('now', ?)
+          AND datetime(created_at) > datetime('now', 'localtime', ?)
         ORDER BY created_at DESC
     """, (username, f'-{hours} hours'))
     rows = c.fetchall()
@@ -161,6 +161,13 @@ def dismiss_notification(notif_id, username):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("UPDATE notifications SET dismissed=1 WHERE id=? AND username=?", (notif_id, username))
+    conn.commit()
+    conn.close()
+
+def dismiss_all_notifications(username):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("UPDATE notifications SET dismissed=1 WHERE username=? AND dismissed=0", (username,))
     conn.commit()
     conn.close()
 
@@ -205,7 +212,7 @@ def init_announcements_table():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
             content TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
         )
     """)
     conn.commit()
@@ -274,11 +281,17 @@ def save_task_snapshot(username, data):
 def notification_exists(username, type_, desc_substring, minutes=60):
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("""
-        SELECT COUNT(*) FROM notifications
-        WHERE username = ? AND type = ? AND dismissed = 0
-          AND description LIKE ? AND datetime(created_at) > datetime('now', ?)
-    """, (username, type_, f'%{desc_substring}%', f'-{minutes} minutes'))
+    if minutes is None:
+        c.execute("""
+            SELECT COUNT(*) FROM notifications
+            WHERE username = ? AND type = ? AND description LIKE ?
+        """, (username, type_, f'%{desc_substring}%'))
+    else:
+        c.execute("""
+            SELECT COUNT(*) FROM notifications
+            WHERE username = ? AND type = ? AND dismissed = 0
+              AND description LIKE ? AND datetime(created_at) > datetime('now', 'localtime', ?)
+        """, (username, type_, f'%{desc_substring}%', f'-{minutes} minutes'))
     count = c.fetchone()[0]
     conn.close()
     return count > 0
@@ -423,12 +436,67 @@ def clear_user_cache(username):
     logger.info(f"Cache cleared for user '{username}'")
 
 
+# --- TASK TRACKING (taken_at / closed_at) ---
+
+def init_task_tracking_table():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS task_tracking (
+            guid TEXT NOT NULL,
+            username TEXT NOT NULL,
+            taken_at TEXT,
+            closed_at TEXT,
+            PRIMARY KEY (guid, username)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def set_task_taken(username, guid):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO task_tracking (guid, username, taken_at)
+        VALUES (?, ?, datetime('now', 'localtime'))
+        ON CONFLICT(guid, username) DO UPDATE SET taken_at = datetime('now', 'localtime')
+    """, (guid, username))
+    conn.commit()
+    conn.close()
+
+def set_task_closed(username, guid):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO task_tracking (guid, username, closed_at)
+        VALUES (?, ?, datetime('now', 'localtime'))
+        ON CONFLICT(guid, username) DO UPDATE SET closed_at = datetime('now', 'localtime')
+    """, (guid, username))
+    conn.commit()
+    conn.close()
+
+def get_tasks_tracking(guids, username):
+    if not guids:
+        return {}
+    conn = get_db_connection()
+    c = conn.cursor()
+    placeholders = ','.join('?' for _ in guids)
+    c.execute(f"""
+        SELECT guid, taken_at, closed_at FROM task_tracking
+        WHERE username = ? AND guid IN ({placeholders})
+    """, (username, *guids))
+    rows = c.fetchall()
+    conn.close()
+    return {r[0]: {'taken_at': r[1], 'closed_at': r[2]} for r in rows}
+
+
 # Инициализация БД при импорте модуля
 try:
     init_db()
     init_notifications_table()
     init_announcements_table()
     init_task_snapshots_table()
+    init_task_tracking_table()
     init_push_subscriptions_table()
     init_user_credentials_table()
 except Exception as e:

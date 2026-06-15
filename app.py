@@ -17,7 +17,7 @@ from flask import (Flask, render_template, request, redirect,
 from config import config
 from api_client import OneSApiClient
 from db import (
-    create_notification, get_active_notifications, dismiss_notification,
+    create_notification, get_active_notifications, dismiss_notification, dismiss_all_notifications,
     get_snapshot, save_snapshot, get_snapshot_updated_at,
     get_announcements,
     get_task_snapshot, save_task_snapshot, notification_exists,
@@ -25,6 +25,7 @@ from db import (
     get_all_task_snapshot_users,
     delete_subscription, delete_user_subscriptions,
     save_user_credentials, get_user_credentials, get_all_users_with_credentials,
+    set_task_taken, set_task_closed, get_tasks_tracking,
 )
 
 load_dotenv()
@@ -179,6 +180,23 @@ def _project_tasks(tasks):
     return [{k: v for k, v in t.items() if k in TASK_FIELDS} for t in tasks]
 
 
+def _attach_tracking(tasks, username):
+    if not tasks or not username:
+        return
+    guids = [t.get('guid') for t in tasks if t.get('guid')]
+    tracking = get_tasks_tracking(guids, username)
+    for t in tasks:
+        g = t.get('guid')
+        if g in tracking:
+            t['taken_at'] = tracking[g].get('taken_at')
+            t['closed_at'] = tracking[g].get('closed_at')
+        else:
+            if not t.get('taken_at'):
+                t['taken_at'] = t.get('date')
+            if not t.get('closed_at'):
+                t['closed_at'] = t.get('period')
+
+
 def _parse_1c_date(s):
     """Парсит дату формата dd.MM.yyyy HH:mm:ss или dd.MM.yyyy в datetime."""
     if not s:
@@ -204,6 +222,16 @@ def _filter_tasks(tasks, search=None, sort=None, dir='desc'):
         tasks.sort(key=lambda t: t.get('priority') or 0, reverse=reverse)
     elif sort == 'deadline':
         tasks.sort(key=lambda t: _parse_1c_date(t.get('period')) or (datetime.max if not reverse else datetime.min), reverse=reverse)
+    elif sort == 'closed_at':
+        def _ck(t):
+            v = t.get('closed_at')
+            if v:
+                try:
+                    return datetime.strptime(v, '%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    pass
+            return datetime.min if not reverse else datetime.max
+        tasks.sort(key=_ck, reverse=reverse)
     else:
         tasks.sort(key=lambda t: _parse_1c_date(t.get('date')) or (datetime.min if reverse else datetime.max), reverse=reverse)
     tasks.sort(key=lambda t: 0 if 'Подтвердить' in (t.get('status') or '') or 'подтвердить' in (t.get('status') or '') else 1)
@@ -230,9 +258,10 @@ def api_tasks_my():
     dir = request.args.get('dir', 'desc')
     limit = request.args.get('limit', 30, type=int)
     offset = request.args.get('offset', 0, type=int)
-    # Получаем все заявки с сервера (5000), поиск и сортировка — локально
+    username = session.get('username', '')
     data = client.get_tasks_user(limit=5000, offset=0)
     tasks = _project_tasks(data.get('tasks', []))
+    _attach_tracking(tasks, username)
     tasks = _filter_tasks(tasks, search, sort, dir)
     tasks, total = _paginate(tasks, limit, offset)
     return jsonify({"tasks": tasks, "total": total})
@@ -268,11 +297,11 @@ def api_tasks_closed():
     dir = request.args.get('dir', 'desc')
     limit = request.args.get('limit', 30, type=int)
     offset = request.args.get('offset', 0, type=int)
-    # Получаем все закрытые заявки с сервера (5000), поиск и сортировка — локально
+    username = session.get('username', '')
     data = client.get_closed_tasks_user(limit=5000, offset=0)
     tasks = _project_tasks(data.get('tasks', []))
+    _attach_tracking(tasks, username)
     tasks = _filter_tasks(tasks, search, sort, dir)
-    # _filter_tasks уже поднимает "Подтвердить выполнение" наверх
     tasks, total = _paginate(tasks, limit, offset)
     return jsonify({"tasks": tasks, "total": total})
 
@@ -302,6 +331,8 @@ def api_task_take():
     if not guid:
         return jsonify({'error': 'GUID required'}), 400
     result = client.task_take(guid)
+    if result and result.get('status') in ('Выполнить', 'OK'):
+        set_task_taken(session.get('username', ''), guid)
     return jsonify(result or {'error': 'Failed to take task'})
 
 
@@ -314,10 +345,13 @@ def api_task_take_bulk():
     guids = request.json.get('guids', [])
     if not guids or not isinstance(guids, list):
         return jsonify({'error': 'Array of GUIDs required'}), 400
+    username = session.get('username', '')
     results = []
     for guid in guids:
         result = client.task_take(guid)
         ok = bool(result and (result.get('status') in ('Выполнить', 'OK')))
+        if ok:
+            set_task_taken(username, guid)
         results.append({'guid': guid, 'ok': ok, 'error': None if ok else (result.get('error') or 'Failed')})
     return jsonify({'results': results, 'total': len(results), 'taken': sum(1 for r in results if r['ok'])})
 
@@ -341,6 +375,7 @@ def api_task_close():
     result = client.task_close(guid, guid_doc, comment, latitude, longitude, attachments)
     if result and result.get('_error'):
         return jsonify({'success': False, 'error': result['_error'], 'detail': result}), 400
+    set_task_closed(session.get('username', ''), guid)
     return jsonify({'success': True})
 
 
@@ -384,11 +419,16 @@ def api_balances():
         return jsonify([])
     data = client.get_balances(storage_guid)
     _check_balance_changes(session.get('username', ''), storage_guid, data)
+    for item in data:
+        item['date_arrival'] = _short_date(item.get('date_arrival'))
+        item['date_writeoff'] = _short_date(item.get('date_writeoff'))
     return jsonify(data)
 
 
 def _check_balance_changes(username, storage_guid, new_data):
     if not username:
+        return
+    if not new_data:
         return
     old = get_snapshot(username, storage_guid)
     if old is None:
@@ -407,26 +447,42 @@ def _check_balance_changes(username, storage_guid, new_data):
     for k, item in new_map.items():
         old_item = old_map.get(k)
         if not old_item:
-            added.append((item.get('balance', 0), item.get('product_name', '?')))
+            added.append((item.get('balance', 0), item.get('product_name', '?'),
+                         item.get('series_name', ''), item.get('inventory_number', '')))
         else:
             diff = (item.get('balance', 0) or 0) - (old_item.get('balance', 0) or 0)
             if diff > 0:
-                added.append((diff, item.get('product_name', '?')))
+                added.append((diff, item.get('product_name', '?'),
+                             item.get('series_name', ''), item.get('inventory_number', '')))
             elif diff < 0:
-                removed.append((-diff, item.get('product_name', '?')))
+                removed.append((-diff, item.get('product_name', '?'),
+                               item.get('series_name', ''), item.get('inventory_number', '')))
 
     for k, item in old_map.items():
         if k not in new_map:
-            removed.append((item.get('balance', 0) or 0, item.get('product_name', '?')))
+            removed.append((item.get('balance', 0) or 0, item.get('product_name', '?'),
+                           item.get('series_name', ''), item.get('inventory_number', '')))
+
+    def _fmt_line(diff, name, series, inv):
+        parts = [f'- {diff} шт\t{name}']
+        if series:
+            parts.append(f'    SN: {series}')
+        return '\n'.join(parts)
+
+    def _fmt_line_add(diff, name, series, inv):
+        parts = [f'+ {diff} шт\t{name}']
+        if series:
+            parts.append(f'    SN: {series}')
+        return '\n'.join(parts)
 
     if added:
-        lines = '\n'.join(f'+ {diff} шт\t{name}' for diff, name in added)
+        lines = '\n'.join(_fmt_line_add(d, n, s, i) for d, n, s, i in added)
         create_notification(username, 'warehouse_arrival',
             'Поступление на склад', lines, storage_guid)
         send_push_notification(username, 'Поступление на склад', lines)
 
     if removed:
-        lines = '\n'.join(f'- {diff} шт\t{name}' for diff, name in removed)
+        lines = '\n'.join(_fmt_line(d, n, s, i) for d, n, s, i in removed)
         create_notification(username, 'warehouse_writeoff',
             'Списание со склада', lines, storage_guid)
         send_push_notification(username, 'Списание со склада', lines)
@@ -675,18 +731,17 @@ def _check_tasks(username):
             task_label = f'Заявка {task.get("number", "")} "{task.get("name", "")}"'
 
             if diff < 0:
-                title = 'Срок заявки истёк'
                 desc = f'{task_label}\nСрок был: {period_str}'
+                if not notification_exists(username, 'task_deadline', desc, None):
+                    create_notification(username, 'task_deadline', 'Срок заявки истёк', desc)
+                    send_push_notification(username, 'Срок заявки истёк',
+                        desc.replace('\n', ' — '))
             elif diff < 7200:
-                title = 'Срок заявки истекает'
                 desc = f'{task_label}\nОсталось менее 2 часов'
-            else:
-                continue
-
-            if not notification_exists(username, 'task_deadline', desc, 60):
-                create_notification(username, 'task_deadline', title, desc)
-                send_push_notification(username, title,
-                    desc.replace('\n', ' — '))
+                if not notification_exists(username, 'task_deadline', desc, 60):
+                    create_notification(username, 'task_deadline', 'Срок заявки истекает', desc)
+                    send_push_notification(username, 'Срок заявки истекает',
+                        desc.replace('\n', ' — '))
         except Exception:
             continue
 
@@ -742,7 +797,7 @@ def send_push_notification(username, title, body):
             )
         except Exception as e:
             err_str = str(e)
-            if '410' in err_str or '404' in err_str:
+            if '410' in err_str or '404' in err_str or '401' in err_str:
                 delete_subscription(sub['endpoint'])
             else:
                 logger.warning(f"push failed for {username}: {err_str[:120]}")
@@ -792,6 +847,13 @@ def api_push_unsubscribe():
 def api_notification_dismiss(notif_id):
     username = session.get('username', '')
     dismiss_notification(notif_id, username)
+    return jsonify({'ok': True})
+
+@app.route('/api/notifications/dismiss-all', methods=['POST'])
+@api_login_required
+def api_notifications_dismiss_all():
+    username = session.get('username', '')
+    dismiss_all_notifications(username)
     return jsonify({'ok': True})
 
 
@@ -1150,17 +1212,15 @@ def _background_check_user(username):
             task_label = f'Заявка {task.get("number", "")} "{task.get("name", "")}"'
 
             if diff < 0:
-                title = 'Срок заявки истёк'
                 desc = f'{task_label}\nСрок был: {period_str}'
+                if not notification_exists(username, 'task_deadline', desc, None):
+                    create_notification(username, 'task_deadline', 'Срок заявки истёк', desc)
+                    send_push_notification(username, 'Срок заявки истёк', desc.replace('\n', ' — '))
             elif diff < 7200:
-                title = 'Срок заявки истекает'
                 desc = f'{task_label}\nОсталось менее 2 часов'
-            else:
-                continue
-
-            if not notification_exists(username, 'task_deadline', desc, 60):
-                create_notification(username, 'task_deadline', title, desc)
-                send_push_notification(username, title, desc.replace('\n', ' — '))
+                if not notification_exists(username, 'task_deadline', desc, 60):
+                    create_notification(username, 'task_deadline', 'Срок заявки истекает', desc)
+                    send_push_notification(username, 'Срок заявки истекает', desc.replace('\n', ' — '))
         except Exception:
             continue
 

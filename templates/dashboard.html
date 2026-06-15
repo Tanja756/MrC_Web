@@ -27,14 +27,26 @@
 <nav class="navbar navbar-dark bg-dark sticky-top py-2" id="mainNavbar">
     <div class="container-fluid">
         <a class="navbar-brand fw-semibold" href="#"><i class="bi bi-box-seam me-2"></i>Mr.Check</a>
-        <div class="d-flex align-items-center gap-2">
+        <div class="d-flex align-items-center gap-3">
             <div class="profile-avatar" id="profileAvatar" onclick="openSettings()" title="Профиль"></div>
-            <span class="me-2 small opacity-75 d-none d-md-inline"><i class="bi bi-person-circle me-1"></i>{{ session.username }}</span>
+            <span class="small opacity-75 d-none d-md-inline"><i class="bi bi-person-circle me-1"></i>{{ session.username }}</span>
+            <button class="btn btn-outline-light btn-sm px-2 position-relative" onclick="toggleMobileNotifications()" title="Уведомления" id="notifBell">
+                <i class="bi bi-bell"></i>
+                <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="notifBadge" style="font-size:0.55rem;display:none">0</span>
+            </button>
             <button class="btn btn-outline-light btn-sm px-2" onclick="openSettings()" title="Настройки"><i class="bi bi-gear"></i></button>
             <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm px-3">Выйти</a>
         </div>
     </div>
 </nav>
+
+<div class="notif-dropdown" id="notifDropdown">
+    <div class="notif-dropdown-header">
+        <span class="fw-semibold small">Уведомления</span>
+        <button class="notif-clear-btn" onclick="dismissAllNotifications()" title="Очистить все"><i class="bi bi-eraser"></i></button>
+    </div>
+    <div id="notifDropdownList"><div class="text-muted small p-2">Загрузка...</div></div>
+</div>
 
 <div class="container-fluid mt-3 pb-5" id="mainContainer">
     <ul class="nav nav-tabs" id="mainTabs" role="tablist">
@@ -77,6 +89,7 @@
                                         <option value="date">По дате создания</option>
                                         <option value="deadline">По сроку</option>
                                         <option value="priority">По приоритету</option>
+                                        <option value="closed_at">По дате закрытия</option>
                                     </select>
                                     <div class="btn-group btn-group-sm" role="group" id="sortDirGroup">
                                         <button class="btn btn-outline-secondary" data-dir="asc" onclick="setSortDir('asc')" title="По возрастанию"><i class="bi bi-sort-up"></i></button>
@@ -116,7 +129,10 @@
                     <div class="right-sidebar">
                         <div class="sidebar-scroll">
                             <section>
-                                <div class="sidebar-section-title">Уведомления</div>
+                                <div class="sidebar-section-title">
+                                    Уведомления
+                                    <button class="notif-clear-btn" onclick="dismissAllNotifications()" title="Очистить все"><i class="bi bi-eraser"></i></button>
+                                </div>
                                 <div id="notificationsList"><div class="text-muted small">Загрузка...</div></div>
                             </section>
                         </div>

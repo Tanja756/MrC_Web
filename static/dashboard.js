@@ -167,6 +167,9 @@ function parseDate(str) {
     const m2 = str.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
     if (m2) return new Date(+m2[3], +m2[2]-1, +m2[1]);
 
+    const m3 = str.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})$/);
+    if (m3) return new Date(+m3[1], +m3[2]-1, +m3[3], +m3[4], +m3[5], +m3[6]);
+
     const d = new Date(str);
     return isNaN(d.getTime()) ? null : d;
 }
@@ -233,6 +236,8 @@ let tasksMy = [], tasksFree = [], tasksClosed = [];
 let allBalances = [];
 let currentDate = new Date();
 let currentBalanceFilter = 'all';
+let balanceSortField = 'date_arrival';
+let balanceSortDir = 'desc';
 let multiSelectMode = false;
 let selectedGuids = new Set();
 let pendingAttachments = [];
@@ -438,6 +443,16 @@ function loadBalances() {
         });
 }
 
+function sortBalances(field) {
+    if (balanceSortField === field) {
+        balanceSortDir = balanceSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        balanceSortField = field;
+        balanceSortDir = 'asc';
+    }
+    filterBalances();
+}
+
 function filterBalances() {
     const query = document.getElementById('balanceSearch').value.toLowerCase().trim();
     let filtered = allBalances;
@@ -457,11 +472,35 @@ function filterBalances() {
         );
     }
 
+    if (balanceSortField) {
+        filtered = [...filtered].sort((a, b) => {
+            const compare = (field, dir) => {
+                let va = a[field], vb = b[field];
+                if (va == null) va = '';
+                if (vb == null) vb = '';
+                if (field === 'balance') {
+                    return (Number(va) || 0) - (Number(vb) || 0);
+                }
+                return String(va).localeCompare(String(vb), 'ru');
+            };
+            let cmp = compare(balanceSortField, balanceSortDir);
+            if (cmp === 0) cmp = compare('product_name', 'asc');
+            return balanceSortDir === 'asc' ? cmp : -cmp;
+        });
+    }
+
     const container = document.getElementById('balancesList');
     if (filtered.length === 0) {
         container.innerHTML = '<div class="empty-state"><i class="bi bi-box-seam"></i><p>Нет остатков</p></div>';
         return;
     }
+
+    const sortIcon = field => {
+        if (field !== balanceSortField) return '';
+        return balanceSortDir === 'asc'
+            ? ' <i class="bi bi-sort-up"></i>'
+            : ' <i class="bi bi-sort-down"></i>';
+    };
 
     // Mobile: stacked cards
     const mobileHtml = filtered.map(b => `
@@ -479,7 +518,14 @@ function filterBalances() {
 
     // Desktop: table
     const desktopHtml = `<div class="table-responsive"><table class="table table-hover balance-table">
-        <thead><tr><th>Товар</th><th>Серия</th><th>Инв. номер</th><th>Поступление</th><th>Списание</th><th class="text-end">Остаток</th></tr></thead>
+        <thead><tr>
+            <th class="sortable" onclick="sortBalances('product_name')">Товар${sortIcon('product_name')}</th>
+            <th class="sortable" onclick="sortBalances('series_name')">Серия${sortIcon('series_name')}</th>
+            <th class="sortable" onclick="sortBalances('inventory_number')">Инв. номер${sortIcon('inventory_number')}</th>
+            <th class="sortable" onclick="sortBalances('date_arrival')">Поступление${sortIcon('date_arrival')}</th>
+            <th class="sortable" onclick="sortBalances('date_writeoff')">Списание${sortIcon('date_writeoff')}</th>
+            <th class="text-end sortable" onclick="sortBalances('balance')">Остаток${sortIcon('balance')}</th>
+        </tr></thead>
         <tbody>${filtered.map(b => `<tr>
             <td>${b.product_name || '—'}</td>
             <td>${b.series_name || '—'}</td>
@@ -1031,6 +1077,39 @@ function timeAgo(iso) {
     return `${days} д назад`;
 }
 
+function renderNotifications(list, container) {
+    if (!list || !list.length) {
+        container.innerHTML = '<div class="text-muted small p-2">Нет уведомлений</div>';
+        return;
+    }
+    container.innerHTML = list.map(n => {
+        const typeClass = n.type === 'warehouse_arrival' ? 'type-arrival'
+            : n.type === 'warehouse_writeoff' ? 'type-writeoff'
+            : n.type === 'task_deadline' ? 'type-deadline'
+            : n.type === 'new_task' ? 'type-new-task'
+            : 'type-default';
+        return `
+        <div class="notification-card mb-1 ${typeClass}">
+            <div class="notif-title">${esc(n.title)}</div>
+            <div class="notif-description">${esc(n.description).replace(/\n/g, '<br>')}</div>
+            <div class="notif-time">${timeAgo(n.created_at)}</div>
+            <button class="btn-close notif-close" onclick="dismissNotification(${n.id})"></button>
+        </div>`;
+    }).join('');
+}
+
+function updateNotifBadge(list) {
+    const badge = document.getElementById('notifBadge');
+    if (!badge) return;
+    const count = list && list.length ? list.length : 0;
+    if (count > 0) {
+        badge.textContent = count > 99 ? '99+' : count;
+        badge.style.display = '';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
 function loadNotifications(storageGuid, checkTasks) {
     const container = document.getElementById('notificationsList');
     if (!container) return;
@@ -1042,27 +1121,43 @@ function loadNotifications(storageGuid, checkTasks) {
     fetchDeduped(url, undefined, 30000)
         .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(list => {
-            if (!list || !list.length) {
-                container.innerHTML = '<div class="text-muted small">Нет уведомлений</div>';
-                return;
-            }
-            container.innerHTML = list.map(n => {
-                const typeClass = n.type === 'warehouse_arrival' ? 'type-arrival'
-                    : n.type === 'warehouse_writeoff' ? 'type-writeoff'
-                    : n.type === 'task_deadline' ? 'type-deadline'
-                    : n.type === 'new_task' ? 'type-new-task'
-                    : 'type-default';
-                return `
-                <div class="notification-card mb-1 ${typeClass}">
-                    <div class="notif-title">${esc(n.title)}</div>
-                    <div class="notif-description">${esc(n.description).replace(/\n/g, '<br>')}</div>
-                    <div class="notif-time">${timeAgo(n.created_at)}</div>
-                    <button class="btn-close notif-close" onclick="dismissNotification(${n.id})"></button>
-                </div>`;
-            }).join('');
+            renderNotifications(list, container);
+            updateNotifBadge(list);
+            const dropdownList = document.getElementById('notifDropdownList');
+            if (dropdownList) renderNotifications(list, dropdownList);
         })
         .catch(() => {
             container.innerHTML = '<div class="text-muted small">Ошибка загрузки</div>';
+            updateNotifBadge(null);
+        });
+}
+
+function toggleMobileNotifications() {
+    const el = document.getElementById('notifDropdown');
+    if (!el) return;
+    el.classList.toggle('show');
+}
+
+document.addEventListener('click', function(e) {
+    const dd = document.getElementById('notifDropdown');
+    const bell = document.getElementById('notifBell');
+    if (dd && dd.classList.contains('show') && !dd.contains(e.target) && !bell?.contains(e.target)) {
+        dd.classList.remove('show');
+    }
+});
+
+function dismissAllNotifications() {
+    const container = document.getElementById('notificationsList');
+    if (container) container.innerHTML = '<div class="text-muted small">Очистка...</div>';
+    const storage = document.getElementById('storageSelect')?.value || '';
+    for (const key of reqCache.keys()) {
+        if (key.startsWith('/api/notifications')) reqCache.delete(key);
+    }
+    fetch('/api/notifications/dismiss-all', {method: 'POST'})
+        .then(checkAuth)
+        .then(() => { loadNotifications(storage); })
+        .catch(() => {
+            if (container) container.innerHTML = '<div class="text-muted small">Ошибка</div>';
         });
 }
 

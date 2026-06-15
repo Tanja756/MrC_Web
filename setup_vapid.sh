@@ -15,7 +15,15 @@ trap 'rm -rf "$TMPDIR"' EXIT
 openssl ecparam -genkey -name prime256v1 -out "$TMPDIR/private.pem" 2>/dev/null
 
 # Извлекаем приватный ключ в base64 (raw 32 байта)
-PRIVATE_KEY=$(openssl ec -in "$TMPDIR/private.pem" -outform DER 2>/dev/null | tail -c 32 | base64 -w0)
+PRIVATE_KEY=$(openssl ec -in "$TMPDIR/private.pem" -no_public -outform DER 2>/dev/null | python3 -c "
+import sys, base64
+data = sys.stdin.buffer.read()
+idx = data.find(b'\\x04\\x20')
+if idx < 0:
+    sys.exit(1)
+priv = data[idx+2:idx+34]
+print(base64.urlsafe_b64encode(priv).decode().rstrip('='))
+")
 
 # Извлекаем публичный ключ в base64 (raw 65 байт — 0x04 + x + y)
 PUBLIC_KEY=$(openssl ec -in "$TMPDIR/private.pem" -pubout -outform DER 2>/dev/null | tail -c 65 | base64 -w0)
@@ -35,7 +43,7 @@ set_env() {
     local key="$1"
     local value="$2"
     # Экранируем для sed
-    local escaped_value=$(echo "$value" | sed 's/[&/\]/\\&/g')
+    local escaped_value=$(echo "$value" | sed 's/[&\]/\\&/g')
     if echo "$ENV_CONTENT" | grep -q "^${key}="; then
         ENV_CONTENT=$(echo "$ENV_CONTENT" | sed "s|^${key}=.*|${key}=${escaped_value}|")
     else

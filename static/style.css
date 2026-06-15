@@ -102,22 +102,29 @@ a:hover { color: var(--primary-hover); }
     padding: 14px 16px;
 }
 
-/* Urgency indicator dot */
+/* Urgency indicator corner */
 .task-card::before {
     content: '';
     position: absolute;
-    top: 14px;
-    left: 16px;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 0;
+    z-index: 1;
 }
 .task-card.urgency-overdue::before {
-    background: var(--danger);
-    box-shadow: 0 0 6px rgba(232,17,35,0.4);
+    border-width: 24px 24px 0 0;
+    border-color: var(--danger) transparent transparent transparent;
+}
+.task-card.urgency-imminent::before {
+    border-width: 20px 20px 0 0;
+    border-color: #f97316 transparent transparent transparent;
 }
 .task-card.urgency-warning::before {
-    background: var(--warning);
+    border-width: 20px 20px 0 0;
+    border-color: var(--warning) transparent transparent transparent;
 }
 .task-card.urgency-normal::before {
     display: none;
@@ -131,7 +138,6 @@ a:hover { color: var(--primary-hover); }
     flex-wrap: wrap;
     margin-bottom: 6px;
     min-height: 20px;
-    padding-left: 16px;
 }
 
 /* Priority dot */
@@ -524,6 +530,8 @@ a:hover { color: var(--primary-hover); }
 /* Responsive */
 @media (max-width: 768px) {
     body { font-size: 0.88rem; }
+    .right-sidebar { display: none !important; }
+    #upload-tab { display: none !important; }
     .filter-header {
         display: flex;
         align-items: center;
@@ -1201,7 +1209,6 @@ a:hover { color: var(--primary-hover); }
 
 /* Desktop container width */
 @media (min-width: 768px) {
-    #mainContainer { max-width: 80%; padding: 0 16px; }
     .filter-body { display: block !important; }
     .filter-header {
         display: flex;
@@ -1213,6 +1220,12 @@ a:hover { color: var(--primary-hover); }
         user-select: none;
     }
     .filter-header .badge { font-size: 0.7rem; }
+}
+@media (min-width: 768px) and (max-width: 1599px) {
+    #mainContainer { max-width: 100%; padding: 0 16px; }
+}
+@media (min-width: 1600px) {
+    #mainContainer { max-width: 80%; padding: 0 16px; }
 }
 
 /* Right sidebar */
@@ -1229,10 +1242,12 @@ a:hover { color: var(--primary-hover); }
     flex: 0 1 auto;
     min-height: 0;
     overflow-y: auto;
+    scrollbar-gutter: stable;
 }
 .sidebar-announcements {
     flex-shrink: 0;
     padding-top: 8px;
+    scrollbar-gutter: stable;
 }
 .sidebar-ann-toggle {
     display: flex;
@@ -1261,6 +1276,8 @@ a:hover { color: var(--primary-hover); }
     padding-bottom: 5px;
     margin-bottom: 6px;
     border-bottom: 1px solid var(--separator);
+    display: flex;
+    align-items: center;
 }
 
 /* Notification card */
@@ -1275,6 +1292,23 @@ a:hover { color: var(--primary-hover); }
 }
 .notification-card:hover {
     box-shadow: var(--card-shadow-hover);
+}
+
+.notif-clear-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    padding: 0 2px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    opacity: 0.4;
+    margin-left: auto;
+    line-height: 1;
+}
+.notif-clear-btn:hover {
+    opacity: 1;
+    color: var(--text-color);
 }
 .notification-card .notif-title {
     font-size: 0.72rem;
@@ -1354,6 +1388,58 @@ a:hover { color: var(--primary-hover); }
     color: var(--text-muted);
     margin-top: 4px;
     opacity: 0.6;
+}
+
+.balance-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+.balance-table th.sortable:hover {
+    color: var(--primary);
+}
+
+/* Mobile notification dropdown */
+.notif-dropdown {
+    display: none !important;
+    position: fixed;
+    top: 52px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--body-bg);
+    z-index: 1040;
+    flex-direction: column;
+    overflow: hidden;
+}
+.notif-dropdown.show {
+    display: flex !important;
+}
+.notif-dropdown-header {
+    display: flex;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--separator);
+    flex-shrink: 0;
+    background: var(--card-bg);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+.notif-dropdown-header > .notif-clear-btn {
+    font-size: 0.7rem;
+    opacity: 0.5;
+}
+.notif-dropdown-header > .notif-clear-btn:hover {
+    opacity: 1;
+}
+#notifDropdownList {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 14px;
+}
+#notifDropdownList .notification-card {
+    margin-bottom: 8px !important;
 }
 
 
