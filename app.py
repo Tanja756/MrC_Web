@@ -26,6 +26,7 @@ from db import (
     delete_subscription, delete_user_subscriptions,
     save_user_credentials, get_user_credentials, get_all_users_with_credentials,
     set_task_taken, set_task_closed, get_tasks_tracking,
+    count_user_notifications,
 )
 
 load_dotenv()
@@ -477,15 +478,17 @@ def _check_balance_changes(username, storage_guid, new_data):
 
     if added:
         lines = '\n'.join(_fmt_line_add(d, n, s, i) for d, n, s, i in added)
-        create_notification(username, 'warehouse_arrival',
-            'Поступление на склад', lines, storage_guid)
-        send_push_notification(username, 'Поступление на склад', lines)
+        if not notification_exists(username, 'warehouse_arrival', lines, 60):
+            create_notification(username, 'warehouse_arrival',
+                'Поступление на склад', lines, storage_guid)
+            send_push_notification(username, 'Поступление на склад', lines)
 
     if removed:
         lines = '\n'.join(_fmt_line(d, n, s, i) for d, n, s, i in removed)
-        create_notification(username, 'warehouse_writeoff',
-            'Списание со склада', lines, storage_guid)
-        send_push_notification(username, 'Списание со склада', lines)
+        if not notification_exists(username, 'warehouse_writeoff', lines, 60):
+            create_notification(username, 'warehouse_writeoff',
+                'Списание со склада', lines, storage_guid)
+            send_push_notification(username, 'Списание со склада', lines)
 
     save_snapshot(username, storage_guid, new_data)
 
@@ -680,38 +683,8 @@ def _refresh_balance_if_stale(username, storage_guid):
         _check_balance_changes(username, storage_guid, data)
 
 
-def _check_tasks(username):
-    if not username:
-        return
-
-    old_data, updated_at = get_task_snapshot(username)
-    if updated_at:
-        try:
-            from datetime import datetime
-            dt = datetime.strptime(updated_at, '%Y-%m-%d %H:%M:%S')
-            if (datetime.now() - dt).total_seconds() < 600:
-                return
-        except (ValueError, TypeError):
-            pass
-
-    client = get_api_client()
-    if not client:
-        return
-
-    now = datetime.now()
-
-    # Fetch user's tasks (in progress)
-    user_data = client.get_tasks_user(limit=200)
-    user_tasks = _project_tasks(user_data.get('tasks', []))
-
-    # Fetch free tasks
-    free_data = client.get_tasks_unallocated(limit=200)
-    free_tasks = _project_tasks(free_data.get('tasks', []))
-
-    all_tasks = user_tasks + free_tasks
-
-    # Check deadlines for all tasks (in progress + free)
-    for task in all_tasks:
+def _check_deadlines(tasks, username, now):
+    for task in tasks:
         period_str = task.get('period') or task.get('date')
         if not period_str:
             continue
@@ -745,30 +718,63 @@ def _check_tasks(username):
         except Exception:
             continue
 
-    # Check for new free tasks
+
+def _check_new_free_tasks(username, free_tasks, old_data):
     current_free_guids = {t.get('guid', '') for t in free_tasks if t.get('guid')}
 
     if old_data is None:
-        # Первый запуск после очистки кеша — просто сохраняем снимок, без уведомлений
         save_task_snapshot(username, list(current_free_guids))
         logger.info(f"Initial task snapshot saved for '{username}' (cache was empty)")
-    else:
-        old_free_guids = set(old_data)
-        new_guids = current_free_guids - old_free_guids
+        return
 
-        for task in free_tasks:
-            if task.get('guid') in new_guids:
-                title = 'Новая свободная заявка'
-                desc = f'Заявка {task.get("number", "")} "{task.get("name", "")}"'
-                if not notification_exists(username, 'new_task', desc, 60):
-                    create_notification(username, 'new_task', title, desc)
-                    send_push_notification(username, title, desc)
+    old_free_guids = set(old_data)
+    new_guids = current_free_guids - old_free_guids
 
-        save_task_snapshot(username, list(current_free_guids))
+    for task in free_tasks:
+        if task.get('guid') in new_guids:
+            desc = f'Заявка {task.get("number", "")} "{task.get("name", "")}"'
+            if not notification_exists(username, 'new_task', desc, None):
+                create_notification(username, 'new_task', 'Новая свободная заявка', desc)
+                send_push_notification(username, 'Новая свободная заявка', desc)
+
+    save_task_snapshot(username, list(current_free_guids))
+
+
+def _check_tasks(username):
+    if not username:
+        return
+
+    old_data, updated_at = get_task_snapshot(username)
+    if updated_at:
+        try:
+            dt = datetime.strptime(updated_at, '%Y-%m-%d %H:%M:%S')
+            if (datetime.now() - dt).total_seconds() < 600:
+                return
+        except (ValueError, TypeError):
+            pass
+
+    client = get_api_client()
+    if not client:
+        return
+
+    now = datetime.now()
+
+    user_data = client.get_tasks_user(limit=200)
+    user_tasks = _project_tasks(user_data.get('tasks', []))
+
+    free_data = client.get_tasks_unallocated(limit=200)
+    free_tasks = _project_tasks(free_data.get('tasks', []))
+
+    _check_deadlines(user_tasks + free_tasks, username, now)
+    _check_new_free_tasks(username, free_tasks, old_data)
 
 
 def _copy_seed_notifications(username):
     seeds = get_active_notifications('__seed__')
+    if not seeds:
+        return
+    if count_user_notifications(username) > 0:
+        return
     for s in seeds:
         create_notification(username, s['type'], s['title'], s['description'], None)
         send_push_notification(username, s['title'], s['description'])
@@ -1167,9 +1173,6 @@ def _background_check_user(username):
         except (ValueError, TypeError):
             pass
 
-    # Используем временного клиента с логином/паролем
-    # ВАЖНО: для фоновой проверки нужно хранить пароли
-    # Используем сохранённые credentials из сессий или env-переменные
     client = _get_background_api_client(username)
     if not client:
         return
@@ -1190,60 +1193,9 @@ def _background_check_user(username):
         logger.warning(f"Background: failed to fetch free tasks for {username}: {e}")
         free_tasks = []
 
-    all_tasks = user_tasks + free_tasks
+    _check_deadlines(user_tasks + free_tasks, username, now)
+    _check_new_free_tasks(username, free_tasks, old_data)
 
-    for task in all_tasks:
-        period_str = task.get('period') or task.get('date')
-        if not period_str:
-            continue
-
-        try:
-            m = re.match(r'(\d{2})\.(\d{2})\.(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})', period_str)
-            if m:
-                deadline = datetime(int(m[3]), int(m[2]), int(m[1]), int(m[4]), int(m[5]), int(m[6]))
-            else:
-                m2 = re.match(r'(\d{2})\.(\d{2})\.(\d{4})', period_str)
-                if m2:
-                    deadline = datetime(int(m2[3]), int(m2[2]), int(m2[1]), 23, 59, 59)
-                else:
-                    continue
-
-            diff = (deadline - now).total_seconds()
-            task_label = f'Заявка {task.get("number", "")} "{task.get("name", "")}"'
-
-            if diff < 0:
-                desc = f'{task_label}\nСрок был: {period_str}'
-                if not notification_exists(username, 'task_deadline', desc, None):
-                    create_notification(username, 'task_deadline', 'Срок заявки истёк', desc)
-                    send_push_notification(username, 'Срок заявки истёк', desc.replace('\n', ' — '))
-            elif diff < 7200:
-                desc = f'{task_label}\nОсталось менее 2 часов'
-                if not notification_exists(username, 'task_deadline', desc, None):
-                    create_notification(username, 'task_deadline', 'Срок заявки истекает', desc)
-                    send_push_notification(username, 'Срок заявки истекает', desc.replace('\n', ' — '))
-        except Exception:
-            continue
-
-    current_free_guids = {t.get('guid', '') for t in free_tasks if t.get('guid')}
-
-    if old_data is None:
-        save_task_snapshot(username, list(current_free_guids))
-        logger.info(f"Background: initial task snapshot saved for '{username}' (cache was empty)")
-    else:
-        old_free_guids = set(old_data)
-        new_guids = current_free_guids - old_free_guids
-
-        for task in free_tasks:
-            if task.get('guid') in new_guids:
-                title = 'Новая свободная заявка'
-                desc = f'Заявка {task.get("number", "")} "{task.get("name", "")}"'
-                if not notification_exists(username, 'new_task', desc, 60):
-                    create_notification(username, 'new_task', title, desc)
-                    send_push_notification(username, title, desc)
-
-        save_task_snapshot(username, list(current_free_guids))
-
-    # Фоновая проверка складов (не чаще раза в час на склад)
     _background_check_balances(client, username)
 
 

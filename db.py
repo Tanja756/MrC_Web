@@ -171,6 +171,14 @@ def dismiss_all_notifications(username):
     conn.commit()
     conn.close()
 
+def count_user_notifications(username):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM notifications WHERE username=?", (username,))
+    count = c.fetchone()[0]
+    conn.close()
+    return count
+
 def get_snapshot(username, storage_guid):
     conn = get_db_connection()
     c = conn.cursor()
