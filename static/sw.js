@@ -1,5 +1,5 @@
-const CACHE = 'mrcheck-v1';
-const STATIC_CACHE = 'mrcheck-static-v1';
+const CACHE = 'mrcheck-v2';
+const STATIC_CACHE = 'mrcheck-static-v2';
 
 const STATIC_URLS = [
   '/static/style.css',
@@ -7,6 +7,8 @@ const STATIC_URLS = [
   '/static/tasks.js',
   '/static/ppr.js',
   '/static/icon.png',
+  '/static/icon-512.png',
+  '/manifest.json',
 ];
 
 self.addEventListener('install', event => {
@@ -63,4 +65,43 @@ self.addEventListener('fetch', event => {
     );
     return;
   }
+
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request).catch(() =>
+        caches.match('/dashboard') || caches.match('/login')
+      )
+    );
+  }
+});
+
+// ====== НОВЫЙ ОБРАБОТЧИК PUSH ======
+self.addEventListener('push', function(event) {
+  let data = {};
+  try {
+    data = event.data.json();
+  } catch (e) {
+    data = { title: 'Уведомление', body: '' };
+  }
+  const title = data.title || 'Уведомление';
+  const body = data.body || '';
+  const options = {
+    body: body,
+    icon: '/static/icon.png',          // если есть иконка, иначе уберите или оставьте
+    data: {
+      url: '/dashboard'                // куда перейти при клике
+    }
+  };
+  event.waitUntil(
+    self.registration.showNotification(title, options)
+  );
+});
+
+// ====== НОВЫЙ ОБРАБОТЧИК КЛИКА ======
+self.addEventListener('notificationclick', function(event) {
+  event.notification.close();
+  const url = event.notification.data?.url || '/';
+  event.waitUntil(
+    clients.openWindow(url)
+  );
 });

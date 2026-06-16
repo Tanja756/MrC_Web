@@ -659,6 +659,28 @@ function loadSalary() {
         });
 }
 
+function sendTestPush() {
+    fetch('/api/push/test', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.ok) {
+                const btn = document.querySelector('#salary .btn-outline-primary');
+                if (btn) {
+                    const orig = btn.innerHTML;
+                    btn.innerHTML = '<i class="bi bi-check-lg"></i> Отправлено';
+                    btn.classList.remove('btn-outline-primary');
+                    btn.classList.add('btn-success');
+                    setTimeout(() => {
+                        btn.innerHTML = orig;
+                        btn.classList.remove('btn-success');
+                        btn.classList.add('btn-outline-primary');
+                    }, 2000);
+                }
+            }
+        })
+        .catch(e => console.warn('Push test failed', e));
+}
+
 function changeMonth(delta) {
     currentDate.setMonth(currentDate.getMonth() + delta);
     loadSalary();
@@ -1278,3 +1300,13 @@ async function initPushNotifications() {
         console.warn('Push init failed', e);
     }
 }
+
+// ============ PWA INSTALL ============
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferredPrompt = e;
+});
+window.addEventListener('appinstalled', () => {
+    deferredPrompt = null;
+});

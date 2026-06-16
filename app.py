@@ -817,6 +817,14 @@ def service_worker():
     )
 
 
+@app.route('/manifest.json')
+def manifest():
+    return Response(
+        open('templates/manifest.json', 'rb').read(),
+        mimetype='application/manifest+json',
+    )
+
+
 @app.route('/api/push/vapid-public-key')
 @api_login_required
 def api_vapid_public_key():
@@ -845,6 +853,14 @@ def api_push_unsubscribe():
     endpoint = data.get('endpoint', '')
     if endpoint:
         delete_subscription(endpoint)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/push/test', methods=['POST'])
+@api_login_required
+def api_push_test():
+    username = session.get('username', '')
+    send_push_notification(username, 'Тестовое уведомление', 'Это тестовое push-уведомление со страницы зарплаты')
     return jsonify({'ok': True})
 
 
@@ -1254,6 +1270,7 @@ def start_background_worker():
     _background_stop.clear()
     thread = threading.Thread(target=_background_check_loop, daemon=True)
     thread.start()
+    _background_timer = thread
     logger.info("Background push notification worker started (interval=%ds)", BACKGROUND_CHECK_INTERVAL)
 
 
@@ -1262,7 +1279,8 @@ def stop_background_worker():
     _background_stop.set()
 
 
+start_background_worker()
+
 if __name__ == '__main__':
-    start_background_worker()
     debug = env == 'development'
     app.run(host='0.0.0.0', port=5000, debug=debug)
