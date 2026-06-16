@@ -443,6 +443,16 @@ function loadBalances() {
         });
 }
 
+function refreshBalances() {
+    const guid = document.getElementById('storageSelect').value;
+    if (guid) {
+        for (const key of reqCache.keys()) {
+            if (key.startsWith('/api/warehouse/balances')) reqCache.delete(key);
+        }
+    }
+    loadBalances();
+}
+
 function sortBalances(field) {
     if (balanceSortField === field) {
         balanceSortDir = balanceSortDir === 'asc' ? 'desc' : 'asc';

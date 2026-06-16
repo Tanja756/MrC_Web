@@ -153,7 +153,9 @@
         <!-- ========== WAREHOUSE TAB ========== -->
         <div class="tab-pane fade" id="warehouse" role="tabpanel">
             <div class="filter-bar">
-                <div class="filter-header d-md-none" onclick="toggleFilter(this)"><i class="bi bi-funnel"></i> Фильтры склада</div>
+                <div class="filter-header d-md-none" onclick="toggleFilter(this)"><i class="bi bi-funnel"></i> Фильтры склада
+                    <button class="btn btn-sm btn-outline-secondary border-0 ms-1" onclick="event.stopPropagation();refreshBalances()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
+                </div>
                 <div class="filter-body">
                 <div class="row g-2">
                     <div class="col-md-3">
