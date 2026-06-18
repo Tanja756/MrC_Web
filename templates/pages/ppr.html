@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-kanban me-2"></i>Планово-предупредительные работы (ППР)</h5>
+        <div class="filter-bar mt-2 px-0">
+            <div class="filter-header d-md-none" onclick="toggleFilter(this)"><i class="bi bi-funnel"></i> Фильтры ППР</div>
+            <div class="filter-body">
+            <div class="row g-2">
+                <div class="col-md-3"><input type="number" class="form-control" id="pprYear" value="{{ now().year }}"></div>
+                <div class="col-md-3">
+                    <select class="form-select" id="pprQuarter" onchange="loadPprDepartments(); loadPpr()">
+                        <option value="1">1 квартал</option>
+                        <option value="2">2 квартал</option>
+                        <option value="3">3 квартал</option>
+                        <option value="4">4 квартал</option>
+                    </select>
+                </div>
+                <div class="col-md-3"><select class="form-select" id="pprDepartment" onchange="savePprDepartment(); loadPpr()"><option value="">Все регионы</option></select></div>
+                <div class="col-md-3"><button class="btn btn-primary w-100" onclick="loadPpr()"><i class="bi bi-search me-1"></i>Поиск</button></div>
+            </div>
+            </div>
+        </div>
+        <div id="pprList"></div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+{% include "modals/ppr-detail.html" %}
+<script src="{{ url_for('static', filename='ppr.js') }}?v=3"></script>
+<script>document.addEventListener('DOMContentLoaded',()=>{runStartup();initPushNotifications();applyTheme(currentTheme);updateProfileAvatar();loadProfile();loadNotifications('',true);loadAnnouncements();loadPprDepartments();loadPpr();setInterval(()=>loadNotifications('',true),600000);});</script>
+{% endblock %}

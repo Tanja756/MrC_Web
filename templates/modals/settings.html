@@ -1,0 +1,49 @@
+<div class="modal fade" id="settingsModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-primary">
+                <h5 class="modal-title"><i class="bi bi-gear me-2"></i>Настройки</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-section">
+                    <label><i class="bi bi-person me-1"></i>Имя для документов</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="profileName" placeholder="Введите ваше имя..." maxlength="100">
+                        <button class="btn btn-primary" onclick="saveProfile()"><i class="bi bi-check-lg"></i></button>
+                    </div>
+                    <div class="form-text small text-muted mt-1">Будет подставлено в документы вместо "{{ '{KA}' }}"</div>
+                </div>
+                <hr>
+                <div class="settings-section">
+                    <label for="settingsWarehouse"><i class="bi bi-shop me-1"></i>Основной склад</label>
+                    <select class="form-select" id="settingsWarehouse" onchange="saveProfile()">
+                        <option value="">Не выбран</option>
+                    </select>
+                    <div class="form-text small text-muted mt-1">Будет подставляться по умолчанию на вкладке «Склад» и при подборе товаров в М15</div>
+                </div>
+                <hr>
+                <div class="settings-section">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <label class="mb-0"><i class="bi bi-palette me-1"></i>Тема оформления</label>
+                            <div class="form-text small text-muted mt-0" id="themeLabel">Светлая</div>
+                        </div>
+                        <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" role="switch" aria-checked="false"></button>
+                    </div>
+                </div>
+                <hr>
+                <div class="settings-section">
+                    <label class="mb-2"><i class="bi bi-eraser me-1"></i>Кеш пользователя</label>
+                    <p class="small text-muted mb-2">Очищает сохранённые уведомления, снимки складов, push-подписки и сохранённый пароль. Потребуется повторный вход.</p>
+                    <button class="btn btn-outline-danger w-100" onclick="clearUserCache()">
+                        <i class="bi bi-trash3 me-1"></i>Очистить кеш
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="saveProfile()" data-bs-dismiss="modal">Закрыть</button>
+            </div>
+        </div>
+    </div>
+</div>

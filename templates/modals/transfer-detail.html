@@ -1,0 +1,24 @@
+<div class="modal fade" id="transferDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content position-relative">
+            <div class="modal-header bg-primary">
+                <h5 class="modal-title" id="transferDetailTitle"><i class="bi bi-arrow-left-right me-2"></i>Перемещение</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="transferDetailBody">
+                <div id="transferDetailInfo" class="mb-3"></div>
+                <div id="transferDetailProducts" class="mb-3"></div>
+                <div id="transferDetailComments" class="mb-3"></div>
+                <div id="transferDetailPhotos" class="mb-3"></div>
+            </div>
+            <div class="modal-footer" id="transferDetailFooter">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+                <button class="btn btn-primary" onclick="saveTransferChanges()" id="saveTransferBtn"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
+            </div>
+            <div id="transferDetailLoading" class="d-none position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center bg-white bg-opacity-90" style="z-index:1060;border-radius:inherit;">
+                <div class="spinner-border text-primary mb-3" role="status" style="width:3rem;height:3rem;"></div>
+                <div class="fw-semibold">Сохранение...</div>
+            </div>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+<ul class="nav nav-pills mb-3" id="warehouseTabs">
+    <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#wh-balances">Остатки</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#wh-transfers">Перемещения</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#wh-archive">Архив</button></li>
+</ul>
+<div class="tab-content">
+    <div class="tab-pane fade show active" id="wh-balances">
+        <div class="filter-bar">
+            <div class="filter-header d-md-none" onclick="toggleFilter(this)"><i class="bi bi-funnel"></i> Фильтры склада
+                <button class="btn btn-sm btn-outline-secondary border-0 ms-1" onclick="event.stopPropagation();refreshBalances()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
+            </div>
+            <div class="filter-body">
+            <div class="row g-2">
+                <div class="col-md-3"><select class="form-select" id="storageSelect" onchange="loadBalances()"><option value="">Выберите склад...</option></select></div>
+                <div class="col-md-4">
+                    <div class="input-group">
+                        <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                        <input type="text" class="form-control" id="balanceSearch" placeholder="Поиск..." oninput="filterBalances()">
+                        <button class="btn btn-outline-secondary btn-reset-filter" onclick="document.getElementById('balanceSearch').value='';filterBalances()"><i class="bi bi-x-lg"></i></button>
+                    </div>
+                </div>
+                <div class="col-md-5">
+                    <div class="d-flex gap-1">
+                        <div class="btn-group flex-grow-1">
+                            <button class="btn btn-outline-secondary" onclick="filterBalanceType('all')" id="bf-all">Все</button>
+                            <button class="btn btn-outline-secondary" onclick="filterBalanceType('equipment')" id="bf-equipment">Оборудование</button>
+                            <button class="btn btn-outline-secondary" onclick="filterBalanceType('zip')" id="bf-zip">ЗИП</button>
+                            <button class="btn btn-outline-secondary" onclick="filterBalanceType('repair')" id="bf-repair">Ремонт</button>
+                        </div>
+                        <button class="btn btn-outline-secondary" onclick="refreshBalances()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
+                    </div>
+                </div>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="exportWarehousePdf()" title="Экспорт PDF"><i class="bi bi-filetype-pdf"></i></button>
+                </div>
+            </div>
+        </div>
+        <div id="balancesList"></div>
+    </div>
+    <div class="tab-pane fade" id="wh-transfers">
+        <div class="d-flex align-items-center gap-2 mb-3">
+            <button class="btn btn-primary btn-sm" onclick="openCreateTransfer()"><i class="bi bi-plus-lg me-1"></i>Создать перемещение</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="loadTransfers()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
+        </div>
+        <div id="transfersList"><div class="text-muted small text-center py-4">Выберите склад для загрузки перемещений</div></div>
+    </div>
+    <div class="tab-pane fade" id="wh-archive">
+        <div class="empty-state"><i class="bi bi-archive"></i><p>Раздел в разработке</p></div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+{% include "modals/transfer-detail.html" %}
+{% include "modals/transfer-create.html" %}
+<script>document.addEventListener('DOMContentLoaded',()=>{runStartup();initPushNotifications();applyTheme(currentTheme);updateProfileAvatar();loadProfile();loadNotifications('',true);loadAnnouncements();loadStorages();setInterval(()=>loadNotifications('',true),600000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){loadNotifications('',true);loadBalances();}});const sel=document.getElementById('storageSelect');const saved=lsGet('defaultWarehouse','');if(saved&&sel&&sel.options.length>1){if([...sel.options].some(o=>o.value===saved))sel.value=saved;loadBalances();}});</script>
+{% endblock %}

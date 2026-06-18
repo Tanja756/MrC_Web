@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row">
+    <div class="col-lg-9">
+        <ul class="nav nav-pills mb-3" id="taskTabs">
+            <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#tasks-my">В работе</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tasks-free">Свободные</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tasks-closed" id="closed-pill">Закрытые</button></li>
+        </ul>
+        <div class="filter-bar">
+            <div class="filter-header" onclick="toggleFilter(this)">
+                <i class="bi bi-funnel"></i> Фильтры <span class="badge bg-secondary ms-auto" id="taskCount">0</span>
+                <button class="btn btn-sm btn-outline-secondary border-0 ms-1" onclick="event.stopPropagation();loadTasks()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
+            </div>
+            <div class="filter-body">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-5">
+                    <div class="input-group">
+                        <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                        <input type="text" class="form-control" id="taskSearch" placeholder="Поиск..." oninput="onTaskSearch()">
+                        <button class="btn btn-outline-secondary btn-reset-filter" onclick="document.getElementById('taskSearch').value='';clearTimeout(taskSearchTimeout);loadTasks()"><i class="bi bi-x-lg"></i></button>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="d-flex gap-1">
+                        <select class="form-select" id="taskSort" onchange="filterTasks()">
+                            <option value="date">По дате создания</option>
+                            <option value="deadline">По сроку</option>
+                            <option value="priority">По приоритету</option>
+                            <option value="closed_at">По дате закрытия</option>
+                        </select>
+                        <div class="btn-group btn-group-sm" role="group" id="sortDirGroup">
+                            <button class="btn btn-outline-secondary" data-dir="asc" onclick="setSortDir('asc')" title="По возрастанию"><i class="bi bi-sort-up"></i></button>
+                            <button class="btn btn-outline-secondary active" data-dir="desc" onclick="setSortDir('desc')" title="По убыванию"><i class="bi bi-sort-down"></i></button>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-outline-secondary btn-sm w-100" onclick="resetFilters()"><i class="bi bi-arrow-counterclockwise me-1"></i>Сброс</button>
+                </div>
+            </div>
+            </div>
+        </div>
+        <div class="tab-content">
+            <div class="tab-pane fade show active" id="tasks-my"><div id="tasksMyList" class="task-list"></div></div>
+            <div class="tab-pane fade" id="tasks-free">
+                <div id="tasksFreeList" class="task-list"></div>
+                <div id="bulkActions" class="d-none">
+                    <span class="me-3 fw-semibold" id="bulkCount">0</span>
+                    <button class="btn btn-success btn-sm me-2" onclick="bulkTakeTasks()"><i class="bi bi-check-all me-1"></i>Взять выбранные</button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="cancelMultiSelect()">Отмена</button>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="tasks-closed">
+                <div id="tasksClosedList" class="task-list"></div>
+                <nav id="closedPagination" class="d-none mt-2 d-flex justify-content-center align-items-center gap-2" aria-label="Страницы">
+                    <button class="btn btn-outline-secondary btn-sm" id="prevPage" onclick="changeClosedPage(-1)">‹ Назад</button>
+                    <span class="small text-muted" id="pageInfo">1 / 1</span>
+                    <button class="btn btn-outline-secondary btn-sm" id="nextPage" onclick="changeClosedPage(1)">Вперед ›</button>
+                </nav>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 d-none d-lg-block">
+        <div class="right-sidebar">
+            <div class="sidebar-scroll">
+                <section>
+                    <div class="sidebar-section-title">Уведомления
+                        <button class="notif-clear-btn" onclick="dismissAllNotifications()" title="Очистить все"><i class="bi bi-eraser"></i></button>
+                    </div>
+                    <div id="notificationsList"><div class="text-muted small">Загрузка...</div></div>
+                </section>
+            </div>
+            <div class="sidebar-announcements">
+                <section>
+                    <div class="sidebar-section-title sidebar-ann-toggle" onclick="toggleAnnouncements()">Объявления<i class="bi bi-chevron-down ms-auto" id="annToggleIcon"></i></div>
+                    <div id="announcementsList" class="announcements-list"><div class="text-muted small">Загрузка...</div></div>
+                </section>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+{% include "modals/task-detail.html" %}
+<div class="modal fade" id="docFormModal" tabindex="-1">{% include "modals/doc-form.html" %}</div>
+<div class="modal fade" id="confirmTakeModal" tabindex="-1">{% include "modals/confirm-take.html" %}</div>
+<button id="scrollTopBtn" class="scroll-top-btn" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Наверх"><i class="bi bi-arrow-up"></i></button>
+<script src="{{ url_for('static', filename='tasks.js') }}?v=3"></script>
+<script>document.addEventListener('DOMContentLoaded',()=>{runStartup();initPushNotifications();applyTheme(currentTheme);updateProfileAvatar();loadProfile();loadClients();loadTasks('',['my','free']);loadNotifications('',true);loadAnnouncements();setInterval(()=>loadTasks('',['my','free']),600000);setInterval(()=>loadNotifications('',true),600000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){loadTasks('',['my','free']);loadNotifications('',true);}});document.querySelectorAll('#taskTabs .nav-link').forEach(p=>{p.addEventListener('shown.bs.tab',()=>{const id=p.getAttribute('data-bs-target');const tab=id==='#tasks-my'?'my':id==='#tasks-free'?'free':'closed';switchTab(tab);});});document.getElementById('tasksFreeList')?.addEventListener('contextmenu',(e)=>{e.preventDefault();multiSelectMode=!multiSelectMode;if(!multiSelectMode)cancelMultiSelect();else{selectedGuids.clear();filterTasks();}});const tab=localStorage.getItem('taskTab')||'my';if(tab!=='my'){const target='#tasks-'+tab;const pill=document.querySelector('#taskTabs .nav-link[data-bs-target="'+target+'"]');if(pill)pill.click();}});</script>
+{% endblock %}

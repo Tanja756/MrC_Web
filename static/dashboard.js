@@ -746,121 +746,28 @@ function runStartup() {
 document.addEventListener('DOMContentLoaded', () => {
     runStartup();
     initPushNotifications();
-    // Restore sort per active tab
-    loadTabIntoUI(currentTab);
-
-    // Restore theme
     applyTheme(currentTheme);
-
-    // Restore profile avatar
     updateProfileAvatar();
 
-    loadProfile().then(() => {
-        const defaultWarehouse = lsGet('defaultWarehouse', '');
-        if (!savedProfileName || !defaultWarehouse) {
-            openSettings(true);
-        }
-    });
+    loadProfile();
 
-    loadClients();
-    loadTasks('', ['my', 'free']);
-    if (currentTab !== 'my') {
-        const target = '#tasks-' + currentTab;
-        const pill = document.querySelector(`#taskTabs .nav-link[data-bs-target="${target}"]`);
-        if (pill) pill.click();
-    }
-    initUploadTab();
-
-    setInterval(() => loadTasks('', ['my', 'free']), 600000);
-
-    // Right-click on free tasks for multi-select
-    document.getElementById('tasksFreeList')?.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        multiSelectMode = !multiSelectMode;
-        if (!multiSelectMode) cancelMultiSelect();
-        else { selectedGuids.clear(); filterTasks(); }
-    });
-
-    // Load notifications + announcements (tasks tab is active by default, so call directly too)
-    loadNotifications(currentStorage(), true);
+    loadNotifications('', true);
     loadAnnouncements();
-    document.getElementById('tasks-tab')?.addEventListener('shown.bs.tab', () => {
-        loadNotifications(currentStorage(), true);
-        loadAnnouncements();
-    });
 
-    // Auto-check tasks every 10 minutes
-    setInterval(() => loadNotifications(currentStorage(), true), 600000);
+    setInterval(() => loadNotifications('', true), 600000);
 
-    // Refresh stale cache when user returns to tab (>30 min since last fetch)
-    const REFRESH_AGE = 30 * 60 * 1000;
-    function refreshStaleCache() {
-        const now = Date.now();
-        for (const [key, entry] of reqCache) {
-            if (now - entry.ts > REFRESH_AGE) {
-                reqCache.delete(key);
-            }
-        }
-    }
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
-            refreshStaleCache();
-            loadNotifications(currentStorage(), true);
-            loadTasks('', ['my', 'free']);
-            loadBalances();
+            const now = Date.now();
+            for (const [key, entry] of reqCache) {
+                if (now - entry.ts > 30 * 60 * 1000) reqCache.delete(key);
+            }
+            loadNotifications('', true);
+            if (typeof loadTasks === 'function') loadTasks('', ['my', 'free']);
+            if (typeof loadBalances === 'function') loadBalances();
         }
     });
 
-    // Load storages when warehouse tab is first shown
-    document.getElementById('warehouse-tab')?.addEventListener('shown.bs.tab', () => {
-        const sel = document.getElementById('storageSelect');
-        if (sel && sel.options.length <= 1) loadStorages();
-        if (sel && sel.options.length > 1) {
-            const opts = sel.innerHTML;
-            const src = document.getElementById('transferSource');
-            if (src && !src.options.length) src.innerHTML = opts;
-            const dst = document.getElementById('transferDest');
-            if (dst && !dst.options.length) dst.innerHTML = opts;
-            const pick = document.getElementById('transferStoragePick');
-            if (pick && !pick.options.length) pick.innerHTML = opts;
-        }
-    });
-
-    // Load salary when salary tab is first shown
-    document.getElementById('salary-tab')?.addEventListener('shown.bs.tab', () => {
-        const list = document.getElementById('salaryList');
-        if (!list || list.children.length) return;
-        loadSalary();
-    });
-
-    // Load PPR when reports tab is first shown
-    document.getElementById('reports-tab')?.addEventListener('shown.bs.tab', () => {
-        const list = document.getElementById('pprList');
-        if (!list || list.children.length) return;
-        loadPprDepartments();
-        loadPpr();
-    });
-
-    // Handle task tab switching — per-tab sort save/restore
-    document.querySelectorAll('#taskTabs .nav-link').forEach(pill => {
-        pill.addEventListener('shown.bs.tab', () => {
-            const id = pill.getAttribute('data-bs-target');
-            const tab = id === '#tasks-my' ? 'my' : id === '#tasks-free' ? 'free' : 'closed';
-            switchTab(tab);
-        });
-    });
-
-    // Reset loading state if modal is dismissed manually
-    document.getElementById('docFormModal').addEventListener('hidden.bs.modal', () => {
-        const loading = document.getElementById('docFormLoading');
-        const footer = document.getElementById('docFormFooter');
-        if (!loading.classList.contains('d-none')) {
-            loading.classList.add('d-none');
-            footer.querySelectorAll('button').forEach(b => b.disabled = false);
-        }
-    });
-
-    // Scroll-to-top button
     window.addEventListener('scroll', () => {
         const btn = document.getElementById('scrollTopBtn');
         if (btn) btn.classList.toggle('show', window.scrollY > 400);

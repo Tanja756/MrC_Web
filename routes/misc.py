@@ -1,0 +1,130 @@
+import logging
+from flask import Blueprint, request, jsonify, session, Response
+from db import get_subscriptions, save_subscription, delete_subscription, get_announcements
+from .helpers import (
+    api_login_required, get_api_client, send_push_notification,
+    VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_CLAIM_EMAIL,
+)
+
+logger = logging.getLogger(__name__)
+misc_bp = Blueprint('misc', __name__)
+
+
+# --- Salary ---
+@misc_bp.route('/api/salary')
+@api_login_required
+def api_salary():
+    client = get_api_client()
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    if not all([start_date, end_date, client]):
+        return jsonify({"data": [], "totalAmount": 0.0})
+    return jsonify(client.get_salary(start_date, end_date))
+
+
+# --- Profile ---
+@misc_bp.route('/api/profile')
+@api_login_required
+def api_profile_get():
+    client = get_api_client()
+    username = session.get('username', '')
+    if not client or not username:
+        return jsonify({"profile": {}})
+    return jsonify(client.get_profile(username))
+
+
+@misc_bp.route('/api/profile/clear-cache', methods=['POST'])
+@api_login_required
+def api_profile_clear_cache():
+    username = session.get('username', '')
+    if not username:
+        return jsonify({'error': 'Not authenticated'}), 401
+    try:
+        from db import clear_user_cache
+        clear_user_cache(username)
+        return jsonify({'success': True, 'message': 'Кеш очищен'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@misc_bp.route('/api/profile', methods=['POST'])
+@api_login_required
+def api_profile_post():
+    client = get_api_client()
+    username = session.get('username', '')
+    if not client or not username:
+        return jsonify({'error': 'No connection'}), 400
+    profile = request.json.get('profile', {})
+    return jsonify(client.save_profile(username, profile) or {})
+
+
+# --- Announcements ---
+@misc_bp.route('/api/announcements')
+@api_login_required
+def api_announcements():
+    return jsonify(get_announcements())
+
+
+# --- Push ---
+@misc_bp.route('/api/push/vapid-public-key')
+@api_login_required
+def api_vapid_public_key():
+    return jsonify({'publicKey': VAPID_PUBLIC_KEY})
+
+
+@misc_bp.route('/api/push/subscribe', methods=['POST'])
+@api_login_required
+def api_push_subscribe():
+    username = session.get('username', '')
+    data = request.get_json(force=True)
+    endpoint = data.get('endpoint', '')
+    keys = data.get('keys', {})
+    auth = keys.get('auth', '')
+    p256dh = keys.get('p256dh', '')
+    if not endpoint or not auth or not p256dh:
+        return jsonify({'error': 'missing fields'}), 400
+    save_subscription(username, endpoint, auth, p256dh)
+    return jsonify({'ok': True})
+
+
+@misc_bp.route('/api/push/unsubscribe', methods=['POST'])
+@api_login_required
+def api_push_unsubscribe():
+    data = request.get_json(force=True)
+    endpoint = data.get('endpoint', '')
+    if endpoint:
+        delete_subscription(endpoint)
+    return jsonify({'ok': True})
+
+
+@misc_bp.route('/api/push/test', methods=['POST'])
+@api_login_required
+def api_push_test():
+    username = session.get('username', '')
+    send_push_notification(username, 'Тестовое уведомление', 'Это тестовое push-уведомление со страницы зарплаты')
+    return jsonify({'ok': True})
+
+
+# --- Shop ---
+@misc_bp.route('/api/shop/by-sap')
+@api_login_required
+def api_shop_by_sap():
+    sap = request.args.get('sap', '').strip().upper()
+    if not sap:
+        return jsonify({})
+    from db import find_shop_by_sap
+    row = find_shop_by_sap(sap)
+    if row:
+        return jsonify({'shop': row[0], 'sap': row[1], 'addr': row[2]})
+    return jsonify({})
+
+
+# --- Static file endpoints ---
+@misc_bp.route('/sw.js')
+def service_worker():
+    return Response(open('static/sw.js', 'rb').read(), mimetype='application/javascript')
+
+
+@misc_bp.route('/manifest.json')
+def manifest():
+    return Response(open('templates/manifest.json', 'rb').read(), mimetype='application/manifest+json')

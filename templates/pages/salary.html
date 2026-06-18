@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="filter-bar">
+    <div class="filter-header d-md-none" onclick="toggleFilter(this)"><i class="bi bi-calendar3"></i> Выбор месяца</div>
+    <div class="filter-body">
+    <div class="row g-2 align-items-center justify-content-center">
+        <div class="col-auto"><button class="btn btn-outline-secondary btn-sm" onclick="changeMonth(-1)"><i class="bi bi-chevron-left"></i></button></div>
+        <div class="col-auto text-center"><span class="fw-semibold salary-month" id="salaryMonth"></span></div>
+        <div class="col-auto"><button class="btn btn-outline-secondary btn-sm" onclick="changeMonth(1)"><i class="bi bi-chevron-right"></i></button></div>
+        <div class="col-auto"><button class="btn btn-outline-primary btn-sm" onclick="sendTestPush()"><i class="bi bi-bell-fill"></i> Отправить уведомление</button></div>
+    </div>
+    </div>
+</div>
+<div id="salaryList"></div>
+{% endblock %}
+{% block scripts %}
+<script>document.addEventListener('DOMContentLoaded',()=>{runStartup();initPushNotifications();applyTheme(currentTheme);updateProfileAvatar();loadProfile();loadNotifications('',true);loadAnnouncements();loadSalary();setInterval(()=>loadNotifications('',true),600000);});</script>
+{% endblock %}
