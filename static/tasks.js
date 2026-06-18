@@ -1,7 +1,8 @@
 // ============ TASKS ============
 let taskSearchTimeout;
 
-let currentTab = 'my';
+let currentTab = localStorage.getItem('taskTab') || 'my';
+if (!['my', 'free', 'closed'].includes(currentTab)) currentTab = 'my';
 let tabPrefs = {
     my: { sort: lsGet('taskSort_my', 'deadline'), dir: lsGet('taskSortDir_my', 'asc') },
     free: { sort: lsGet('taskSort_free', 'deadline'), dir: lsGet('taskSortDir_free', 'asc') },
@@ -23,6 +24,7 @@ function loadTabIntoUI(tab) {
 function switchTab(tab) {
     saveTabPrefs(currentTab);
     currentTab = tab;
+    localStorage.setItem('taskTab', tab);
     loadTabIntoUI(tab);
     if (tab === 'closed') {
         loadClosedTasks('', tabPrefs.closed.sort, 1);
@@ -415,8 +417,14 @@ function showTaskDetail(task, mode, guid) {
                         <button class="btn btn-outline-secondary btn-sm" onclick="attachFile('any')"><i class="bi bi-paperclip me-1"></i>Файл</button>
                     </div>
                     <div id="attachmentsList" class="mt-2"></div>
+                </div>
+                <hr class="my-3">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold text-danger">Отмена заявки</label>
+                    <textarea class="form-control" id="rejectComment" rows="2" placeholder="Укажите причину отмены..."></textarea>
                 </div>`;
             footer = `
+                <button class="btn btn-danger me-auto" onclick="rejectTask('${guid}')"><i class="bi bi-x-circle me-1"></i>Отклонить заявку</button>
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
                 <button class="btn btn-success" onclick="closeTask('${guid}','${task.guid_client || ''}')"><i class="bi bi-check-lg me-1"></i>Завершить заявку</button>`;
         } else if (mode === 'my') {
@@ -587,6 +595,46 @@ function takeTask(guid) {
         }).catch(() => showAlert('Ошибка сети', 'danger'));
     });
     modal.show();
+}
+
+// ============ REJECT TASK ============
+function rejectTask(guid) {
+    const comment = document.getElementById('rejectComment').value.trim();
+    if (!comment) {
+        showAlert('Укажите причину отмены', 'warning');
+        return;
+    }
+    showConfirm('Отменить заявку?')
+        .then(ok => {
+            if (!ok) return;
+            const btn = document.querySelector('#taskDetailFooter .btn-danger');
+            const origHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Отмена...';
+            fetch('/api/tasks/reject', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({guid, comment})
+            }).then(checkAuth).then(r => r.json()).then(data => {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+                if (data.success) {
+                    showAlert('Заявка отменена', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
+                    ['my', 'free', 'closed'].forEach(t => {
+                        reqCache.delete('/api/tasks/' + t);
+                    });
+                    loadTasks();
+                } else {
+                    const msg = data.error || data.detail?._error || 'Ошибка при отмене';
+                    showAlert('Ошибка: ' + msg, 'danger');
+                }
+            }).catch(() => {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+                showAlert('Ошибка сети', 'danger');
+            });
+        });
 }
 
 // ============ MULTI-SELECT ============

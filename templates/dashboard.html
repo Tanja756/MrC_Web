@@ -152,39 +152,67 @@
 
         <!-- ========== WAREHOUSE TAB ========== -->
         <div class="tab-pane fade" id="warehouse" role="tabpanel">
-            <div class="filter-bar">
-                <div class="filter-header d-md-none" onclick="toggleFilter(this)"><i class="bi bi-funnel"></i> Фильтры склада
-                    <button class="btn btn-sm btn-outline-secondary border-0 ms-1" onclick="event.stopPropagation();refreshBalances()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
-                </div>
-                <div class="filter-body">
-                <div class="row g-2">
-                    <div class="col-md-3">
-                        <select class="form-select" id="storageSelect" onchange="loadBalances()">
-                            <option value="">Выберите склад...</option>
-                        </select>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="input-group">
-                            <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
-                            <input type="text" class="form-control" id="balanceSearch" placeholder="Поиск..." oninput="filterBalances()">
-                            <button class="btn btn-outline-secondary btn-reset-filter" onclick="document.getElementById('balanceSearch').value='';filterBalances()"><i class="bi bi-x-lg"></i></button>
+            <ul class="nav nav-pills mb-3" id="warehouseTabs">
+                <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#wh-balances">Остатки</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#wh-transfers">Перемещения</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#wh-archive">Архив</button></li>
+            </ul>
+
+            <div class="tab-content">
+                <!-- Balances -->
+                <div class="tab-pane fade show active" id="wh-balances" role="tabpanel">
+                    <div class="filter-bar">
+                        <div class="filter-header d-md-none" onclick="toggleFilter(this)"><i class="bi bi-funnel"></i> Фильтры склада
+                            <button class="btn btn-sm btn-outline-secondary border-0 ms-1" onclick="event.stopPropagation();refreshBalances()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
                         </div>
-                    </div>
-                    <div class="col-md-5">
-                        <div class="d-flex gap-1">
-                            <div class="btn-group flex-grow-1">
-                                <button class="btn btn-outline-secondary" onclick="filterBalanceType('all')" id="bf-all">Все</button>
-                                <button class="btn btn-outline-secondary" onclick="filterBalanceType('equipment')" id="bf-equipment">Оборудование</button>
-                                <button class="btn btn-outline-secondary" onclick="filterBalanceType('zip')" id="bf-zip">ЗИП</button>
+                        <div class="filter-body">
+                        <div class="row g-2">
+                            <div class="col-md-3">
+                                <select class="form-select" id="storageSelect" onchange="loadBalances()">
+                                    <option value="">Выберите склад...</option>
+                                </select>
                             </div>
-                            <button class="btn btn-outline-secondary" onclick="refreshBalances()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
+                            <div class="col-md-4">
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                                    <input type="text" class="form-control" id="balanceSearch" placeholder="Поиск..." oninput="filterBalances()">
+                                    <button class="btn btn-outline-secondary btn-reset-filter" onclick="document.getElementById('balanceSearch').value='';filterBalances()"><i class="bi bi-x-lg"></i></button>
+                                </div>
+                            </div>
+                            <div class="col-md-5">
+                                <div class="d-flex gap-1">
+                                    <div class="btn-group flex-grow-1">
+                                        <button class="btn btn-outline-secondary" onclick="filterBalanceType('all')" id="bf-all">Все</button>
+                                        <button class="btn btn-outline-secondary" onclick="filterBalanceType('equipment')" id="bf-equipment">Оборудование</button>
+                                        <button class="btn btn-outline-secondary" onclick="filterBalanceType('zip')" id="bf-zip">ЗИП</button>
+                                        <button class="btn btn-outline-secondary" onclick="filterBalanceType('repair')" id="bf-repair">Ремонт</button>
+                                    </div>
+                                    <button class="btn btn-outline-secondary" onclick="refreshBalances()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
+                                </div>
+                            </div>
+                                <button class="btn btn-outline-secondary btn-sm" onclick="exportWarehousePdf()" title="Экспорт PDF"><i class="bi bi-filetype-pdf"></i></button>
+                            </div>
                         </div>
                     </div>
-                            <button class="btn btn-outline-secondary btn-sm" onclick="exportWarehousePdf()" title="Экспорт PDF"><i class="bi bi-filetype-pdf"></i></button>
-                        </div>
+                    <div id="balancesList"></div>
+                </div>
+
+                <!-- Transfers -->
+                <div class="tab-pane fade" id="wh-transfers" role="tabpanel">
+                    <div class="d-flex align-items-center gap-2 mb-3">
+                        <button class="btn btn-primary btn-sm" onclick="openCreateTransfer()"><i class="bi bi-plus-lg me-1"></i>Создать перемещение</button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="loadTransfers()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
+                    </div>
+                    <div id="transfersList">
+                        <div class="text-muted small text-center py-4">Выберите склад для загрузки перемещений</div>
                     </div>
                 </div>
-            <div id="balancesList"></div>
+
+                <!-- Archive -->
+                <div class="tab-pane fade" id="wh-archive" role="tabpanel">
+                    <div class="empty-state"><i class="bi bi-archive"></i><p>Раздел в разработке</p></div>
+                </div>
+            </div>
         </div>
 
         <!-- ========== SALARY TAB ========== -->
@@ -468,7 +496,7 @@
                     <div class="doc-section-header d-md-none" onclick="toggleDocSection(this)">
                         Основные данные <i class="bi bi-chevron-up ms-auto"></i>
                     </div>
-                    <div class="doc-section-body d-md-block">
+                    <div class="doc-section-body d-md-block" id="docBasicSection">
                     <div class="row g-3">
                         <div class="col-6">
                             <label class="form-label fw-semibold small">Номер магазина</label>
@@ -502,7 +530,7 @@
                     <div class="doc-section-header d-md-none" onclick="toggleDocSection(this)">
                         Товары для М15 <i class="bi bi-chevron-down ms-auto"></i>
                     </div>
-                    <div class="doc-section-body d-none d-md-block">
+                    <div class="doc-section-body d-none d-md-block" id="docProductsSection">
                     <label class="fw-semibold small d-block mb-1"><i class="bi bi-box-seam me-1"></i>Товары для М15</label>
                     <div class="row g-2 align-items-center">
                         <div class="col-8 col-md-6">
@@ -553,6 +581,106 @@
     </div>
 </div>
 <button id="scrollTopBtn" class="scroll-top-btn" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Наверх"><i class="bi bi-arrow-up"></i></button>
+
+<!-- Transfer Detail Modal -->
+<div class="modal fade" id="transferDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content position-relative">
+            <div class="modal-header bg-primary">
+                <h5 class="modal-title" id="transferDetailTitle"><i class="bi bi-arrow-left-right me-2"></i>Перемещение</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="transferDetailBody">
+                <div id="transferDetailInfo" class="mb-3"></div>
+                <div id="transferDetailProducts" class="mb-3"></div>
+                <div id="transferDetailComments" class="mb-3"></div>
+                <div id="transferDetailPhotos" class="mb-3"></div>
+            </div>
+            <div class="modal-footer" id="transferDetailFooter">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+                <button class="btn btn-primary" onclick="saveTransferChanges()" id="saveTransferBtn">
+                    <i class="bi bi-check-lg me-1"></i>Сохранить
+                </button>
+            </div>
+            <div id="transferDetailLoading" class="d-none position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center bg-white bg-opacity-90" style="z-index:1060;border-radius:inherit;">
+                <div class="spinner-border text-primary mb-3" role="status" style="width:3rem;height:3rem;"></div>
+                <div class="fw-semibold">Сохранение...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Transfer Modal -->
+<div class="modal fade" id="createTransferModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content position-relative">
+            <div class="modal-header bg-primary">
+                <h5 class="modal-title"><i class="bi bi-arrow-left-right me-2"></i>Создание перемещения</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold small">Откуда</label>
+                        <select class="form-select" id="transferSource">
+                            <option value="">Выберите склад...</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold small">Куда</label>
+                        <select class="form-select" id="transferDest">
+                            <option value="">Выберите склад...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <label class="fw-semibold small d-block mb-2"><i class="bi bi-box-seam me-1"></i>Товары</label>
+                <div class="row g-2 align-items-center mb-2">
+                    <div class="col-md-6">
+                        <div class="input-group">
+                            <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                            <input type="text" class="form-control" id="transferProductSearch" placeholder="Поиск товара..." oninput="filterTransferProducts()">
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <select class="form-select" id="transferStoragePick" onchange="loadTransferProducts()">
+                            <option value="">Склад остатков...</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="transferProductsList" class="mb-3" style="max-height:200px;overflow-y:auto;border:1px solid var(--bs-border-color);border-radius:var(--bs-border-radius);">
+                    <div class="text-muted small text-center py-3">Выберите склад остатков</div>
+                </div>
+
+                <div id="transferSelectedItems" class="d-flex gap-2 flex-wrap mb-3"></div>
+
+                <div class="mb-3">
+                    <label class="fw-semibold small d-block mb-1"><i class="bi bi-camera me-1"></i>Фото</label>
+                    <div class="d-flex gap-2 align-items-center">
+                        <input type="file" class="form-control form-control-sm" id="transferPhotoInput" accept="image/*" capture="environment" onchange="onTransferPhotoSelected(this)">
+                        <button class="btn btn-outline-secondary btn-sm" onclick="captureTransferPhoto()" title="Сделать фото"><i class="bi bi-camera"></i></button>
+                    </div>
+                    <div id="transferPhotoPreview" class="d-flex gap-2 flex-wrap mt-2"></div>
+                </div>
+
+                <div class="mb-2">
+                    <label class="fw-semibold small d-block mb-1">Комментарий</label>
+                    <textarea class="form-control" id="transferComment" rows="2" placeholder="Причина перемещения..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button class="btn btn-primary" onclick="submitTransfer()" id="submitTransferBtn">
+                    <i class="bi bi-check-lg me-1"></i>Создать
+                </button>
+            </div>
+            <div id="transferFormLoading" class="d-none position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center bg-white bg-opacity-90" style="z-index:1060;border-radius:inherit;">
+                <div class="spinner-border text-primary mb-3" role="status" style="width:3rem;height:3rem;"></div>
+                <div class="fw-semibold">Отправка...</div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}

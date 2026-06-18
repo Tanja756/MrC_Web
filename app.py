@@ -27,6 +27,7 @@ from db import (
     save_user_credentials, get_user_credentials, get_all_users_with_credentials,
     set_task_taken, set_task_closed, get_tasks_tracking,
     count_user_notifications,
+    get_balance_item_meta, set_balance_item_broken, get_notification_by_id,
 )
 
 load_dotenv()
@@ -158,8 +159,48 @@ def logout():
     username = session.get('username', '')
     if username:
         delete_user_subscriptions(username)
+        from db import clear_user_cache
+        clear_user_cache(username)
     session.clear()
-    return redirect(url_for('login'))
+    return _logout_page()
+
+
+def _logout_page():
+    return f'''<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="UTF-8"><title>Выход</title>
+<style>body{{font-family:sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#1a1d23;color:#ccc;}}</style>
+</head>
+<body>
+<div style="text-align:center"><p>Очистка кеша...</p></div>
+<script>
+(function(){{
+  try{{localStorage.clear();sessionStorage.clear();}}catch(e){{}}
+  if('caches' in window){{
+    caches.keys().then(function(keys){{
+      return Promise.all(keys.map(function(k){{return caches.delete(k);}}));
+    }}).then(function(){{
+      if('serviceWorker' in navigator){{
+        navigator.serviceWorker.getRegistrations().then(function(regs){{
+          return Promise.all(regs.map(function(r){{return r.unregister();}}));
+        }}).then(function(){{
+          window.location.href='/login';
+        }}).catch(function(){{
+          window.location.href='/login';
+        }});
+      }}else{{
+        window.location.href='/login';
+      }}
+    }}).catch(function(){{
+      window.location.href='/login';
+    }});
+  }}else{{
+    window.location.href='/login';
+  }}
+}})();
+</script>
+</body>
+</html>'''
 
 
 @app.route('/dashboard')
@@ -380,6 +421,25 @@ def api_task_close():
     return jsonify({'success': True})
 
 
+@app.route('/api/tasks/reject', methods=['POST'])
+@api_login_required
+def api_task_reject():
+    client = get_api_client()
+    if not client:
+        return jsonify({'error': 'No connection'}), 400
+    data = request.json
+    guid = data.get('guid')
+    comment = data.get('comment', '').strip()
+    if not guid:
+        return jsonify({'error': 'GUID required'}), 400
+    if not comment:
+        return jsonify({'error': 'Укажите причину отмены'}), 400
+    result = client.task_reject(guid, comment)
+    if result and result.get('_error'):
+        return jsonify({'success': False, 'error': result['_error'], 'detail': result}), 400
+    return jsonify({'success': True})
+
+
 @app.route('/api/tasks/<guid>/attachments')
 @api_login_required
 def api_task_attachments(guid):
@@ -419,14 +479,46 @@ def api_balances():
     if not storage_guid or not client:
         return jsonify([])
     data = client.get_balances(storage_guid)
-    _check_balance_changes(session.get('username', ''), storage_guid, data)
+    storage_name = _get_storage_name(client, storage_guid)
+    _check_balance_changes(session.get('username', ''), storage_guid, data, storage_name)
+    username = session.get('username', '')
+    meta = get_balance_item_meta(username, storage_guid) if username else {}
     for item in data:
         item['date_arrival'] = _short_date(item.get('date_arrival'))
         item['date_writeoff'] = _short_date(item.get('date_writeoff'))
+        key = f"{item.get('product_name','')}|{item.get('series_name','') or ''}|{item.get('inventory_number','') or ''}"
+        item['broken'] = meta.get(key, {}).get('broken', False)
     return jsonify(data)
 
 
-def _check_balance_changes(username, storage_guid, new_data):
+@app.route('/api/warehouse/balances/toggle-broken', methods=['POST'])
+@api_login_required
+def api_balance_toggle_broken():
+    username = session.get('username', '')
+    if not username:
+        return jsonify({'error': 'Not authenticated'}), 401
+    body = request.get_json(silent=True) or {}
+    storage_guid = body.get('storage_guid')
+    product_name = body.get('product_name', '')
+    series_name = body.get('series_name', '')
+    inventory_number = body.get('inventory_number', '')
+    broken = body.get('broken', False)
+    if not storage_guid:
+        return jsonify({'error': 'storage_guid required'}), 400
+    set_balance_item_broken(username, storage_guid, product_name, series_name, inventory_number, broken)
+    return jsonify({'ok': True})
+
+
+def _get_storage_name(client, storage_guid):
+    if not client or not storage_guid:
+        return ''
+    storages = client.get_storages()
+    for s in storages:
+        if s.get('guid') == storage_guid:
+            return s.get('name', '')
+    return ''
+
+def _check_balance_changes(username, storage_guid, new_data, storage_name=''):
     if not username:
         return
     if not new_data:
@@ -476,19 +568,26 @@ def _check_balance_changes(username, storage_guid, new_data):
             parts.append(f'    SN: {series}')
         return '\n'.join(parts)
 
+    def _title_arrival():
+        return f'Поступление на склад {storage_name}'.strip() if storage_name else 'Поступление на склад'
+
+    def _title_writeoff():
+        return f'Списание со склада {storage_name}'.strip() if storage_name else 'Списание со склада'
+
     if added:
         lines = '\n'.join(_fmt_line_add(d, n, s, i) for d, n, s, i in added)
+        items_data = [{'product_name': n, 'series_name': s or '', 'inventory_number': i or ''} for d, n, s, i in added]
         if not notification_exists(username, 'warehouse_arrival', lines, 60):
             create_notification(username, 'warehouse_arrival',
-                'Поступление на склад', lines, storage_guid)
-            send_push_notification(username, 'Поступление на склад', lines)
+                _title_arrival(), lines, storage_guid, items=items_data)
+            send_push_notification(username, _title_arrival(), lines)
 
     if removed:
         lines = '\n'.join(_fmt_line(d, n, s, i) for d, n, s, i in removed)
         if not notification_exists(username, 'warehouse_writeoff', lines, 60):
             create_notification(username, 'warehouse_writeoff',
-                'Списание со склада', lines, storage_guid)
-            send_push_notification(username, 'Списание со склада', lines)
+                _title_writeoff(), lines, storage_guid)
+            send_push_notification(username, _title_writeoff(), lines)
 
     save_snapshot(username, storage_guid, new_data)
 
@@ -633,6 +732,95 @@ def api_warehouse_export_pdf():
         return jsonify({'error': str(e)}), 500
 
 
+# --- STOCK TRANSFERS ---
+
+@app.route('/api/warehouse/stock-transfers', methods=['GET', 'POST'])
+@api_login_required
+def api_stock_transfers():
+    client = get_api_client()
+    if not client:
+        if request.method == 'GET':
+            return jsonify([])
+        return jsonify({'error': 'No connection'}), 400
+
+    if request.method == 'GET':
+        data = client.get_stock_transfers()
+        storages = {s['guid']: s['name'] for s in (client.get_storages() or [])}
+        products = {p['guid']: p for p in (client.get_products() or [])}
+        for doc in data:
+            doc['warehouse_source_name'] = storages.get(doc.get('warehouse_source', ''), doc.get('warehouse_source', ''))
+            doc['warehouse_dest_name'] = storages.get(doc.get('warehouse_dest', ''), doc.get('warehouse_dest', ''))
+            for item in doc.get('items', []):
+                guid = item.get('product_guid', '')
+                prod = products.get(guid, {})
+                item['product_name'] = prod.get('name', '') or prod.get('article', '') or guid
+        return jsonify(data)
+
+    elif request.method == 'POST':
+        body = request.get_json(silent=True)
+        if not body:
+            return jsonify({'error': 'Invalid JSON'}), 400
+        result = client.create_stock_transfer(body)
+        if result and result.get('_error'):
+            return jsonify({'success': False, 'error': result['_error']}), 400
+        return jsonify({'success': True, 'data': result})
+
+
+@app.route('/api/warehouse/balances-pick')
+@api_login_required
+def api_balances_pick():
+    client = get_api_client()
+    storage_guid = request.args.get('storage')
+    if not storage_guid or not client:
+        return jsonify([])
+    data = client.get_balances_pick(storage_guid)
+    products = {p['guid']: p for p in (client.get_products() or [])}
+    for item in data:
+        guid = item.get('product_guid', '')
+        prod = products.get(guid, {})
+        item['product_name'] = prod.get('name', '') or prod.get('article', '') or guid
+    return jsonify(data)
+
+
+@app.route('/api/warehouse/stock-transfers/comment', methods=['PATCH'])
+@api_login_required
+def api_stock_transfer_add_comment():
+    client = get_api_client()
+    if not client:
+        return jsonify({'error': 'No connection'}), 400
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({'error': 'Invalid JSON'}), 400
+    task_guid = body.get('task_guid')
+    comment = body.get('comment', '').strip()
+    if not task_guid or not comment:
+        return jsonify({'error': 'task_guid and comment required'}), 400
+    result = client.add_transfer_comment(task_guid, comment)
+    if result and result.get('_error'):
+        return jsonify({'success': False, 'error': result['_error']}), 400
+    return jsonify({'success': True, 'data': result})
+
+
+@app.route('/api/warehouse/stock-transfers/amount', methods=['PATCH'])
+@api_login_required
+def api_stock_transfer_change_amount():
+    client = get_api_client()
+    if not client:
+        return jsonify({'error': 'No connection'}), 400
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({'error': 'Invalid JSON'}), 400
+    guid = body.get('guid')
+    task_guid = body.get('task_guid')
+    amount = body.get('amount')
+    if not guid or not task_guid or amount is None:
+        return jsonify({'error': 'guid, task_guid and amount required'}), 400
+    result = client.change_transfer_amount(guid, task_guid, int(amount))
+    if result and result.get('_error'):
+        return jsonify({'success': False, 'error': result['_error']}), 400
+    return jsonify({'success': True, 'data': result})
+
+
 # --- NOTIFICATIONS ---
 
 @app.route('/api/notifications')
@@ -680,7 +868,8 @@ def _refresh_balance_if_stale(username, storage_guid):
         return
     data = client.get_balances(storage_guid)
     if data is not None:
-        _check_balance_changes(username, storage_guid, data)
+        storage_name = _get_storage_name(client, storage_guid)
+        _check_balance_changes(username, storage_guid, data, storage_name)
 
 
 def _check_deadlines(tasks, username, now):
@@ -878,6 +1067,34 @@ def api_notifications_dismiss_all():
     dismiss_all_notifications(username)
     return jsonify({'ok': True})
 
+@app.route('/api/notifications/<int:notif_id>/mark-broken', methods=['POST'])
+@api_login_required
+def api_notification_mark_broken(notif_id):
+    username = session.get('username', '')
+    notif = get_notification_by_id(notif_id, username)
+    if not notif:
+        return jsonify({'error': 'Уведомление не найдено'}), 404
+    if notif['type'] != 'warehouse_arrival':
+        return jsonify({'error': 'Неверный тип уведомления'}), 400
+    if notif['dismissed']:
+        return jsonify({'error': 'Уведомление уже скрыто'}), 400
+
+    items = notif.get('items', [])
+    storage_guid = notif['storage_guid']
+    count = 0
+    for item in items:
+        set_balance_item_broken(
+            username, storage_guid,
+            item['product_name'],
+            item.get('series_name', '') or '',
+            item.get('inventory_number', '') or '',
+            True
+        )
+        count += 1
+
+    dismiss_notification(notif_id, username)
+    return jsonify({'ok': True, 'count': count})
+
 
 # --- ANNOUNCEMENTS ---
 
@@ -1019,6 +1236,10 @@ def api_task_documents():
         if not client:
             return jsonify({'error': 'Authentication required'}), 401
 
+    closed = client.task_is_closed(guid)
+    if closed and closed.get('closed'):
+        return jsonify({'error': 'Задача уже закрыта. Формирование документов невозможно.'}), 400
+
     all_tasks = []
     for fetcher in ('get_tasks_user', 'get_tasks_unallocated', 'get_closed_tasks_user'):
         data = getattr(client, fetcher)()
@@ -1075,6 +1296,9 @@ def _make_doc_endpoint(include_act, include_fn, include_m15, suffix):
         client = get_api_client()
         if not client:
             return jsonify({'error': 'Authentication required'}), 401
+    closed = client.task_is_closed(guid)
+    if closed and closed.get('closed'):
+        return jsonify({'error': 'Задача уже закрыта. Формирование документов невозможно.'}), 400
     all_tasks = []
     for fetcher in ('get_tasks_user', 'get_tasks_unallocated', 'get_closed_tasks_user'):
         data = getattr(client, fetcher)()
@@ -1238,7 +1462,8 @@ def _background_check_balances(client, username):
                     pass
             data = client.get_balances(storage_guid)
             if data is not None:
-                _check_balance_changes(username, storage_guid, data)
+                storage_name = storage.get('name', '')
+                _check_balance_changes(username, storage_guid, data, storage_name)
                 logger.info(f"Background: balance checked for '{username}' storage '{storage_guid}'")
     except Exception as e:
         logger.warning(f"Background: failed to check balances for {username}: {e}")

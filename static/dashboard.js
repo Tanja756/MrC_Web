@@ -468,9 +468,11 @@ function filterBalances() {
     let filtered = allBalances;
 
     if (currentBalanceFilter === 'equipment')
-        filtered = filtered.filter(b => b.series_name);
+        filtered = filtered.filter(b => b.series_name && !b.broken);
     else if (currentBalanceFilter === 'zip')
-        filtered = filtered.filter(b => !b.series_name);
+        filtered = filtered.filter(b => !b.series_name && !b.broken);
+    else if (currentBalanceFilter === 'repair')
+        filtered = filtered.filter(b => b.broken);
 
     if (query) {
         filtered = filtered.filter(b =>
@@ -478,12 +480,14 @@ function filterBalances() {
             (b.series_name || '').toLowerCase().includes(query) ||
             (b.inventory_number || '').toLowerCase().includes(query) ||
             (b.date_arrival || '').toLowerCase().includes(query) ||
-            (b.date_writeoff || '').toLowerCase().includes(query)
+            (b.broken && 'ремонт'.includes(query))
         );
     }
 
-    if (balanceSortField) {
-        filtered = [...filtered].sort((a, b) => {
+    // Sort broken items to the bottom
+    filtered = [...filtered].sort((a, b) => {
+        if (a.broken !== b.broken) return a.broken ? 1 : -1;
+        if (balanceSortField) {
             const compare = (field, dir) => {
                 let va = a[field], vb = b[field];
                 if (va == null) va = '';
@@ -496,8 +500,9 @@ function filterBalances() {
             let cmp = compare(balanceSortField, balanceSortDir);
             if (cmp === 0) cmp = compare('product_name', 'asc');
             return balanceSortDir === 'asc' ? cmp : -cmp;
-        });
-    }
+        }
+        return 0;
+    });
 
     const container = document.getElementById('balancesList');
     if (filtered.length === 0) {
@@ -514,13 +519,16 @@ function filterBalances() {
 
     // Mobile: stacked cards
     const mobileHtml = filtered.map(b => `
-        <div class="balance-mobile-card d-flex py-2 px-2 border-bottom">
+        <div class="balance-mobile-card d-flex py-2 px-2 border-bottom${b.broken ? ' broken-item' : ''}">
             <div class="flex-grow-1 min-w-0 pe-2 overflow-hidden">
-                <div class="fw-semibold text-truncate">${b.product_name || '—'}</div>
-                <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.series_name ? 'Сер.: ' + b.series_name : ''}</div>
-                <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.inventory_number ? 'Инв.: ' + b.inventory_number : ''}</div>
-                <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.date_arrival ? 'Поступл.: ' + b.date_arrival : ''}</div>
-                <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.date_writeoff === null ? 'В наличии' : b.date_writeoff ? 'Списание: ' + b.date_writeoff : ''}</div>
+                <div class="fw-semibold text-truncate">${esc(b.product_name) || '—'}</div>
+                <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.series_name ? 'Сер.: ' + esc(b.series_name) : ''}</div>
+                <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.inventory_number ? 'Инв.: ' + esc(b.inventory_number) : ''}</div>
+                <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.date_arrival ? 'Поступл.: ' + esc(b.date_arrival) : ''}</div>
+                <label class="broken-toggle" onclick="event.stopPropagation()">
+                    <input type="checkbox" ${b.broken ? 'checked' : ''} onchange="toggleBroken(this, '${esc(b.product_name)}', '${esc(b.series_name || '')}', '${esc(b.inventory_number || '')}', ${b.broken ? 'false' : 'true'})">
+                    <span class="broken-label">На ремонт</span>
+                </label>
             </div>
             <div class="fw-bold fs-5 text-end flex-shrink-0 align-self-center">${b.balance ?? 0}</div>
         </div>
@@ -533,16 +541,20 @@ function filterBalances() {
             <th class="sortable" onclick="sortBalances('series_name')">Серия${sortIcon('series_name')}</th>
             <th class="sortable" onclick="sortBalances('inventory_number')">Инв. номер${sortIcon('inventory_number')}</th>
             <th class="sortable" onclick="sortBalances('date_arrival')">Поступление${sortIcon('date_arrival')}</th>
-            <th class="sortable" onclick="sortBalances('date_writeoff')">Списание${sortIcon('date_writeoff')}</th>
             <th class="text-end sortable" onclick="sortBalances('balance')">Остаток${sortIcon('balance')}</th>
+            <th class="text-center" style="width:90px">Ремонт</th>
         </tr></thead>
-        <tbody>${filtered.map(b => `<tr>
-            <td>${b.product_name || '—'}</td>
-            <td>${b.series_name || '—'}</td>
-            <td>${b.inventory_number || '—'}</td>
+        <tbody>${filtered.map(b => `<tr class="${b.broken ? 'broken-item' : ''}">
+            <td>${esc(b.product_name) || '—'}</td>
+            <td>${esc(b.series_name) || '—'}</td>
+            <td>${esc(b.inventory_number) || '—'}</td>
             <td style="font-size:0.75rem">${b.date_arrival || '—'}</td>
-            <td style="font-size:0.75rem">${b.date_writeoff ?? 'В наличии'}</td>
             <td class="text-end fw-bold">${b.balance ?? 0}</td>
+            <td class="text-center">
+                <label class="broken-toggle" onclick="event.stopPropagation()">
+                    <input type="checkbox" ${b.broken ? 'checked' : ''} onchange="toggleBroken(this, '${esc(b.product_name)}', '${esc(b.series_name || '')}', '${esc(b.inventory_number || '')}', ${b.broken ? 'false' : 'true'})">
+                </label>
+            </td>
         </tr>`).join('')}</tbody>
     </table></div>`;
 
@@ -551,10 +563,25 @@ function filterBalances() {
 
 function filterBalanceType(type) {
     currentBalanceFilter = type;
-    ['all','equipment','zip'].forEach(t => {
+    ['all','equipment','zip','repair'].forEach(t => {
         document.getElementById('bf-'+t)?.classList.toggle('active', t === type);
     });
     filterBalances();
+}
+
+function toggleBroken(checkbox, product_name, series_name, inventory_number, broken) {
+    const storage_guid = document.getElementById('storageSelect').value;
+    if (!storage_guid) return;
+    fetch('/api/warehouse/balances/toggle-broken', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({storage_guid, product_name, series_name, inventory_number, broken})
+    }).then(checkAuth).then(() => {
+        for (const key of reqCache.keys()) {
+            if (key.startsWith('/api/warehouse/balances')) reqCache.delete(key);
+        }
+        loadBalances();
+    }).catch(() => {});
 }
 
 function exportWarehousePdf() {
@@ -563,8 +590,9 @@ function exportWarehousePdf() {
     const storageName = sel.options[sel.selectedIndex].text;
 
     let balances = allBalances;
-    if (currentBalanceFilter === 'equipment') balances = balances.filter(b => b.series_name);
-    else if (currentBalanceFilter === 'zip') balances = balances.filter(b => !b.series_name);
+    if (currentBalanceFilter === 'equipment') balances = balances.filter(b => b.series_name && !b.broken);
+    else if (currentBalanceFilter === 'zip') balances = balances.filter(b => !b.series_name && !b.broken);
+    else if (currentBalanceFilter === 'repair') balances = balances.filter(b => b.broken);
 
     const query = document.getElementById('balanceSearch').value.toLowerCase().trim();
     if (query) {
@@ -572,8 +600,7 @@ function exportWarehousePdf() {
             (b.product_name || '').toLowerCase().includes(query) ||
             (b.series_name || '').toLowerCase().includes(query) ||
             (b.inventory_number || '').toLowerCase().includes(query) ||
-            (b.date_arrival || '').toLowerCase().includes(query) ||
-            (b.date_writeoff || '').toLowerCase().includes(query)
+            (b.date_arrival || '').toLowerCase().includes(query)
         );
     }
 
@@ -720,7 +747,7 @@ document.addEventListener('DOMContentLoaded', () => {
     runStartup();
     initPushNotifications();
     // Restore sort per active tab
-    loadTabIntoUI('my');
+    loadTabIntoUI(currentTab);
 
     // Restore theme
     applyTheme(currentTheme);
@@ -737,6 +764,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     loadClients();
     loadTasks('', ['my', 'free']);
+    if (currentTab !== 'my') {
+        const target = '#tasks-' + currentTab;
+        const pill = document.querySelector(`#taskTabs .nav-link[data-bs-target="${target}"]`);
+        if (pill) pill.click();
+    }
     initUploadTab();
 
     setInterval(() => loadTasks('', ['my', 'free']), 600000);
@@ -779,10 +811,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Load storages + balances when warehouse tab is first shown
+    // Load storages when warehouse tab is first shown
     document.getElementById('warehouse-tab')?.addEventListener('shown.bs.tab', () => {
         const sel = document.getElementById('storageSelect');
         if (sel && sel.options.length <= 1) loadStorages();
+        if (sel && sel.options.length > 1) {
+            const opts = sel.innerHTML;
+            const src = document.getElementById('transferSource');
+            if (src && !src.options.length) src.innerHTML = opts;
+            const dst = document.getElementById('transferDest');
+            if (dst && !dst.options.length) dst.innerHTML = opts;
+            const pick = document.getElementById('transferStoragePick');
+            if (pick && !pick.options.length) pick.innerHTML = opts;
+        }
     });
 
     // Load salary when salary tab is first shown
@@ -892,7 +933,7 @@ function loadDocProducts() {
     fetchDeduped(`/api/warehouse/balances?storage=${guid}`, undefined, 15000)
         .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(data => {
-            docAllProducts = (data || []).filter(p => p.series_name);
+            docAllProducts = (data || []).filter(p => p.series_name && !p.broken);
             renderDocProducts();
         });
 }
@@ -916,14 +957,14 @@ function renderDocProducts() {
 
     const maxReached = docSelectedItems.length >= 3;
     container.innerHTML = filtered.map(p => {
-        const key = p.product_name + '|' + p.series_name;
-        const checked = docSelectedItems.some(s => s.key === key);
-        const disabled = !checked && maxReached;
-        return `<div class="form-check doc-product-item ${checked ? 'selected' : ''} ${disabled ? 'disabled' : ''}" data-key="${key.replace(/"/g,'&quot;')}">
-            <input class="form-check-input" type="checkbox" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
-            <label class="form-check-label small">${(p.product_name || '—').replace(/</g,'&lt;')} <span class="text-muted">[${(p.series_name || '—').replace(/</g,'&lt;')}]</span></label>
-        </div>`;
-    }).join('');
+            const key = p.product_name + '|' + p.series_name;
+            const checked = docSelectedItems.some(s => s.key === key);
+            const disabled = !checked && maxReached;
+            return `<div class="form-check doc-product-item ${checked ? 'selected' : ''} ${disabled ? 'disabled' : ''}" data-key="${key.replace(/"/g,'&quot;')}">
+                <input class="form-check-input" type="checkbox" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+                <label class="form-check-label small">${(p.product_name || '—').replace(/</g,'&lt;')} <span class="text-muted">[${(p.series_name || '—').replace(/</g,'&lt;')}]</span></label>
+            </div>`;
+        }).join('');
 }
 
 // Click delegation for product list
@@ -1008,6 +1049,14 @@ function openDocForm(guid) {
         document.getElementById('docProductSearch').value = '';
         document.getElementById('docProductsList').innerHTML = '<div class="text-muted small text-center py-3">Выберите склад</div>';
         document.getElementById('docSelectedProducts').innerHTML = '';
+        document.getElementById('docBasicSection').classList.remove('d-none');
+        document.getElementById('docProductsSection').classList.add('d-none');
+        document.querySelectorAll('#docFormModal .doc-section-header .bi').forEach(icon => {
+            const header = icon.closest('.doc-section-header');
+            const body = header.nextElementSibling;
+            const isHidden = body.classList.contains('d-none');
+            icon.className = 'bi bi-chevron-' + (isHidden ? 'down' : 'up') + ' ms-auto';
+        });
         loadDocStorages(document.getElementById('docStorageSelect'));
 
         const modal = new bootstrap.Modal(document.getElementById('docFormModal'));
@@ -1144,6 +1193,7 @@ function renderNotifications(list, container) {
             <div class="notif-title">${esc(n.title)}</div>
             <div class="notif-description">${esc(n.description).replace(/\n/g, '<br>')}</div>
             <div class="notif-time">${timeAgo(n.created_at)}</div>
+            ${n.type === 'warehouse_arrival' ? `<button class="notif-broken-btn" onclick="markArrivalBroken(${n.id}, this)" title="Отметить весь товар как сломанный">🗑️</button>` : ''}
             <button class="btn-close notif-close" onclick="dismissNotification(${n.id})"></button>
         </div>`;
     }).join('');
@@ -1212,18 +1262,39 @@ function dismissAllNotifications() {
         });
 }
 
+function markArrivalBroken(notifId, btn) {
+    if (!confirm('Отметить весь поступивший товар как сломанный?')) return;
+    btn.disabled = true;
+    const storage = document.getElementById('storageSelect')?.value || '';
+    fetch(`/api/notifications/${notifId}/mark-broken`, {method: 'POST'})
+        .then(checkAuth)
+        .then(r => r.json())
+        .then(data => {
+            if (data.ok) {
+                dismissNotification(notifId);
+                loadBalances();
+            }
+        })
+        .catch(() => { btn.disabled = false; });
+}
+
 function dismissNotification(id) {
     const storage = document.getElementById('storageSelect')?.value || '';
+    const container = document.getElementById('notificationsList');
     fetch(`/api/notifications/${id}/dismiss`, {method: 'POST'})
         .then(checkAuth)
         .then(() => {
-            const params = [];
-            if (storage) params.push('storage=' + encodeURIComponent(storage));
-            const url = '/api/notifications' + (params.length ? '?' + params.join('&') : '');
-            reqCache.delete(url);
+            for (const key of reqCache.keys()) {
+                if (key.startsWith('/api/notifications')) reqCache.delete(key);
+            }
             loadNotifications(storage);
         })
-        .catch(() => {});
+        .catch(() => {
+            if (container) {
+                container.innerHTML = '<div class="text-muted small">Ошибка при очистке</div>';
+                setTimeout(() => loadNotifications(storage), 2000);
+            }
+        });
 }
 
 // ============ ANNOUNCEMENTS ============
@@ -1309,4 +1380,472 @@ window.addEventListener('beforeinstallprompt', e => {
 });
 window.addEventListener('appinstalled', () => {
     deferredPrompt = null;
+});
+
+// ============ STOCK TRANSFERS ============
+
+let transferPickProducts = [];
+let transferSelectedItems = [];
+let transferPhotos = [];  // {data: base64, extension: string}
+let currentTransferDoc = null;
+let transferChangedAmounts = {};  // itemGuid -> new amount
+let transferNewComment = '';
+
+function openCreateTransfer() {
+    document.getElementById('transferSource').innerHTML = '<option value="">Загрузка...</option>';
+    document.getElementById('transferDest').innerHTML = '<option value="">Загрузка...</option>';
+
+    const sel = document.getElementById('storageSelect');
+    if (sel && sel.options.length > 1) {
+        const opts = sel.innerHTML;
+        document.getElementById('transferSource').innerHTML = opts;
+        document.getElementById('transferDest').innerHTML = opts;
+    } else {
+        loadTransferStorages();
+    }
+
+    const pickSel = document.getElementById('transferStoragePick');
+    if (pickSel) {
+        pickSel.innerHTML = sel ? sel.innerHTML : '<option value="">Выберите склад...</option>';
+    }
+
+    transferSelectedItems = [];
+    transferPhotos = [];
+    document.getElementById('transferSelectedItems').innerHTML = '';
+    document.getElementById('transferPhotoPreview').innerHTML = '';
+    document.getElementById('transferComment').value = '';
+    document.getElementById('transferProductSearch').value = '';
+    document.getElementById('transferProductsList').innerHTML = '<div class="text-muted small text-center py-3">Выберите склад остатков</div>';
+    transferPickProducts = [];
+
+    const modal = new bootstrap.Modal(document.getElementById('createTransferModal'));
+    modal.show();
+}
+
+function loadTransferStorages() {
+    fetchDeduped('/api/warehouse/storages', undefined, 60000)
+        .then(r => r instanceof Response ? r.json().catch(() => []) : r)
+        .then(data => {
+            const opts = '<option value="">Выберите склад...</option>' +
+                data.map(s => `<option value="${s.guid}">${s.name}</option>`).join('');
+            document.getElementById('transferSource').innerHTML = opts;
+            document.getElementById('transferDest').innerHTML = opts;
+            document.getElementById('transferStoragePick').innerHTML = opts;
+        });
+}
+
+function loadTransferProducts() {
+    const guid = document.getElementById('transferStoragePick').value;
+    const list = document.getElementById('transferProductsList');
+    if (!guid) {
+        list.innerHTML = '<div class="text-muted small text-center py-3">Выберите склад остатков</div>';
+        transferPickProducts = [];
+        renderTransferProducts();
+        return;
+    }
+    fetchDeduped(`/api/warehouse/balances-pick?storage=${guid}`, undefined, 15000)
+        .then(r => r instanceof Response ? r.json().catch(() => []) : r)
+        .then(data => {
+            transferPickProducts = data || [];
+            renderTransferProducts();
+        });
+}
+
+function filterTransferProducts() {
+    renderTransferProducts();
+}
+
+function renderTransferProducts() {
+    const query = document.getElementById('transferProductSearch').value.toLowerCase().trim();
+    const container = document.getElementById('transferProductsList');
+    const filtered = transferPickProducts.filter(p => {
+        const name = (p.product_name || p.product_guid || '').toLowerCase();
+        const series = p.series ? (p.series.name || '').toLowerCase() : '';
+        return name.includes(query) || series.includes(query);
+    });
+
+    if (filtered.length === 0) {
+        container.innerHTML = '<div class="text-muted small text-center py-3">Нет доступных товаров</div>';
+        return;
+    }
+
+    container.innerHTML = filtered.map(p => {
+        const key = p.product_guid + '|' + (p.series ? p.series.guid : '');
+        const already = transferSelectedItems.some(s => s.key === key);
+        const seriesName = p.series ? (p.series.name || p.series.inventory_number || '—') : '—';
+        const name = p.product_name || p.product_guid || '—';
+        return `<div class="transfer-product-item ${already ? 'selected' : ''}" data-key="${key.replace(/"/g,'&quot;')}" onclick="toggleTransferProduct(this)">
+            <div class="d-flex justify-content-between align-items-center px-2 py-1 ${already ? 'bg-primary bg-opacity-10' : ''}" style="cursor:pointer">
+                <div class="small">
+                    <span class="fw-semibold">${esc(name)}</span>
+                    ${p.series ? `<span class="text-muted ms-2">[${esc(seriesName)}]</span>` : ''}
+                </div>
+                <div class="text-nowrap">
+                    <span class="badge bg-secondary me-2">${p.balance ?? 0}</span>
+                    ${already ? '<i class="bi bi-check-lg text-primary"></i>' : ''}
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function toggleTransferProduct(el) {
+    const key = el.dataset.key;
+    if (!key) return;
+    const idx = transferSelectedItems.findIndex(s => s.key === key);
+    if (idx !== -1) {
+        transferSelectedItems.splice(idx, 1);
+    } else {
+        const p = transferPickProducts.find(x => {
+            const k = x.product_guid + '|' + (x.series ? x.series.guid : '');
+            return k === key;
+        });
+        if (!p) return;
+        transferSelectedItems.push({
+            key,
+            product_guid: p.product_guid,
+            product_name: p.product_name || p.product_guid,
+            series_guid: p.series ? p.series.guid : null,
+            characteristic_guid: p.characteristic || null,
+            count: 1,
+        });
+    }
+    renderTransferProducts();
+    renderTransferSelected();
+}
+
+function renderTransferSelected() {
+    const container = document.getElementById('transferSelectedItems');
+    if (transferSelectedItems.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+    container.innerHTML = transferSelectedItems.map((item, i) =>
+        `<span class="badge bg-primary d-inline-flex align-items-center gap-1" style="font-size:0.75rem">
+            ${i+1}. ${esc(item.product_name || item.product_guid.slice(0,8) + '…')}
+            <input type="number" min="1" value="${item.count}" style="width:40px;font-size:0.7rem;padding:0 2px;text-align:center;border:none;border-radius:3px" onchange="transferSelectedItems[${i}].count=Math.max(1,parseInt(this.value)||1)">
+            <i class="bi bi-x" style="cursor:pointer" onclick="removeTransferItem(${i})"></i>
+        </span>`
+    ).join('');
+}
+
+function removeTransferItem(idx) {
+    transferSelectedItems.splice(idx, 1);
+    renderTransferProducts();
+    renderTransferSelected();
+}
+
+function onTransferPhotoSelected(input) {
+    const files = input.files;
+    if (!files || !files.length) return;
+    for (const file of files) {
+        if (!file.type.startsWith('image/')) continue;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const base64 = e.target.result.split(',')[1];
+            const ext = file.name.split('.').pop() || 'jpg';
+            transferPhotos.push({data: base64, extension: ext});
+            renderTransferPhotos();
+        };
+        reader.readAsDataURL(file);
+    }
+    input.value = '';
+}
+
+function captureTransferPhoto() {
+    const input = document.getElementById('transferPhotoInput');
+    if (input) input.click();
+}
+
+function renderTransferPhotos() {
+    const container = document.getElementById('transferPhotoPreview');
+    if (transferPhotos.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+    container.innerHTML = transferPhotos.map((photo, i) =>
+        `<div class="position-relative" style="width:72px;height:72px">
+            <img src="data:image/${photo.extension};base64,${photo.data}" style="width:100%;height:100%;object-fit:cover;border-radius:6px">
+            <i class="bi bi-x-circle-fill position-absolute" style="top:-6px;right:-6px;cursor:pointer;color:#dc3545;font-size:1rem" onclick="removeTransferPhoto(${i})"></i>
+        </div>`
+    ).join('');
+}
+
+function removeTransferPhoto(idx) {
+    transferPhotos.splice(idx, 1);
+    renderTransferPhotos();
+}
+
+function submitTransfer() {
+    const source = document.getElementById('transferSource').value;
+    const dest = document.getElementById('transferDest').value;
+    if (!source || !dest) {
+        showAlert('Выберите склад отправитель и получатель', 'warning');
+        return;
+    }
+    if (source === dest) {
+        showAlert('Склады отправитель и получатель должны различаться', 'warning');
+        return;
+    }
+    if (transferSelectedItems.length === 0) {
+        showAlert('Добавьте хотя бы один товар', 'warning');
+        return;
+    }
+
+    const loading = document.getElementById('transferFormLoading');
+    const footer = document.querySelector('#createTransferModal .modal-footer');
+    loading.classList.remove('d-none');
+    footer.querySelectorAll('button').forEach(b => b.disabled = true);
+
+    const products = transferSelectedItems.map(item => ({
+        guid: item.product_guid,
+        series_guid: item.series_guid,
+        characteristic_guid: item.characteristic_guid,
+        count: item.count,
+    }));
+
+    const body = {
+        source_storage: source,
+        destination_storage: dest,
+        products: products,
+        comment: document.getElementById('transferComment').value.trim(),
+        attachments: transferPhotos.map(ph => ({
+            data: ph.data,
+            extension: ph.extension,
+        })),
+    };
+
+    fetch('/api/warehouse/stock-transfers', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+    })
+        .then(checkAuth)
+        .then(r => r.json())
+        .then(data => {
+            loading.classList.add('d-none');
+            footer.querySelectorAll('button').forEach(b => b.disabled = false);
+            if (data.success) {
+                bootstrap.Modal.getInstance(document.getElementById('createTransferModal'))?.hide();
+                showAlert('Перемещение создано', 'success');
+                loadTransfers();
+            } else {
+                showAlert('Ошибка: ' + (data.error || 'Неизвестная ошибка'), 'danger');
+            }
+        })
+        .catch(err => {
+            loading.classList.add('d-none');
+            footer.querySelectorAll('button').forEach(b => b.disabled = false);
+            showAlert('Ошибка отправки: ' + err.message, 'danger');
+        });
+}
+
+let _transfersCache = [];
+
+function loadTransfers() {
+    const container = document.getElementById('transfersList');
+    container.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-muted"></div></div>';
+
+    fetchDeduped('/api/warehouse/stock-transfers', undefined, 10000)
+        .then(r => r instanceof Response ? r.json().catch(() => []) : r)
+        .then(data => {
+            _transfersCache = data || [];
+            if (!_transfersCache.length) {
+                container.innerHTML = '<div class="empty-state"><i class="bi bi-arrow-left-right"></i><p>Нет перемещений</p></div>';
+                return;
+            }
+            container.innerHTML = _transfersCache.map((doc, idx) => {
+                const itemsCount = (doc.items || []).length;
+                const totalQty = (doc.items || []).reduce((s, it) => s + (it.amount || 0), 0);
+                const src = doc.warehouse_source_name || doc.warehouse_source || '—';
+                const dst = doc.warehouse_dest_name || doc.warehouse_dest || '—';
+                const org = doc.organization_name || '';
+                return `<div class="transfer-card border rounded-3 p-3 mb-2" style="cursor:pointer" onclick="openTransferDetail(${idx})">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fw-semibold">${esc(doc.number || '—')}</div>
+                            <div class="small text-muted">${formatDate(doc.date)}</div>
+                            ${org ? `<div class="small text-muted">${esc(org)}</div>` : ''}
+                        </div>
+                        <div class="text-end small text-muted">
+                            <div>${itemsCount} поз.</div>
+                            <div>${totalQty} шт.</div>
+                        </div>
+                    </div>
+                    <div class="small mt-1">
+                        <i class="bi bi-arrow-right-short"></i> ${esc(src)} → ${esc(dst)}
+                    </div>
+                </div>`;
+            }).join('');
+        })
+        .catch(() => {
+            container.innerHTML = '<div class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Ошибка загрузки</p></div>';
+        });
+}
+
+function openTransferDetail(idx) {
+    const doc = _transfersCache[idx];
+    if (!doc) return;
+    currentTransferDoc = doc;
+    transferChangedAmounts = {};
+    transferNewComment = '';
+
+    const title = document.getElementById('transferDetailTitle');
+    title.innerHTML = `<i class="bi bi-arrow-left-right me-2"></i>${esc(doc.number || 'Перемещение')}`;
+
+    const src = doc.warehouse_source_name || doc.warehouse_source || '—';
+    const dst = doc.warehouse_dest_name || doc.warehouse_dest || '—';
+
+    document.getElementById('transferDetailInfo').innerHTML = `
+        <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+                <div class="small text-muted">${formatDate(doc.date)}</div>
+                <div class="small">${esc(doc.organization_name || '')}</div>
+            </div>
+            <div class="text-end small">
+                <div><strong>${esc(src)}</strong> <i class="bi bi-arrow-right"></i> <strong>${esc(dst)}</strong></div>
+            </div>
+        </div>
+    `;
+
+    // Products
+    const items = doc.items || [];
+    document.getElementById('transferDetailProducts').innerHTML = `
+        <label class="fw-semibold small d-block mb-1"><i class="bi bi-box-seam me-1"></i>Товары</label>
+        <div class="table-responsive">
+        <table class="table table-sm table-borderless mb-0">
+            <thead><tr><th>Товар</th><th>Серия</th><th class="text-center" style="width:80px">Кол-во</th></tr></thead>
+            <tbody>${items.map((item, i) => {
+                const seriesName = item.series ? (item.series.name || item.series.inventory_number || '—') : '—';
+                const inv = item.series ? (item.series.inventory_number || '') : '';
+                const name = item.product_name || item.product_guid || '—';
+                return `<tr>
+                    <td class="small">${esc(name)}</td>
+                    <td class="small text-muted">${esc(seriesName)}${inv ? ' ('+esc(inv)+')' : ''}</td>
+                    <td class="text-center">
+                        <input type="number" min="0" value="${item.amount ?? 0}"
+                            class="form-control form-control-sm" style="width:65px;display:inline-block;text-align:center"
+                            data-item-guid="${esc(item.guid)}"
+                            onchange="onTransferAmountChange(this, '${esc(item.guid)}')">
+                    </td>
+                </tr>`;
+            }).join('')}</tbody>
+        </table>
+        </div>
+    `;
+
+    // Comments
+    const comments = doc.comments || [];
+    const commentsHtml = comments.length
+        ? comments.map(c =>
+            `<div class="small mb-1 p-1 bg-light rounded-3">${esc(c.author || '')} — ${esc(c.date || '')}<br>${esc(c.content || '')}</div>`
+          ).join('')
+        : '<div class="text-muted small mb-2">Нет комментариев</div>';
+    document.getElementById('transferDetailComments').innerHTML = `
+        <label class="fw-semibold small d-block mb-1"><i class="bi bi-chat-dots me-1"></i>Комментарии</label>
+        ${commentsHtml}
+        <div class="input-group input-group-sm mt-1">
+            <input type="text" class="form-control" id="transferDetailNewComment" placeholder="Добавить комментарий..."
+                oninput="transferNewComment=this.value.trim()">
+            <button class="btn btn-outline-secondary" onclick="document.getElementById('transferDetailNewComment').value='';transferNewComment='';this.closest('.input-group').querySelector('input').focus()" title="Очистить"><i class="bi bi-x-lg"></i></button>
+        </div>
+    `;
+
+    // Photos
+    const attachments = doc.attachments || [];
+    document.getElementById('transferDetailPhotos').innerHTML = attachments.length
+        ? `<label class="fw-semibold small d-block mb-1"><i class="bi bi-paperclip me-1"></i>Вложения</label>
+           <div class="d-flex gap-2 flex-wrap">${attachments.map(a =>
+               `<div style="width:72px;height:72px;border-radius:6px;overflow:hidden;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:#999" title="${esc(a.filename || '')}">
+                   <i class="bi bi-file-earmark-image" style="font-size:1.5rem"></i>
+               </div>`
+           ).join('')}</div>`
+        : '';
+
+    const modal = new bootstrap.Modal(document.getElementById('transferDetailModal'));
+    modal.show();
+}
+
+function onTransferAmountChange(input, guid) {
+    const val = parseInt(input.value) || 0;
+    const original = ((currentTransferDoc.items || []).find(i => i.guid === guid) || {}).amount || 0;
+    if (val !== original) {
+        transferChangedAmounts[guid] = val;
+    } else {
+        delete transferChangedAmounts[guid];
+    }
+}
+
+function saveTransferChanges() {
+    if (!currentTransferDoc) return;
+    const taskGuid = currentTransferDoc.guid;
+    const promises = [];
+
+    // Changed amounts
+    for (const [guid, amount] of Object.entries(transferChangedAmounts)) {
+        promises.push(
+            fetch('/api/warehouse/stock-transfers/amount', {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({guid, task_guid: taskGuid, amount}),
+            }).then(checkAuth).then(r => r.json())
+        );
+    }
+
+    // New comment
+    const comment = document.getElementById('transferDetailNewComment')?.value?.trim();
+    if (comment) {
+        promises.push(
+            fetch('/api/warehouse/stock-transfers/comment', {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({task_guid: taskGuid, comment}),
+            }).then(checkAuth).then(r => r.json())
+        );
+    }
+
+    if (promises.length === 0) {
+        showAlert('Нет изменений для сохранения', 'info');
+        return;
+    }
+
+    const loading = document.getElementById('transferDetailLoading');
+    const footer = document.querySelector('#transferDetailModal .modal-footer');
+    loading.classList.remove('d-none');
+    footer.querySelectorAll('button').forEach(b => b.disabled = true);
+
+    Promise.all(promises)
+        .then(results => {
+            const errors = results.filter(r => r && !r.success && r.error);
+            loading.classList.add('d-none');
+            footer.querySelectorAll('button').forEach(b => b.disabled = false);
+            if (errors.length) {
+                showAlert('Ошибки: ' + errors.map(e => e.error).join('; '), 'danger');
+            } else {
+                showAlert('Сохранено', 'success');
+                bootstrap.Modal.getInstance(document.getElementById('transferDetailModal'))?.hide();
+                loadTransfers();
+            }
+        })
+        .catch(err => {
+            loading.classList.add('d-none');
+            footer.querySelectorAll('button').forEach(b => b.disabled = false);
+            showAlert('Ошибка: ' + err.message, 'danger');
+        });
+}
+
+document.querySelector('#warehouseTabs [data-bs-target="#wh-transfers"]')?.addEventListener('shown.bs.tab', () => {
+    const sel = document.getElementById('storageSelect');
+    const opts = sel ? sel.innerHTML : '';
+    if (opts && opts.includes('<option')) {
+        document.getElementById('transferSource').innerHTML = opts;
+        document.getElementById('transferDest').innerHTML = opts;
+        document.getElementById('transferStoragePick').innerHTML = opts;
+    }
+    loadTransfers();
+});
+
+document.querySelector('#warehouseTabs [data-bs-target="#wh-balances"]')?.addEventListener('shown.bs.tab', () => {
+    const sel = document.getElementById('storageSelect');
+    if (sel && sel.options.length <= 1) loadStorages();
 });

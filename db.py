@@ -1,5 +1,6 @@
 import sqlite3
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -124,18 +125,55 @@ def init_notifications_table():
             PRIMARY KEY (username, storage_guid)
         )
     """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS balance_item_meta (
+            username TEXT NOT NULL,
+            storage_guid TEXT NOT NULL,
+            product_name TEXT NOT NULL,
+            series_name TEXT NOT NULL DEFAULT '',
+            inventory_number TEXT NOT NULL DEFAULT '',
+            broken INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            PRIMARY KEY (username, storage_guid, product_name, series_name, inventory_number)
+        )
+    """)
+    # migration: add items_json column if not exists
+    try:
+        c.execute("ALTER TABLE notifications ADD COLUMN items_json TEXT DEFAULT NULL")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
-def create_notification(username, type_, title, description, storage_guid=None):
+def create_notification(username, type_, title, description, storage_guid=None, items=None):
+    conn = get_db_connection()
+    c = conn.cursor()
+    items_json = json.dumps(items) if items else None
+    c.execute("""
+        INSERT INTO notifications (username, type, title, description, storage_guid, items_json)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (username, type_, title, description, storage_guid, items_json))
+    conn.commit()
+    conn.close()
+
+def get_notification_by_id(notif_id, username):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("""
-        INSERT INTO notifications (username, type, title, description, storage_guid)
-        VALUES (?, ?, ?, ?, ?)
-    """, (username, type_, title, description, storage_guid))
-    conn.commit()
+        SELECT id, type, title, description, storage_guid, items_json, dismissed
+        FROM notifications WHERE id = ? AND username = ?
+    """, (notif_id, username))
+    row = c.fetchone()
     conn.close()
+    if not row:
+        return None
+    import json as _json
+    items = _json.loads(row[5]) if row[5] else []
+    return {
+        'id': row[0], 'type': row[1], 'title': row[2],
+        'description': row[3], 'storage_guid': row[4],
+        'items': items, 'dismissed': bool(row[6])
+    }
 
 def get_active_notifications(username, hours=72):
     conn = get_db_connection()
@@ -206,6 +244,34 @@ def save_snapshot(username, storage_guid, data):
         INSERT OR REPLACE INTO balance_snapshots (username, storage_guid, data, updated_at)
         VALUES (?, ?, ?, datetime('now'))
     """, (username, storage_guid, json.dumps(data)))
+    conn.commit()
+    conn.close()
+
+
+def get_balance_item_meta(username, storage_guid):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT product_name, series_name, inventory_number, broken
+        FROM balance_item_meta
+        WHERE username = ? AND storage_guid = ?
+    """, (username, storage_guid))
+    rows = c.fetchall()
+    conn.close()
+    result = {}
+    for r in rows:
+        key = f"{r[0]}|{r[1]}|{r[2]}"
+        result[key] = {'broken': bool(r[3])}
+    return result
+
+def set_balance_item_broken(username, storage_guid, product_name, series_name, inventory_number, broken):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        INSERT OR REPLACE INTO balance_item_meta
+            (username, storage_guid, product_name, series_name, inventory_number, broken, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+    """, (username, storage_guid, product_name, series_name or '', inventory_number or '', 1 if broken else 0))
     conn.commit()
     conn.close()
 
@@ -436,6 +502,7 @@ def clear_user_cache(username):
     c = conn.cursor()
     c.execute("DELETE FROM notifications WHERE username=?", (username,))
     c.execute("DELETE FROM balance_snapshots WHERE username=?", (username,))
+    c.execute("DELETE FROM balance_item_meta WHERE username=?", (username,))
     c.execute("DELETE FROM task_snapshots WHERE username=?", (username,))
     c.execute("DELETE FROM push_subscriptions WHERE username=?", (username,))
     c.execute("DELETE FROM user_credentials WHERE username=?", (username,))

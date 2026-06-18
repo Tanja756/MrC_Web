@@ -160,8 +160,63 @@ class OneSApiClient:
             "year": year, "quarter": quarter
         })
 
+    def task_is_closed(self, guid: str):
+        return self._get("task-is-closed", {"guid": guid})
+
+    def task_reject(self, guid: str, comment: str):
+        return self._post("task-reject", {"guid": guid, "comment": comment})
+
     def get_profile(self, username: str):
         return self._get("profile", {"username": username}) or {}
 
     def save_profile(self, username: str, profile: dict):
         return self._post("profile", {"username": username, "profile": profile})
+
+    def get_stock_transfers(self):
+        return self._get("stock-transfers") or []
+
+    def create_stock_transfer(self, data: dict):
+        return self._post("stock-transfers", data)
+
+    def get_balances_pick(self, storage_guid: str):
+        return self._get("balances-pick", {"storage": storage_guid}) or []
+
+    def _patch(self, endpoint: str, data: dict):
+        url = f"{self.base_url}/{endpoint}"
+        try:
+            r = self.session.patch(url, json=data, timeout=60)
+            r.raise_for_status()
+            try:
+                return r.json()
+            except json.JSONDecodeError:
+                return {}
+        except requests.exceptions.Timeout:
+            logger.error(f"_patch timeout: {url}")
+            return {"_error": "Timeout"}
+        except requests.exceptions.HTTPError as e:
+            resp = e.response
+            body = resp.text[:1000] if resp is not None else ''
+            status = resp.status_code if resp is not None else 0
+            logger.error(f"_patch HTTP {status}: {url} — {body}")
+            try:
+                detail = resp.json() if resp is not None else {}
+            except Exception:
+                detail = {"_raw": body}
+            detail["_error"] = f"HTTP {status}"
+            return detail
+        except Exception as e:
+            logger.error(f"_patch error: {url} — {e}")
+            return {"_error": str(e)}
+
+    def add_transfer_comment(self, task_guid: str, comment: str):
+        return self._patch("stock-transfers-add-comment", {
+            "task_guid": task_guid,
+            "comment": comment,
+        })
+
+    def change_transfer_amount(self, guid: str, task_guid: str, amount: int):
+        return self._patch("stock-transfers-change-amount", {
+            "guid": guid,
+            "task_guid": task_guid,
+            "amount": amount,
+        })
