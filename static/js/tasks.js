@@ -675,3 +675,281 @@ function bulkTakeTasks() {
             }).catch(() => showAlert('Ошибка сети', 'danger'));
         });
 }
+
+// ============ CLIENTS (also used from tasks page) ============
+function loadClients() {
+    fetchDeduped('/api/tasks/documents', undefined, 300000)
+        .then(r => r instanceof Response ? r.json().catch(() => []) : r)
+        .then(data => {
+            (data || []).forEach(c => { if (c.guid) clientsMap[c.guid] = c.name || c.guid; });
+        });
+}
+
+// ============ DOCUMENT FORM (tasks page) ============
+let docAllProducts = [];
+let docSelectedItems = [];
+
+function loadDocStorages(sel) {
+    fetchDeduped('/api/warehouse/storages', undefined, 60000)
+        .then(r => r instanceof Response ? r.json().catch(() => []) : r)
+        .then(data => {
+            sel.innerHTML = '<option value="">Выберите склад...</option>' +
+                data.map(s => `<option value="${s.guid}">${s.name}</option>`).join('');
+            const saved = lsGet('defaultWarehouse', '');
+            if (saved && [...sel.options].some(o => o.value === saved)) {
+                sel.value = saved;
+                loadDocProducts();
+            }
+        });
+}
+
+function loadDocProducts() {
+    const guid = document.getElementById('docStorageSelect').value;
+    const list = document.getElementById('docProductsList');
+    if (!guid) {
+        list.innerHTML = '<div class="text-muted small text-center py-3">Выберите склад</div>';
+        docAllProducts = [];
+        renderDocProducts();
+        return;
+    }
+    fetchDeduped(`/api/warehouse/balances?storage=${guid}`, undefined, 15000)
+        .then(r => r instanceof Response ? r.json().catch(() => []) : r)
+        .then(data => {
+            docAllProducts = (data || []).filter(p => p.series_name && !p.broken);
+            renderDocProducts();
+        });
+}
+
+function filterDocProducts() {
+    renderDocProducts();
+}
+
+function renderDocProducts() {
+    const query = document.getElementById('docProductSearch').value.toLowerCase().trim();
+    const container = document.getElementById('docProductsList');
+    const filtered = docAllProducts.filter(p =>
+        (p.product_name || '').toLowerCase().includes(query) ||
+        (p.series_name || '').toLowerCase().includes(query)
+    );
+
+    if (filtered.length === 0) {
+        container.innerHTML = '<div class="text-muted small text-center py-3">Нет товаров с серийными номерами</div>';
+        return;
+    }
+
+    const maxReached = docSelectedItems.length >= 3;
+    container.innerHTML = filtered.map(p => {
+            const key = p.product_name + '|' + p.series_name;
+            const checked = docSelectedItems.some(s => s.key === key);
+            const disabled = !checked && maxReached;
+            return `<div class="form-check doc-product-item ${checked ? 'selected' : ''} ${disabled ? 'disabled' : ''}" data-key="${key.replace(/"/g,'&quot;')}">
+                <input class="form-check-input" type="checkbox" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+                <label class="form-check-label small">${(p.product_name || '—').replace(/</g,'&lt;')} <span class="text-muted">[${(p.series_name || '—').replace(/</g,'&lt;')}]</span></label>
+            </div>`;
+        }).join('');
+}
+
+// Click delegation for product list
+document.getElementById('docProductsList')?.addEventListener('click', (e) => {
+    const div = e.target.closest('.doc-product-item');
+    if (!div) return;
+    const key = div.dataset.key;
+    if (!key) return;
+    const alreadySelected = docSelectedItems.some(s => s.key === key);
+
+    if (alreadySelected) {
+        const si = docSelectedItems.findIndex(s => s.key === key);
+        if (si !== -1) docSelectedItems.splice(si, 1);
+    } else {
+        if (docSelectedItems.length >= 3) { renderDocProducts(); return; }
+        const p = docAllProducts.find(x => (x.product_name || '') + '|' + (x.series_name || '') === key);
+        if (!p) return;
+        docSelectedItems.push({ key, name: p.product_name || '', series: p.series_name || '' });
+    }
+    renderDocProducts();
+    renderDocSelected();
+});
+
+function renderDocSelected() {
+    const container = document.getElementById('docSelectedProducts');
+    if (docSelectedItems.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+    container.innerHTML = docSelectedItems.map((item, i) =>
+        `<span class="badge bg-primary d-flex align-items-center gap-1" style="font-size:0.75rem">
+            ${i+1}. ${item.name} [${item.series}]
+            <i class="bi bi-x" style="cursor:pointer" onclick="removeDocItem(${i})"></i>
+        </span>`
+    ).join('');
+}
+
+function removeDocItem(idx) {
+    docSelectedItems.splice(idx, 1);
+    renderDocProducts();
+    renderDocSelected();
+}
+
+function openDocForm(guid) {
+    const fillForm = (task) => {
+        const text = (task.name || '') + '\n' + (task.description || '');
+
+        function rx(p) {
+            const m = text.match(p);
+            return m ? m[1].trim() : '';
+        }
+
+        document.getElementById('docFormGuid').value = guid;
+        document.getElementById('docShop').value = rx(/(\d+)-Пятерочка/);
+        const sap = rx(/SAP-(\w+)/).toUpperCase();
+        document.getElementById('docSap').value = sap;
+        document.getElementById('docCode').value = rx(/Код заявки:\s*(\S+)/);
+        document.getElementById('docZd').value = rx(/Номер:\s*(\S+)/);
+
+        document.getElementById('docAddr').value = '';
+        if (sap) {
+            fetch(`/api/shop/by-sap?sap=${encodeURIComponent(sap)}`)
+                .then(checkAuth).then(r => r.json())
+                .then(data => {
+                    if (data.addr) document.getElementById('docAddr').value = data.addr;
+                    if (data.shop && !document.getElementById('docShop').value) {
+                        document.getElementById('docShop').value = data.shop;
+                    }
+                });
+        }
+
+        let desc = rx(/Подробное\s*описание:\s*\n?(.*?)(?:\n\n|\*{3}|$)/s);
+        if (!desc) desc = (task.description || '').replace(/Объект обслуживания:.*?(?:\n|$)/g, '').replace(/Адрес:.*?(?:\n|$)/g, '').trim();
+        document.getElementById('docDesc').value = desc;
+
+        document.getElementById('docIncludeAct').checked = true;
+        document.getElementById('docIncludeFn').checked = false;
+        document.getElementById('docIncludeM15').checked = false;
+
+        docSelectedItems = [];
+        docAllProducts = [];
+        document.getElementById('docProductSearch').value = '';
+        document.getElementById('docProductsList').innerHTML = '<div class="text-muted small text-center py-3">Выберите склад</div>';
+        document.getElementById('docSelectedProducts').innerHTML = '';
+        document.getElementById('docBasicSection').classList.remove('d-none');
+        document.getElementById('docProductsSection').classList.add('d-none');
+        document.querySelectorAll('#docFormModal .doc-section-header .bi').forEach(icon => {
+            const header = icon.closest('.doc-section-header');
+            const body = header.nextElementSibling;
+            const isHidden = body.classList.contains('d-none');
+            icon.className = 'bi bi-chevron-' + (isHidden ? 'down' : 'up') + ' ms-auto';
+        });
+        loadDocStorages(document.getElementById('docStorageSelect'));
+
+        const modal = new bootstrap.Modal(document.getElementById('docFormModal'));
+        modal.show();
+    };
+
+    const allTasks = [...tasksMy, ...tasksFree, ...tasksClosed];
+    const local = allTasks.find(t => t.guid === guid);
+    if (local && local.description) {
+        fillForm(local);
+        return;
+    }
+
+    fetch('/api/tasks/' + guid).then(checkAuth).then(r => r.ok ? r.json() : null).then(task => {
+        if (task) fillForm(task);
+    });
+}
+
+function generateDocForm() {
+    const guid = document.getElementById('docFormGuid').value;
+    if (!guid) return;
+
+    const fields = {};
+    const shop = document.getElementById('docShop').value.trim();
+    const sap = document.getElementById('docSap').value.trim();
+    const addr = document.getElementById('docAddr').value.trim();
+    const desc = document.getElementById('docDesc').value.trim();
+    const code = document.getElementById('docCode').value.trim();
+    const zd = document.getElementById('docZd').value.trim();
+    if (shop || sap || addr || desc || code || zd) {
+        Object.assign(fields, {shop, sap, addr, desc, code, zd});
+    }
+    if (docSelectedItems.length > 0) {
+        fields.items = docSelectedItems.map(item => ({name: item.name, series: item.series}));
+    }
+
+    const includeAct = document.getElementById('docIncludeAct').checked;
+    const includeFn = document.getElementById('docIncludeFn').checked;
+    const includeM15 = document.getElementById('docIncludeM15').checked;
+
+    const loading = document.getElementById('docFormLoading');
+    const footer = document.getElementById('docFormFooter');
+    const status = document.getElementById('docFormStatus');
+
+    loading.classList.remove('d-none');
+    footer.querySelectorAll('button').forEach(b => b.disabled = true);
+    status.textContent = 'Запрос на генерацию...';
+
+    const endpoints = [];
+    if (includeAct) endpoints.push('/api/tasks/documents/act');
+    if (includeFn) endpoints.push('/api/tasks/documents/fn');
+    if (includeM15) endpoints.push('/api/tasks/documents/m15');
+
+    if (endpoints.length === 0) {
+        status.textContent = 'Выберите хотя бы один тип документа';
+        setTimeout(() => {
+            loading.classList.add('d-none');
+            footer.querySelectorAll('button').forEach(b => b.disabled = false);
+        }, 1500);
+        return;
+    }
+
+    const body = JSON.stringify({
+        guid,
+        profile_name: savedProfileName,
+        fields: Object.keys(fields).length > 0 ? fields : undefined,
+    });
+
+    status.textContent = 'Генерация документов...';
+
+    const fetches = endpoints.map(url =>
+        fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body})
+            .then(checkAuth)
+            .then(r => {
+                if (!r.ok) return r.text().then(t => { throw new Error(t) });
+                const filename = getFilenameFromHeaders(r.headers);
+                return r.blob().then(blob => ({blob, filename}));
+            })
+    );
+
+    downloadMultiple(fetches, (done, total) => {
+        status.textContent = `Загрузка... (${done}/${total})`;
+    }).then(() => {
+        loading.classList.add('d-none');
+        footer.querySelectorAll('button').forEach(b => b.disabled = false);
+        bootstrap.Modal.getInstance(document.getElementById('docFormModal'))?.hide();
+    }).catch(e => {
+        loading.classList.add('d-none');
+        footer.querySelectorAll('button').forEach(b => b.disabled = false);
+        const body = document.querySelector('#docFormModal .modal-body');
+        const errDiv = document.createElement('div');
+        errDiv.className = 'alert alert-danger alert-dismissible fade show mt-2 mb-0';
+        errDiv.role = 'alert';
+        errDiv.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i><span></span>' +
+            '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+        errDiv.querySelector('span').textContent = e.message;
+        body.prepend(errDiv);
+    });
+}
+
+function downloadDocuments(guid) {
+    const body = JSON.stringify({guid, profile_name: savedProfileName});
+    const endpoints = ['/api/tasks/documents/act', '/api/tasks/documents/fn', '/api/tasks/documents/m15'];
+    const fetches = endpoints.map(url =>
+        fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body})
+            .then(checkAuth)
+            .then(r => {
+                if (!r.ok) return null;
+                const filename = getFilenameFromHeaders(r.headers);
+                return r.blob().then(blob => ({blob, filename}));
+            })
+    );
+    downloadMultiple(fetches).catch(e => showAlert('Ошибка: ' + e.message, 'danger'));
+}

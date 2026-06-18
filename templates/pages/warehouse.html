@@ -51,7 +51,10 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<link href="{{ url_for('static', filename='css/warehouse.css') }}?v=1" rel="stylesheet">
 {% include "modals/transfer-detail.html" %}
 {% include "modals/transfer-create.html" %}
-<script>document.addEventListener('DOMContentLoaded',()=>{runStartup();initPushNotifications();applyTheme(currentTheme);updateProfileAvatar();loadProfile();loadNotifications('',true);loadAnnouncements();loadStorages();setInterval(()=>loadNotifications('',true),600000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){loadNotifications('',true);loadBalances();}});const sel=document.getElementById('storageSelect');const saved=lsGet('defaultWarehouse','');if(saved&&sel&&sel.options.length>1){if([...sel.options].some(o=>o.value===saved))sel.value=saved;loadBalances();}});</script>
+<script src="{{ url_for('static', filename='js/warehouse.js') }}?v=1"></script>
+<script src="{{ url_for('static', filename='js/stock-transfers.js') }}?v=1"></script>
+<script>document.addEventListener('DOMContentLoaded',()=>{loadStorages();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){loadBalances();}});const sel=document.getElementById('storageSelect');const saved=lsGet('defaultWarehouse','');if(saved&&sel&&sel.options.length>1){if([...sel.options].some(o=>o.value===saved))sel.value=saved;loadBalances();}});</script>
 {% endblock %}

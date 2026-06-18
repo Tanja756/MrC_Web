@@ -1,0 +1,313 @@
+/* ===== Tasks ===== */
+.task-card {
+    position: relative;
+    cursor: default;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: box-shadow 0.2s;
+}
+
+.task-card .card-body {
+    padding: 14px 16px;
+}
+
+.task-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 0;
+    z-index: 1;
+}
+.task-card.urgency-overdue::before {
+    border-width: 24px 24px 0 0;
+    border-color: var(--danger) transparent transparent transparent;
+}
+.task-card.urgency-imminent::before {
+    border-width: 20px 20px 0 0;
+    border-color: #f97316 transparent transparent transparent;
+}
+.task-card.urgency-warning::before {
+    border-width: 20px 20px 0 0;
+    border-color: var(--warning) transparent transparent transparent;
+}
+.task-card.urgency-normal::before {
+    display: none;
+}
+
+.task-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+    min-height: 20px;
+}
+
+.task-priority {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+}
+.task-priority.high { background: var(--danger); }
+.task-priority.medium { background: var(--warning); }
+.task-priority.low { background: var(--text-muted); opacity: 0.3; }
+
+.task-status {
+    font-size: 0.65rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+    white-space: nowrap;
+    line-height: 1.4;
+}
+.task-status.open {
+    background: rgba(0,120,212,0.12);
+    color: var(--primary);
+}
+.task-status.closed {
+    background: rgba(29,172,75,0.12);
+    color: var(--success);
+}
+.task-status.confirming {
+    background: rgba(255,140,0,0.25);
+    color: var(--warning);
+    font-weight: 600;
+}
+[data-theme="light"] .task-status.open {
+    background: rgba(0,120,212,0.08);
+}
+[data-theme="light"] .task-status.closed {
+    background: rgba(29,172,75,0.08);
+}
+
+.task-dept {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    font-weight: 400;
+}
+
+.task-header-end {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.task-name {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-color);
+    line-height: 1.4;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
+    margin: 4px 0 8px 16px;
+}
+
+.task-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    margin: 0 0 10px 16px;
+}
+
+.task-meta-item {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+.task-meta-item i { font-size: 0.68rem; }
+
+.task-meta-item.urgent {
+    color: var(--danger);
+    font-weight: 500;
+}
+.task-meta-item.urgent i { color: var(--danger); }
+.task-meta-item.warning {
+    color: var(--warning);
+    font-weight: 500;
+}
+
+.task-meta-item + .task-meta-item::before {
+    content: '';
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    opacity: 0.3;
+    margin-right: 8px;
+}
+
+.task-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-left: 16px;
+}
+
+.pin-icon {
+    font-size: 0.75rem;
+    transition: transform 0.15s, color 0.15s;
+    cursor: pointer;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+.pin-icon:hover { transform: scale(1.15); color: var(--primary); }
+.pin-icon.pinned { color: var(--primary); }
+
+.meta-icon { font-size: 0.7rem; flex-shrink: 0; }
+
+.btn-action {
+    padding: 4px 10px;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    white-space: nowrap;
+    border: 1px solid var(--border-color);
+    background: transparent;
+    color: var(--text-muted);
+    transition: background 0.15s, color 0.15s;
+    cursor: pointer;
+}
+.btn-action i { font-size: 0.72rem; margin-right: 4px; }
+.btn-action:hover {
+    background: var(--surface);
+    color: var(--text-color);
+    border-color: var(--text-muted);
+}
+.btn-action:active {
+    background: var(--border-color);
+}
+
+.multi-check {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    flex-shrink: 0;
+    accent-color: var(--primary);
+    border-radius: 2px;
+}
+
+#bulkActions {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1050;
+    background: var(--card-bg);
+    padding: 12px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    border: 1px solid var(--border-color);
+    white-space: nowrap;
+    backdrop-filter: blur(20px);
+}
+
+@media (max-width: 768px) {
+    .balance-table th { font-size: 0.68rem; }
+    .balance-table td { font-size: 0.78rem; }
+}
+
+/* ===== PPR ===== */
+.ppr-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--separator);
+    background: var(--card-bg);
+    transition: background 0.15s;
+}
+.ppr-card:last-child { border-bottom: none; }
+.ppr-card-left {
+    flex: 1;
+    min-width: 0;
+}
+.ppr-card-right {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+.ppr-card-number {
+    font-weight: 700;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-bottom: 1px;
+}
+.ppr-card-name {
+    font-weight: 600;
+    font-size: 0.85rem;
+    line-height: 1.3;
+    word-break: break-word;
+}
+.ppr-card-meta {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    display: flex;
+    gap: 8px;
+    margin-top: 3px;
+}
+.ppr-card-date {
+    font-weight: 500;
+}
+.ppr-card-actions {
+    display: flex;
+    gap: 3px;
+}
+.ppr-card-actions .btn {
+    --bs-btn-padding-x: 0.3rem;
+    --bs-btn-padding-y: 0.15rem;
+    font-size: 0.72rem;
+}
+
+.ppr-table tr.ppr-closed,
+.ppr-card.ppr-closed {
+    opacity: 0.45;
+}
+.ppr-table tr.ppr-closed td {
+    background: transparent;
+}
+.ppr-table tr.ppr-closed:hover td {
+    background: transparent;
+}
+.ppr-table tr.ppr-overdue,
+.ppr-card.ppr-overdue {
+    border-left: 3px solid var(--danger);
+}
+.ppr-table tr.ppr-current,
+.ppr-card.ppr-current {
+    border-left: 3px solid var(--warning);
+}
+.ppr-card.ppr-overdue,
+.ppr-card.ppr-current {
+    padding-left: 9px;
+}
+.ppr-badge-closed {
+    background: #6c757d;
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 500;
+}
+.ppr-badge-open {
+    background: var(--primary);
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 500;
+}
+.ppr-badge-overdue {
+    background: var(--danger);
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 500;
+}

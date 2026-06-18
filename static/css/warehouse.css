@@ -1,0 +1,154 @@
+/* ===== Warehouse ===== */
+.balance-table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+.balance-table th {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-weight: 600;
+    border-top: none;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--separator);
+    padding: 8px 10px;
+}
+.balance-table td {
+    font-size: 0.85rem;
+    vertical-align: middle;
+    border: none;
+    padding: 8px 10px;
+}
+.balance-table tbody tr:hover td {
+    background: rgba(255,255,255,0.03);
+}
+[data-theme="light"] .balance-table tbody tr:hover td {
+    background: rgba(0,0,0,0.02);
+}
+
+.broken-item,
+.broken-item td {
+    background: rgba(211, 47, 47, 0.3) !important;
+}
+.broken-item:hover td {
+    background: rgba(211, 47, 47, 0.45) !important;
+}
+[data-theme="light"] .broken-item,
+[data-theme="light"] .broken-item td {
+    background: rgba(211, 47, 47, 0.15) !important;
+}
+[data-theme="light"] .broken-item:hover td {
+    background: rgba(211, 47, 47, 0.25) !important;
+}
+
+.broken-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+    white-space: nowrap;
+}
+.broken-toggle input[type="checkbox"] {
+    cursor: pointer;
+    width: 14px;
+    height: 14px;
+    accent-color: var(--danger);
+}
+.broken-toggle .broken-label {
+    user-select: none;
+}
+
+.balance-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+.balance-table th.sortable:hover {
+    color: var(--primary);
+}
+
+/* ===== Salary ===== */
+.salary-month { font-size: 0.9rem; }
+
+.salary-cards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 12px 0;
+}
+
+.salary-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--card-bg);
+    border: 1px solid var(--separator);
+    border-radius: 10px;
+    padding: 14px 18px;
+    min-width: 200px;
+    flex: 1 1 auto;
+    transition: border-color 0.15s;
+}
+
+.salary-card:hover {
+    border-color: var(--primary);
+}
+
+.salary-card-icon {
+    font-size: 1.5rem;
+    line-height: 1;
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+.salary-card-body {
+    min-width: 0;
+}
+
+.salary-card-title {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.salary-card-value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.salary-currency {
+    font-size: 0.8rem;
+    font-weight: 400;
+    opacity: 0.5;
+}
+
+.salary-total-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0 0;
+    margin-top: 4px;
+    border-top: 2px solid var(--primary);
+    font-size: 1rem;
+    color: var(--text-muted);
+}
+
+.salary-total-amount {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--text-color);
+}
+
+@media (max-width: 768px) {
+    .salary-month { font-size: 0.78rem; }
+    .salary-card { padding: 12px 14px; min-width: 140px; }
+    .salary-card-value { font-size: 1.05rem; }
+    .salary-total-amount { font-size: 1.1rem; }
+}
