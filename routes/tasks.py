@@ -8,6 +8,7 @@ from db import set_task_taken, set_task_closed
 from .helpers import (
     api_login_required, get_api_client,
     project_tasks, attach_tracking, filter_tasks, paginate,
+    auto_close_tracked_tasks,
     SERVER_HOST, SERVER_PORT, SERVER_DB,
 )
 
@@ -67,6 +68,7 @@ def api_tasks_closed():
     data = client.get_closed_tasks_user(limit=5000, offset=0)
     tasks = project_tasks(data.get('tasks', []))
     attach_tracking(tasks, username)
+    auto_close_tracked_tasks(tasks, username)
     tasks = filter_tasks(tasks, search, sort, dir)
     tasks, total = paginate(tasks, limit, offset)
     return jsonify({"tasks": tasks, "total": total})

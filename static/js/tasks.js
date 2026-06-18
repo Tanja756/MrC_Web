@@ -341,7 +341,9 @@ function renderTasks(containerId, tasks, query, mode) {
 
 // ============ TASK DETAIL ============
 function openTaskDetail(guid, mode) {
-    const modal = new bootstrap.Modal(document.getElementById('taskDetailModal'));
+    const modalEl = document.getElementById('taskDetailModal');
+    if (modalEl.classList.contains('show')) return;
+    const modal = new bootstrap.Modal(modalEl);
     const lists = {user: tasksMy, my: tasksMy, free: tasksFree, closed: tasksClosed};
     const localTask = (lists[mode] || []).find(t => t.guid === guid);
     const task = localTask || null;
@@ -568,6 +570,8 @@ function closeTask(guid, guidDoc) {
 
 // ============ TAKE TASK ============
 function takeTask(guid) {
+    const modalEl = document.getElementById('confirmTakeModal');
+    if (modalEl.classList.contains('show')) return;
     const allTasks = [...tasksMy, ...tasksFree, ...tasksClosed];
     const task = allTasks.find(t => t.guid === guid);
     if (!task) return;
@@ -794,6 +798,8 @@ function removeDocItem(idx) {
 }
 
 function openDocForm(guid) {
+    const modalEl = document.getElementById('docFormModal');
+    if (modalEl.classList.contains('show')) return;
     const fillForm = (task) => {
         const text = (task.name || '') + '\n' + (task.description || '');
 
@@ -808,6 +814,15 @@ function openDocForm(guid) {
         document.getElementById('docSap').value = sap;
         document.getElementById('docCode').value = rx(/Код заявки:\s*(\S+)/);
         document.getElementById('docZd').value = rx(/Номер:\s*(\S+)/);
+
+        if (!document.getElementById('docCode').value) {
+            const m = text.match(/(?:ЗНО|ИНЦ)-\d{9}/);
+            if (m) document.getElementById('docCode').value = m[0];
+        }
+        if (!document.getElementById('docZd').value) {
+            const m = text.match(/[A-Za-zА-Яа-я]{2}-\d{6}/);
+            if (m) document.getElementById('docZd').value = m[0];
+        }
 
         document.getElementById('docAddr').value = '';
         if (sap) {

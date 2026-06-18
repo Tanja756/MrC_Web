@@ -81,7 +81,7 @@ def api_login_required(f):
 TASK_FIELDS = {
     'guid', 'number', 'name', 'description', 'status', 'name_department',
     'user', 'guid_client', 'hasAttachments', 'date', 'period', 'priority',
-    'comments',
+    'comments', 'closed_at',
 }
 
 
@@ -97,13 +97,37 @@ def attach_tracking(tasks, username):
     for t in tasks:
         g = t.get('guid')
         if g in tracking:
-            t['taken_at'] = tracking[g].get('taken_at')
-            t['closed_at'] = tracking[g].get('closed_at')
-        else:
-            if not t.get('taken_at'):
-                t['taken_at'] = t.get('date')
-            if not t.get('closed_at'):
-                t['closed_at'] = t.get('period')
+            if tracking[g].get('taken_at'):
+                t['taken_at'] = tracking[g]['taken_at']
+            if tracking[g].get('closed_at'):
+                t['closed_at'] = tracking[g]['closed_at']
+        if not t.get('taken_at'):
+            t['taken_at'] = t.get('date')
+        if not t.get('closed_at'):
+            t['closed_at'] = t.get('period')
+
+
+def auto_close_tracked_tasks(tasks, username):
+    """If a task was taken via web app (has taken_at in local tracking)
+    but closed externally (no closed_at), set closed_at to now if now <= period."""
+    if not tasks or not username:
+        return
+    now = datetime.now()
+    guids = [t.get('guid') for t in tasks if t.get('guid')]
+    tracking = get_tasks_tracking(guids, username)
+    for t in tasks:
+        g = t.get('guid')
+        if not g or g not in tracking:
+            continue
+        tr = tracking[g]
+        if tr.get('taken_at') and not tr.get('closed_at'):
+            period_str = t.get('period')
+            if not period_str:
+                continue
+            deadline = parse_1c_date(period_str)
+            if deadline and now <= deadline:
+                set_task_closed(username, g)
+                t['closed_at'] = now.strftime('%Y-%m-%d %H:%M:%S')
 
 
 def parse_1c_date(s):
@@ -138,6 +162,9 @@ def filter_tasks(tasks, search=None, sort=None, dir='desc'):
                     return datetime.strptime(v, '%Y-%m-%d %H:%M:%S')
                 except ValueError:
                     pass
+                p = parse_1c_date(v)
+                if p:
+                    return p
             return datetime.min if not reverse else datetime.max
         tasks.sort(key=_ck, reverse=reverse)
     else:
@@ -497,6 +524,12 @@ def background_check_user(username):
     except Exception as e:
         logger.warning(f"Background: failed to fetch free tasks for {username}: {e}")
         free_tasks = []
+    try:
+        closed_data = client.get_closed_tasks_user(limit=200)
+        closed_tasks = project_tasks(closed_data.get('tasks', []))
+        auto_close_tracked_tasks(closed_tasks, username)
+    except Exception as e:
+        logger.warning(f"Background: failed to fetch closed tasks for {username}: {e}")
     check_deadlines(user_tasks + free_tasks, username, now)
     check_new_free_tasks(username, free_tasks, old_data)
     background_check_balances(client, username)

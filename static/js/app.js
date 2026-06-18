@@ -340,9 +340,7 @@ window.addEventListener('appinstalled', () => {
 
 // ============ ANDROID BACK BUTTON ============
 document.addEventListener('shown.bs.modal', () => {
-    if (!document.querySelectorAll('.modal.show').length) {
-        history.pushState(null, '');
-    }
+    history.pushState(null, '');
 });
 window.addEventListener('popstate', () => {
     const modal = document.querySelector('.modal.show');

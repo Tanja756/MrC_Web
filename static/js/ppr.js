@@ -130,6 +130,8 @@ function loadPpr() {
 }
 
 function openPprDetail(guid) {
+    const modalEl = document.getElementById('pprDetailModal');
+    if (modalEl.classList.contains('show')) return;
     const year = document.getElementById('pprYear').value;
     const quarter = document.getElementById('pprQuarter').value;
     fetchDeduped(`/api/ppr/list?year=${year}&quarter=${quarter}`, undefined, 15000)
@@ -173,6 +175,8 @@ function pprAttachFile(type) {
 }
 
 function openPprClose(guid) {
+    const modalEl = document.getElementById('pprDetailModal');
+    if (modalEl.classList.contains('show')) return;
     pprPendingAttachments = [];
     const modal = new bootstrap.Modal(document.getElementById('pprDetailModal'));
     document.getElementById('pprDetailTitle').innerHTML = '<i class="bi bi-check-circle me-2"></i>Закрыть задачу ППР';

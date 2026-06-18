@@ -8,6 +8,8 @@ let transferNewComment = '';
 let _transfersCache = [];
 
 function openCreateTransfer() {
+    const modalEl = document.getElementById('createTransferModal');
+    if (modalEl.classList.contains('show')) return;
     document.getElementById('transferSource').innerHTML = '<option value="">\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430...</option>';
     document.getElementById('transferDest').innerHTML = '<option value="">\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430...</option>';
 
@@ -298,6 +300,8 @@ function loadTransfers() {
 }
 
 function openTransferDetail(idx) {
+    const modalEl = document.getElementById('transferDetailModal');
+    if (modalEl.classList.contains('show')) return;
     const doc = _transfersCache[idx];
     if (!doc) return;
     currentTransferDoc = doc;
@@ -364,13 +368,28 @@ function openTransferDetail(idx) {
     `;
 
     const attachments = doc.attachments || [];
+    const mimeFromExt = fname => {
+        const ext = (fname || '').split('.').pop().toLowerCase();
+        const map = {'jpg':'image/jpeg','jpeg':'image/jpeg','png':'image/png','gif':'image/gif','webp':'image/webp','bmp':'image/bmp','pdf':'application/pdf','zip':'application/zip','doc':'application/msword','docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','xls':'application/vnd.ms-excel','xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'};
+        return map[ext] || 'application/octet-stream';
+    };
     document.getElementById('transferDetailPhotos').innerHTML = attachments.length
         ? `<label class="fw-semibold small d-block mb-1"><i class="bi bi-paperclip me-1"></i>\u0412\u043B\u043E\u0436\u0435\u043D\u0438\u044F</label>
-           <div class="d-flex gap-2 flex-wrap">${attachments.map(a =>
-               `<div style="width:72px;height:72px;border-radius:6px;overflow:hidden;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:#999" title="${esc(a.filename || '')}">
-                   <i class="bi bi-file-earmark-image" style="font-size:1.5rem"></i>
-               </div>`
-           ).join('')}</div>`
+           <div class="d-flex gap-2 flex-wrap">${attachments.map(a => {
+               const href = a.content
+                   ? 'data:' + mimeFromExt(a.filename) + ';base64,' + a.content
+                   : null;
+               const icon = a.filename && /\.(pdf|doc|docx|xls|xlsx|zip)$/i.test(a.filename)
+                   ? 'bi bi-file-earmark'
+                   : 'bi bi-file-earmark-image';
+               const inner = `<div style="width:72px;height:72px;border-radius:6px;overflow:hidden;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:#999" title="${esc(a.filename || '')}">
+                   <i class="${icon}" style="font-size:1.5rem"></i>
+               </div>`;
+               if (href) {
+                   return `<a href="${href}" target="_blank" download="${esc(a.filename || 'file')}">${inner}</a>`;
+               }
+               return inner;
+           }).join('')}</div>`
         : '';
 
     const modal = new bootstrap.Modal(document.getElementById('transferDetailModal'));
