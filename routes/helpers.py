@@ -37,7 +37,7 @@ VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
 VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
 VAPID_CLAIM_EMAIL = os.environ.get('VAPID_CLAIM_EMAIL', 'admin@example.com')
 
-BACKGROUND_CHECK_INTERVAL = 300
+BACKGROUND_CHECK_INTERVAL = 600
 _background_timer = None
 _background_stop = threading.Event()
 

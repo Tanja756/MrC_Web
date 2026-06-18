@@ -1,11 +1,16 @@
-const CACHE = 'mrcheck-v2';
-const STATIC_CACHE = 'mrcheck-static-v2';
+const CACHE = 'mrcheck-v3';
+const STATIC_CACHE = 'mrcheck-static-v3';
 
 const STATIC_URLS = [
   '/static/style.css',
-  '/static/dashboard.js',
-  '/static/tasks.js',
-  '/static/ppr.js',
+  '/static/css/tasks.css',
+  '/static/css/warehouse.css',
+  '/static/js/core.js',
+  '/static/js/app.js',
+  '/static/js/tasks.js',
+  '/static/js/ppr.js',
+  '/static/js/warehouse.js',
+  '/static/js/stock-transfers.js',
   '/static/icon.png',
   '/static/icon-512.png',
   '/manifest.json',
@@ -69,7 +74,7 @@ self.addEventListener('fetch', event => {
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request).catch(() =>
-        caches.match('/dashboard') || caches.match('/login')
+        caches.match('/tasks') || caches.match('/login')
       )
     );
   }
@@ -89,7 +94,7 @@ self.addEventListener('push', function(event) {
     body: body,
     icon: '/static/icon.png',          // если есть иконка, иначе уберите или оставьте
     data: {
-      url: '/dashboard'                // куда перейти при клике
+      url: '/tasks'                    // куда перейти при клике
     }
   };
   event.waitUntil(

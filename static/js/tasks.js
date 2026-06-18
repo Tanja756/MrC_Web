@@ -1,6 +1,9 @@
 // ============ TASKS ============
 let taskSearchTimeout;
 
+let tasksMy = [], tasksFree = [], tasksClosed = [];
+let multiSelectMode = false;
+const selectedGuids = new Set();
 let currentTab = localStorage.getItem('taskTab') || 'my';
 if (!['my', 'free', 'closed'].includes(currentTab)) currentTab = 'my';
 let tabPrefs = {
