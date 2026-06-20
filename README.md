@@ -99,6 +99,15 @@ sudo ./deploy.sh
 | `API_USER` | Пользователь 1С |
 | `API_PASS` | Пароль 1С |
 | `API_SEARCH_LIMIT` | Лимит записей при поиске (по умолч. `500`) |
+| `YANDEX_CLIENT_ID` | ID приложения Яндекс.OAuth |
+| `YANDEX_CLIENT_SECRET` | Секрет приложения Яндекс.OAuth |
+| `YANDEX_REFRESH_TOKEN` | Refresh-токен Яндекс.Диска (Device Auth Flow) |
+| `BACKGROUND_CHECK_INTERVAL` | Интервал фоновой проверки (сек, по умолч. `600`) |
+| `BALANCE_STALE_THRESHOLD` | Порог устаревания остатков (сек, по умолч. `600`) |
+
+## Синхронизация с Яндекс.Диском
+
+Фоновый воркер выгружает заявки, остатки складов и справочники (номенклатура, клиенты, склады) в JSON на Яндекс.Диск. Данные группируются по папкам логинов 1С в формате, максимально приближенном к ответам эндпоинтов 1С. Загрузка происходит только при изменениях (хэш SHA256). Для первоначального получения `YANDEX_REFRESH_TOKEN` используется Device Authorization Flow — `python scripts/get_yandex_token.py --dotenv`.
 
 ## API endpoints
 

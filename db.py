@@ -563,6 +563,7 @@ def clear_user_cache(username):
     c.execute("DELETE FROM task_user_snapshots WHERE username=?", (username,))
     c.execute("DELETE FROM push_subscriptions WHERE username=?", (username,))
     c.execute("DELETE FROM user_credentials WHERE username=?", (username,))
+    c.execute("DELETE FROM yandex_uploads WHERE username=?", (username,))
     conn.commit()
     conn.close()
     logger.info(f"Cache cleared for user '{username}'")
@@ -626,6 +627,58 @@ def get_tasks_tracking(guids, username):
     return {r[0]: {'taken_at': r[1], 'closed_at': r[2]} for r in rows}
 
 
+# --- YANDEX DISK UPLOAD TRACKING ---
+
+def init_yandex_uploads_table():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS yandex_uploads (
+            username TEXT NOT NULL PRIMARY KEY,
+            tasks_hash TEXT,
+            warehouse_hash TEXT,
+            references_hash TEXT,
+            hashes_hash TEXT
+        )
+    """)
+    for col in ('references_hash', 'hashes_hash'):
+        try:
+            c.execute(f"ALTER TABLE yandex_uploads ADD COLUMN {col} TEXT")
+        except Exception:
+            pass
+    conn.commit()
+    conn.close()
+
+def get_yandex_upload_status(username):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT tasks_hash, warehouse_hash, references_hash, hashes_hash FROM yandex_uploads WHERE username=?", (username,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {"tasks_hash": row[0], "warehouse_hash": row[1], "references_hash": row[2], "hashes_hash": row[3]}
+    return None
+
+def save_yandex_upload_status(username, tasks_hash=None, warehouse_hash=None, references_hash=None, hashes_hash=None):
+    def _write():
+        conn = get_db_connection()
+        c = conn.cursor()
+        existing = get_yandex_upload_status(username) or {}
+        c.execute("""
+            INSERT OR REPLACE INTO yandex_uploads (username, tasks_hash, warehouse_hash, references_hash, hashes_hash)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            username,
+            tasks_hash if tasks_hash is not None else existing.get("tasks_hash"),
+            warehouse_hash if warehouse_hash is not None else existing.get("warehouse_hash"),
+            references_hash if references_hash is not None else existing.get("references_hash"),
+            hashes_hash if hashes_hash is not None else existing.get("hashes_hash"),
+        ))
+        conn.commit()
+        conn.close()
+    _retry_on_locked(_write)
+
+
 # Инициализация БД при импорте модуля
 try:
     init_db()
@@ -636,5 +689,6 @@ try:
     init_task_user_snapshots_table()
     init_push_subscriptions_table()
     init_user_credentials_table()
+    init_yandex_uploads_table()
 except Exception as e:
     logger.warning(f"init_db failed (readonly?): {e}")

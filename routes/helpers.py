@@ -13,6 +13,7 @@ from functools import wraps
 from flask import session, request, jsonify, redirect, url_for, Response, send_file
 
 from api_client import OneSApiClient
+from yandex_disk import YandexDiskClient, sync_tasks_to_yandex, sync_warehouse_to_yandex, sync_references_to_yandex, sync_hashes_to_yandex
 from db import (
     create_notification, get_active_notifications, dismiss_notification, dismiss_all_notifications,
     get_snapshot, save_snapshot, get_snapshot_updated_at,
@@ -539,29 +540,54 @@ def background_check_user(username):
     if not client:
         return
     now = datetime.now()
+    user_data = {}
+    user_tasks = []
     try:
-        user_data = client.get_tasks_user(limit=200)
-        user_tasks = project_tasks(user_data.get('tasks', []))
+        user_data = client.get_tasks_user(limit=200) or {}
+        user_tasks = user_data.get('tasks', [])
     except Exception as e:
         logger.warning(f"Background: failed to fetch user tasks for {username}: {e}")
-        user_tasks = []
+    free_data = {}
+    free_tasks = []
     try:
-        free_data = client.get_tasks_unallocated(limit=200)
-        free_tasks = project_tasks(free_data.get('tasks', []))
+        free_data = client.get_tasks_unallocated(limit=200) or {}
+        free_tasks = free_data.get('tasks', [])
     except Exception as e:
         logger.warning(f"Background: failed to fetch free tasks for {username}: {e}")
-        free_tasks = []
+    closed_data = {}
     closed_tasks = []
     try:
-        closed_data = client.get_closed_tasks_user(limit=200)
-        closed_tasks = project_tasks(closed_data.get('tasks', []))
-        auto_close_tracked_tasks(closed_tasks, username)
+        closed_data = client.get_closed_tasks_user(limit=200) or {}
+        closed_tasks = closed_data.get('tasks', [])
     except Exception as e:
         logger.warning(f"Background: failed to fetch closed tasks for {username}: {e}")
+        closed_data = {}
+        closed_tasks = []
     check_deadlines(user_tasks + free_tasks, username, now)
     _track_task_transitions(username, user_tasks, free_tasks, closed_tasks, old_data)
     check_new_free_tasks(username, free_tasks, old_data)
     background_check_balances(client, username)
+
+    yandex = YandexDiskClient()
+    sync_tasks_to_yandex(username, user_data, free_data, closed_data, yandex=yandex)
+    sync_references_to_yandex(username, client, yandex=yandex)
+
+    auto_close_tracked_tasks(closed_tasks, username)
+
+    try:
+        warehouse_data = {}
+        storages = client.get_storages()
+        if storages:
+            for storage in storages:
+                guid = storage.get('guid')
+                snap = get_snapshot(username, guid)
+                if snap is not None:
+                    warehouse_data[guid] = snap
+        sync_warehouse_to_yandex(username, warehouse_data, yandex=yandex)
+    except Exception as e:
+        logger.warning("Background: failed to prepare warehouse data for Yandex sync: %s", e)
+
+    sync_hashes_to_yandex(username, yandex=yandex)
 
 
 def background_check_all_users():
