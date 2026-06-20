@@ -303,7 +303,7 @@ function toggleAnnouncements() {
 
 // ============ WEB PUSH ============
 async function initPushNotifications() {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || document.body.classList.contains('login-page')) return;
     try {
         const reg = await navigator.serviceWorker.register('/sw.js');
         const permission = await Notification.requestPermission();
@@ -327,16 +327,6 @@ async function initPushNotifications() {
         console.warn('Push init failed', e);
     }
 }
-
-// ============ PWA INSTALL ============
-let deferredPrompt = null;
-window.addEventListener('beforeinstallprompt', e => {
-    e.preventDefault();
-    deferredPrompt = e;
-});
-window.addEventListener('appinstalled', () => {
-    deferredPrompt = null;
-});
 
 // ============ ANDROID BACK BUTTON ============
 document.addEventListener('shown.bs.modal', () => {
@@ -366,6 +356,8 @@ function runStartup() {
 
 // ============ INIT ============
 document.addEventListener('DOMContentLoaded', () => {
+    if (document.body.classList.contains('login-page')) return;
+
     runStartup();
     initPushNotifications();
     applyTheme(currentTheme);
@@ -376,10 +368,10 @@ document.addEventListener('DOMContentLoaded', () => {
     loadNotifications('', true);
     loadAnnouncements();
 
-    setInterval(() => loadNotifications('', true), 600000);
+    setInterval(() => { if (isWorkingHours()) loadNotifications('', true); }, 600000);
 
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
+        if (document.visibilityState === 'visible' && isWorkingHours()) {
             const now = Date.now();
             for (const [key, entry] of reqCache) {
                 if (now - entry.ts > 30 * 60 * 1000) reqCache.delete(key);
@@ -393,3 +385,27 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btn) btn.classList.toggle('show', window.scrollY > 400);
     });
 });
+
+// ============ PWA INSTALL ============
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferredPrompt = e;
+    const section = document.getElementById('installAppSection');
+    if (section) section.classList.remove('d-none');
+});
+window.addEventListener('appinstalled', () => {
+    deferredPrompt = null;
+    const section = document.getElementById('installAppSection');
+    if (section) section.classList.add('d-none');
+});
+
+function installApp() {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(result => {
+        deferredPrompt = null;
+        const section = document.getElementById('installAppSection');
+        if (section) section.classList.add('d-none');
+    });
+}

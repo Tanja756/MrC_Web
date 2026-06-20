@@ -7,7 +7,7 @@
         <div class="modal-body">
             <input type="hidden" id="docFormGuid">
             <div class="doc-section">
-                <div class="doc-section-header d-md-none" onclick="toggleDocSection(this)">Основные данные <i class="bi bi-chevron-up ms-auto"></i></div>
+                <div class="doc-section-header doc-header-basic d-md-none" onclick="toggleDocSection(this)">Основные данные <i class="bi bi-chevron-up ms-auto"></i></div>
                 <div class="doc-section-body d-md-block" id="docBasicSection">
                 <div class="row g-3">
                     <div class="col-6"><label class="form-label fw-semibold small">Номер магазина</label><input type="text" class="form-control" id="docShop" placeholder="Напр. 14908"></div>
@@ -21,7 +21,7 @@
             </div>
             <hr class="my-3">
             <div class="doc-section">
-                <div class="doc-section-header d-md-none" onclick="toggleDocSection(this)">Товары для М15 <i class="bi bi-chevron-down ms-auto"></i></div>
+                <div class="doc-section-header doc-header-goods d-md-none" onclick="toggleDocSection(this)">Товары для М15 <i class="bi bi-chevron-down ms-auto"></i></div>
                 <div class="doc-section-body d-none d-md-block" id="docProductsSection">
                 <label class="fw-semibold small d-block mb-1"><i class="bi bi-box-seam me-1"></i>Товары для М15</label>
                 <div class="row g-2 align-items-center">

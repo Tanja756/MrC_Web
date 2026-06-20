@@ -30,7 +30,7 @@ function switchTab(tab) {
     localStorage.setItem('taskTab', tab);
     loadTabIntoUI(tab);
     if (tab === 'closed') {
-        loadClosedTasks('', tabPrefs.closed.sort, 1);
+        loadClosedTasks('', tabPrefs.closed.sort);
     } else {
         filterTasks();
     }
@@ -64,57 +64,20 @@ function loadTasks(search, types) {
     });
 }
 
-let tasksClosedPage = 1;
-let tasksClosedTotal = 0;
-let tasksClosedSort = 'date';
-let tasksClosedDir = 'desc';
-
-function loadClosedTasks(search, sort, page) {
+function loadClosedTasks(search, sort) {
     if (search === undefined) search = document.getElementById('taskSearch').value.trim();
     if (sort === undefined) sort = tabPrefs.closed.sort;
-    if (page === undefined) page = 1;
-
-    tasksClosedSort = sort;
-    tasksClosedDir = tabPrefs.closed.dir;
-    tasksClosedPage = page;
 
     const params = new URLSearchParams();
     if (search) params.set('search', search);
     params.set('sort', sort);
     params.set('dir', tabPrefs.closed.dir);
-    params.set('limit', '30');
-    if (page > 1) params.set('offset', (page - 1) * 30);
     const qs = '?' + params.toString();
 
-    console.log('[loadClosedTasks] fetching', qs);
     fetchDeduped('/api/tasks/closed' + qs, undefined, 15000).then(r => r instanceof Response ? r.json().catch(() => ({})) : r).then(data => {
         tasksClosed = data.tasks || [];
-        tasksClosedTotal = data.total || 0;
-        console.log('[loadClosedTasks] received', tasksClosed.length, 'items, total=', tasksClosedTotal);
         filterTasks();
     });
-}
-
-function renderClosedPagination() {
-    const nav = document.getElementById('closedPagination');
-    if (!nav) { console.warn('[pagin] nav not found'); return; }
-    const total = tasksClosedTotal;
-    const page = tasksClosedPage;
-    const pages = Math.ceil(total / 30);
-    console.log('[pagin] total=' + total + ' page=' + page + ' pages=' + pages);
-    if (pages <= 1) { nav.classList.add('d-none'); return; }
-    nav.classList.remove('d-none');
-    document.getElementById('pageInfo').textContent = page + ' / ' + pages;
-    document.getElementById('prevPage').disabled = page <= 1;
-    document.getElementById('nextPage').disabled = page >= pages;
-}
-
-function changeClosedPage(delta) {
-    const page = tasksClosedPage + delta;
-    if (page < 1) return;
-    const pages = Math.ceil(tasksClosedTotal / 30);
-    if (page > pages) return;
-    loadClosedTasks(undefined, undefined, page);
 }
 
 function onTaskSearch() {
@@ -123,7 +86,7 @@ function onTaskSearch() {
     clearTimeout(taskSearchTimeout);
     taskSearchTimeout = setTimeout(() => {
         loadTasks(q || undefined);
-        loadClosedTasks(q || '', tabPrefs.closed.sort, 1);
+        loadClosedTasks(q || '', tabPrefs.closed.sort);
     }, 400);
 }
 
@@ -132,15 +95,9 @@ function filterTasks() {
     tabPrefs[currentTab].sort = document.getElementById('taskSort').value;
     saveTabPrefs();
 
-    const closedDir = tabPrefs.closed.dir;
-    if (tabPrefs.closed.sort !== tasksClosedSort || closedDir !== tasksClosedDir) {
-        loadClosedTasks(undefined, tabPrefs.closed.sort, 1);
-    }
-
     renderTasks('tasksMyList', tasksMy, query, 'my');
     renderTasks('tasksFreeList', tasksFree, query, 'free');
     renderTasks('tasksClosedList', tasksClosed, query, 'closed');
-    renderClosedPagination();
 }
 
 function resetFilters() {
@@ -154,7 +111,7 @@ function resetFilters() {
     document.querySelectorAll('#sortDirGroup .btn').forEach(b => b.classList.toggle('active', b.dataset.dir === 'asc'));
     clearTimeout(taskSearchTimeout);
     loadTasks();
-    loadClosedTasks('', tabPrefs.closed.sort, 1);
+    loadClosedTasks('', tabPrefs.closed.sort);
 }
 
 function sortTasks(tasks, sort, dir) {
@@ -328,7 +285,7 @@ function renderTasks(containerId, tasks, query, mode) {
                     ${t.guid_client && clientName(t.guid_client) ? `<span class="task-meta-item"><i class="bi bi-building"></i>${clientName(t.guid_client)}</span>` : ''}
                     ${t.date ? `<span class="task-meta-item"><i class="bi bi-calendar3"></i>${formatDate(t.date)}</span>` : ''}
                     ${t.taken_at && mode === 'my' ? `<span class="task-meta-item"><i class="bi bi-play-fill"></i>${formatDate(t.taken_at)}</span>` : ''}
-                    ${t.closed_at ? `<span class="task-meta-item"><i class="bi bi-check-circle"></i>${formatDate(t.closed_at)}</span>` : ''}
+                    ${t.closed_at && mode !== 'my' ? `<span class="task-meta-item"><i class="bi bi-check-circle"></i>${formatDate(t.closed_at)}</span>` : ''}
                     <span class="task-meta-item ${deadlineClass}"><i class="bi bi-alarm"></i>${deadlineLabel}</span>
                 </div>
                 <div class="task-actions">
@@ -369,7 +326,10 @@ function openTaskDetail(guid, mode) {
     });
 }
 
+let _taskCtx = null;
+
 function showTaskDetail(task, mode, guid) {
+    _taskCtx = { task, mode, guid };
     document.getElementById('taskDetailTitle').innerHTML = `<i class="bi bi-info-circle me-2"></i>${task.name || ''}`;
 
         let body = `
@@ -409,6 +369,7 @@ function showTaskDetail(task, mode, guid) {
         let footer = '';
 
         if (mode === 'user') {
+            pendingAttachments = [];
             body += `
                 <hr class="my-3">
                 <div class="mb-3">
@@ -423,13 +384,9 @@ function showTaskDetail(task, mode, guid) {
                     </div>
                     <div id="attachmentsList" class="mt-2"></div>
                 </div>
-                <hr class="my-3">
-                <div class="mb-3">
-                    <label class="form-label fw-semibold text-danger">Отмена заявки</label>
-                    <textarea class="form-control" id="rejectComment" rows="2" placeholder="Укажите причину отмены..."></textarea>
-                </div>`;
+                `;
             footer = `
-                <button class="btn btn-danger me-auto" onclick="rejectTask('${guid}')"><i class="bi bi-x-circle me-1"></i>Отклонить заявку</button>
+                <button class="btn btn-danger me-auto" onclick="showRejectForm()" title="Отклонить заявку"><i class="bi bi-x-circle"></i></button>
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
                 <button class="btn btn-success" onclick="closeTask('${guid}','${task.guid_client || ''}')"><i class="bi bi-check-lg me-1"></i>Завершить заявку</button>`;
         } else if (mode === 'my') {
@@ -449,6 +406,21 @@ function showTaskDetail(task, mode, guid) {
 
     document.getElementById('taskDetailBody').innerHTML = body;
     document.getElementById('taskDetailFooter').innerHTML = footer;
+}
+
+// ============ REJECT FORM ============
+function showRejectForm() {
+    const ctx = _taskCtx;
+    if (!ctx) return;
+    document.getElementById('taskDetailTitle').innerHTML = `<i class="bi bi-x-circle me-2"></i>Отмена заявки`;
+    document.getElementById('taskDetailBody').innerHTML = `
+        <div class="mb-3">
+            <label class="form-label fw-semibold">Причина отмены</label>
+            <textarea class="form-control" id="rejectComment" rows="3" placeholder="Укажите причину отмены..."></textarea>
+        </div>`;
+    document.getElementById('taskDetailFooter').innerHTML = `
+        <button class="btn btn-secondary" onclick="showTaskDetail(_taskCtx.task, _taskCtx.mode, _taskCtx.guid)"><i class="bi bi-arrow-left me-1"></i>Назад</button>
+        <button class="btn btn-danger" onclick="rejectTask('${ctx.guid}')"><i class="bi bi-x-circle me-1"></i>Отклонить</button>`;
 }
 
 // ============ ATTACHMENTS ============
@@ -560,12 +532,7 @@ function closeTask(guid, guidDoc) {
         });
     };
 
-    if (!navigator.geolocation) { doClose(0, 0); return; }
-    navigator.geolocation.getCurrentPosition(
-        pos => doClose(pos.coords.latitude, pos.coords.longitude),
-        () => doClose(0, 0),
-        { timeout: 5000 }
-    );
+    doClose(0, 0);
 }
 
 // ============ TAKE TASK ============
@@ -955,6 +922,28 @@ function generateDocForm() {
         errDiv.querySelector('span').textContent = e.message;
         body.prepend(errDiv);
     });
+}
+
+// ============ SWIPE TABS ============
+function initSwipeTabs() {
+    const el = document.querySelector('.tab-content');
+    if (!el) return;
+    let startX = 0, startY = 0;
+    el.addEventListener('touchstart', e => {
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+    }, { passive: true });
+    el.addEventListener('touchend', e => {
+        const dx = e.changedTouches[0].clientX - startX;
+        const dy = e.changedTouches[0].clientY - startY;
+        if (Math.abs(dx) < 50 || Math.abs(dy) > Math.abs(dx) * 0.5) return;
+        const pills = document.querySelectorAll('#taskTabs .nav-link');
+        const active = document.querySelector('#taskTabs .nav-link.active');
+        const idx = Array.from(pills).indexOf(active);
+        if (idx === -1) return;
+        const next = dx < 0 ? idx + 1 : idx - 1;
+        if (next >= 0 && next < pills.length) pills[next].click();
+    }, { passive: true });
 }
 
 function downloadDocuments(guid) {

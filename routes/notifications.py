@@ -61,8 +61,11 @@ def api_notification_mark_broken(notif_id):
     storage_guid = notif['storage_guid']
     count = 0
     for item in items:
+        series = item.get('series_name', '') or ''
+        if not series:
+            continue
         set_balance_item_broken(username, storage_guid, item['product_name'],
-                                item.get('series_name', '') or '', item.get('inventory_number', '') or '', True)
+                                series, item.get('inventory_number', '') or '', True)
         count += 1
     dismiss_notification(notif_id, username)
     return jsonify({'ok': True, 'count': count})

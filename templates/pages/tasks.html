@@ -6,11 +6,13 @@
             <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#tasks-my">В работе</button></li>
             <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tasks-free">Свободные</button></li>
             <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tasks-closed" id="closed-pill">Закрытые</button></li>
+            <li class="nav-item ms-auto">
+                <button class="btn btn-sm btn-outline-secondary border-0" onclick="event.stopPropagation();loadTasks()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
+            </li>
         </ul>
         <div class="filter-bar">
             <div class="filter-header" onclick="toggleFilter(this)">
                 <i class="bi bi-funnel"></i> Фильтры <span class="badge bg-secondary ms-auto" id="taskCount">0</span>
-                <button class="btn btn-sm btn-outline-secondary border-0 ms-1" onclick="event.stopPropagation();loadTasks()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
             </div>
             <div class="filter-body">
             <div class="row g-2 align-items-center">
@@ -53,11 +55,6 @@
             </div>
             <div class="tab-pane fade" id="tasks-closed">
                 <div id="tasksClosedList" class="task-list"></div>
-                <nav id="closedPagination" class="d-none mt-2 d-flex justify-content-center align-items-center gap-2" aria-label="Страницы">
-                    <button class="btn btn-outline-secondary btn-sm" id="prevPage" onclick="changeClosedPage(-1)">‹ Назад</button>
-                    <span class="small text-muted" id="pageInfo">1 / 1</span>
-                    <button class="btn btn-outline-secondary btn-sm" id="nextPage" onclick="changeClosedPage(1)">Вперед ›</button>
-                </nav>
             </div>
         </div>
     </div>
@@ -82,11 +79,11 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<link href="{{ url_for('static', filename='css/tasks.css') }}?v=1" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/tasks.css') }}?v=2" rel="stylesheet">
 {% include "modals/task-detail.html" %}
 <div class="modal fade" id="docFormModal" tabindex="-1">{% include "modals/doc-form.html" %}</div>
-<div class="modal fade" id="confirmTakeModal" tabindex="-1">{% include "modals/confirm-take.html" %}</div>
+{% include "modals/confirm-take.html" %}
 <button id="scrollTopBtn" class="scroll-top-btn" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Наверх"><i class="bi bi-arrow-up"></i></button>
-<script src="{{ url_for('static', filename='js/tasks.js') }}?v=1"></script>
-<script>document.addEventListener('DOMContentLoaded',()=>{loadClients();loadTasks('',['my','free']);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){loadTasks('',['my','free']);}});document.querySelectorAll('#taskTabs .nav-link').forEach(p=>{p.addEventListener('shown.bs.tab',()=>{const id=p.getAttribute('data-bs-target');const tab=id==='#tasks-my'?'my':id==='#tasks-free'?'free':'closed';switchTab(tab);});});document.getElementById('tasksFreeList')?.addEventListener('contextmenu',(e)=>{e.preventDefault();multiSelectMode=!multiSelectMode;if(!multiSelectMode)cancelMultiSelect();else{selectedGuids.clear();filterTasks();}});const tab=localStorage.getItem('taskTab')||'my';if(tab!=='my'){const target='#tasks-'+tab;const pill=document.querySelector('#taskTabs .nav-link[data-bs-target="'+target+'"]');if(pill)pill.click();}});</script>
+<script src="{{ url_for('static', filename='js/tasks.js') }}?v=2"></script>
+<script>document.addEventListener('DOMContentLoaded',()=>{loadClients();loadTasks('',['my','free']);initSwipeTabs();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&isWorkingHours()){loadTasks('',['my','free']);}});document.querySelectorAll('#taskTabs .nav-link').forEach(p=>{p.addEventListener('shown.bs.tab',()=>{const id=p.getAttribute('data-bs-target');const tab=id==='#tasks-my'?'my':id==='#tasks-free'?'free':'closed';switchTab(tab);});});document.getElementById('tasksFreeList')?.addEventListener('contextmenu',(e)=>{e.preventDefault();multiSelectMode=!multiSelectMode;if(!multiSelectMode)cancelMultiSelect();else{selectedGuids.clear();filterTasks();}});const tab=localStorage.getItem('taskTab')||'my';if(tab!=='my'){const target='#tasks-'+tab;const pill=document.querySelector('#taskTabs .nav-link[data-bs-target="'+target+'"]');if(pill)pill.click();}});</script>
 {% endblock %}

@@ -65,6 +65,9 @@
                 <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#tasks-my">В работе</button></li>
                 <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tasks-free">Свободные</button></li>
                 <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tasks-closed" id="closed-pill">Закрытые</button></li>
+                <li class="nav-item ms-auto">
+                    <button class="btn btn-sm btn-outline-secondary border-0" onclick="event.stopPropagation();loadTasks()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
+                </li>
             </ul>
 
             <div class="row">
@@ -72,7 +75,6 @@
                     <div class="filter-bar">
                         <div class="filter-header" onclick="toggleFilter(this)">
                             <i class="bi bi-funnel"></i> Фильтры <span class="badge bg-secondary ms-auto" id="taskCount">0</span>
-                            <button class="btn btn-sm btn-outline-secondary border-0 ms-1" onclick="event.stopPropagation();loadTasks()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
                         </div>
                         <div class="filter-body">
                         <div class="row g-2 align-items-center">
@@ -114,14 +116,9 @@
                                 <button class="btn btn-outline-secondary btn-sm" onclick="cancelMultiSelect()">Отмена</button>
                             </div>
                         </div>
-                        <div class="tab-pane fade" id="tasks-closed">
-                            <div id="tasksClosedList" class="task-list"></div>
-                            <nav id="closedPagination" class="d-none mt-2 d-flex justify-content-center align-items-center gap-2" aria-label="Страницы">
-                                <button class="btn btn-outline-secondary btn-sm" id="prevPage" onclick="changeClosedPage(-1)">‹ Назад</button>
-                                <span class="small text-muted" id="pageInfo">1 / 1</span>
-                                <button class="btn btn-outline-secondary btn-sm" id="nextPage" onclick="changeClosedPage(1)">Вперед ›</button>
-                            </nav>
-                        </div>
+                    <div class="tab-pane fade" id="tasks-closed">
+                        <div id="tasksClosedList" class="task-list"></div>
+                    </div>
                     </div>
                 </div>
 
@@ -493,7 +490,7 @@
             <div class="modal-body">
                 <input type="hidden" id="docFormGuid">
                 <div class="doc-section">
-                    <div class="doc-section-header d-md-none" onclick="toggleDocSection(this)">
+                    <div class="doc-section-header doc-header-basic d-md-none" onclick="toggleDocSection(this)">
                         Основные данные <i class="bi bi-chevron-up ms-auto"></i>
                     </div>
                     <div class="doc-section-body d-md-block" id="docBasicSection">
@@ -527,7 +524,7 @@
                 </div>
                 <hr class="my-3">
                 <div class="doc-section">
-                    <div class="doc-section-header d-md-none" onclick="toggleDocSection(this)">
+                    <div class="doc-section-header doc-header-goods d-md-none" onclick="toggleDocSection(this)">
                         Товары для М15 <i class="bi bi-chevron-down ms-auto"></i>
                     </div>
                     <div class="doc-section-body d-none d-md-block" id="docProductsSection">

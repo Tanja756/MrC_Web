@@ -4,10 +4,10 @@ import zipfile
 from datetime import datetime
 from flask import Blueprint, request, jsonify, session
 from api_client import OneSApiClient
-from db import set_task_taken, set_task_closed
+
 from .helpers import (
     api_login_required, get_api_client,
-    project_tasks, attach_tracking, filter_tasks, paginate,
+    project_tasks, attach_tracking, filter_tasks,
     auto_close_tracked_tasks,
     SERVER_HOST, SERVER_PORT, SERVER_DB,
 )
@@ -20,19 +20,16 @@ tasks_bp = Blueprint('tasks', __name__, url_prefix='/api/tasks')
 def api_tasks_my():
     client = get_api_client()
     if not client:
-        return jsonify({"tasks": [], "total": 0})
+        return jsonify({"tasks": []})
     search = request.args.get('search')
     sort = request.args.get('sort')
     dir = request.args.get('dir', 'desc')
-    limit = request.args.get('limit', 30, type=int)
-    offset = request.args.get('offset', 0, type=int)
     username = session.get('username', '')
     data = client.get_tasks_user(limit=5000, offset=0)
     tasks = project_tasks(data.get('tasks', []))
     attach_tracking(tasks, username)
     tasks = filter_tasks(tasks, search, sort, dir)
-    tasks, total = paginate(tasks, limit, offset)
-    return jsonify({"tasks": tasks, "total": total})
+    return jsonify({"tasks": tasks})
 
 
 @tasks_bp.route('/free')
@@ -40,17 +37,14 @@ def api_tasks_my():
 def api_tasks_free():
     client = get_api_client()
     if not client:
-        return jsonify({"tasks": [], "total": 0})
+        return jsonify({"tasks": []})
     search = request.args.get('search')
     sort = request.args.get('sort')
     dir = request.args.get('dir', 'desc')
-    limit = request.args.get('limit', 30, type=int)
-    offset = request.args.get('offset', 0, type=int)
     data = client.get_tasks_unallocated(limit=5000, offset=0)
     tasks = project_tasks(data.get('tasks', []))
     tasks = filter_tasks(tasks, search, sort, dir)
-    tasks, total = paginate(tasks, limit, offset)
-    return jsonify({"tasks": tasks, "total": total})
+    return jsonify({"tasks": tasks})
 
 
 @tasks_bp.route('/closed')
@@ -58,20 +52,17 @@ def api_tasks_free():
 def api_tasks_closed():
     client = get_api_client()
     if not client:
-        return jsonify({"tasks": [], "total": 0})
+        return jsonify({"tasks": []})
     search = request.args.get('search')
     sort = request.args.get('sort')
     dir = request.args.get('dir', 'desc')
-    limit = request.args.get('limit', 30, type=int)
-    offset = request.args.get('offset', 0, type=int)
     username = session.get('username', '')
     data = client.get_closed_tasks_user(limit=5000, offset=0)
     tasks = project_tasks(data.get('tasks', []))
     attach_tracking(tasks, username)
     auto_close_tracked_tasks(tasks, username)
     tasks = filter_tasks(tasks, search, sort, dir)
-    tasks, total = paginate(tasks, limit, offset)
-    return jsonify({"tasks": tasks, "total": total})
+    return jsonify({"tasks": tasks})
 
 
 @tasks_bp.route('/<guid>')
@@ -99,8 +90,6 @@ def api_task_take():
     if not guid:
         return jsonify({'error': 'GUID required'}), 400
     result = client.task_take(guid)
-    if result and result.get('status') in ('Выполнить', 'OK'):
-        set_task_taken(session.get('username', ''), guid)
     return jsonify(result or {'error': 'Failed to take task'})
 
 
@@ -113,13 +102,10 @@ def api_task_take_bulk():
     guids = request.json.get('guids', [])
     if not guids or not isinstance(guids, list):
         return jsonify({'error': 'Array of GUIDs required'}), 400
-    username = session.get('username', '')
     results = []
     for guid in guids:
         result = client.task_take(guid)
         ok = bool(result and (result.get('status') in ('Выполнить', 'OK')))
-        if ok:
-            set_task_taken(username, guid)
         results.append({'guid': guid, 'ok': ok, 'error': None if ok else (result.get('error') or 'Failed')})
     return jsonify({'results': results, 'total': len(results), 'taken': sum(1 for r in results if r['ok'])})
 
@@ -140,7 +126,6 @@ def api_task_close():
     result = client.task_close(guid, guid_doc, comment, latitude, longitude, attachments)
     if result and result.get('_error'):
         return jsonify({'success': False, 'error': result['_error'], 'detail': result}), 400
-    set_task_closed(session.get('username', ''), guid)
     return jsonify({'success': True})
 
 

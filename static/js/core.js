@@ -90,10 +90,23 @@ function toggleFilter(el) {
 }
 
 function toggleDocSection(header) {
-    const body = header.nextElementSibling;
-    const isHidden = body.classList.toggle('d-none');
+    const section = header.closest('.doc-section');
+    const allSections = section.parentElement.querySelectorAll('.doc-section');
+    const wasHidden = header.nextElementSibling.classList.contains('d-none');
+
+    allSections.forEach(s => {
+        if (s === section) return;
+        const body = s.querySelector('.doc-section-body');
+        if (!body.classList.contains('d-none')) {
+            body.classList.add('d-none');
+            const icon = s.querySelector('.doc-section-header .bi');
+            if (icon) icon.className = 'bi bi-chevron-down ms-auto';
+        }
+    });
+
+    header.nextElementSibling.classList.toggle('d-none');
     const icon = header.querySelector('.bi');
-    icon.className = 'bi bi-chevron-' + (isHidden ? 'down' : 'up') + ' ms-auto';
+    icon.className = 'bi bi-chevron-' + (wasHidden ? 'up' : 'down') + ' ms-auto';
 }
 
 function parseDate(str) {
@@ -233,4 +246,9 @@ function urlBase64ToUint8Array(base64String) {
         uint8Array[i] = rawData.charCodeAt(i);
     }
     return uint8Array;
+}
+
+function isWorkingHours() {
+    const h = new Date().getHours();
+    return h >= 7 && h < 23;
 }

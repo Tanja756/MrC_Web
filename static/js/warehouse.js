@@ -116,10 +116,11 @@ function filterBalances() {
                 <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.series_name ? '\u0421\u0435\u0440.: ' + esc(b.series_name) : ''}</div>
                 <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.inventory_number ? '\u0418\u043D\u0432.: ' + esc(b.inventory_number) : ''}</div>
                 <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.date_arrival ? '\u041F\u043E\u0441\u0442\u0443\u043F\u043B.: ' + esc(b.date_arrival) : ''}</div>
+                ${b.series_name ? `
                 <label class="broken-toggle" onclick="event.stopPropagation()">
-                    <input type="checkbox" ${b.broken ? 'checked' : ''} onchange="toggleBroken(this, '${esc(b.product_name)}', '${esc(b.series_name || '')}', '${esc(b.inventory_number || '')}', ${b.broken ? 'false' : 'true'})">
+                    <input type="checkbox" ${b.broken ? 'checked' : ''} onchange="toggleBroken(this, '${esc(b.product_name)}', '${esc(b.series_name)}', '${esc(b.inventory_number || '')}', ${b.broken ? 'false' : 'true'})">
                     <span class="broken-label">\u041D\u0430 \u0440\u0435\u043C\u043E\u043D\u0442</span>
-                </label>
+                </label>` : ''}
             </div>
             <div class="fw-bold fs-5 text-end flex-shrink-0 align-self-center">${b.balance ?? 0}</div>
         </div>
@@ -141,9 +142,10 @@ function filterBalances() {
             <td style="font-size:0.75rem">${b.date_arrival || '\u2014'}</td>
             <td class="text-end fw-bold">${b.balance ?? 0}</td>
             <td class="text-center">
+                ${b.series_name ? `
                 <label class="broken-toggle" onclick="event.stopPropagation()">
-                    <input type="checkbox" ${b.broken ? 'checked' : ''} onchange="toggleBroken(this, '${esc(b.product_name)}', '${esc(b.series_name || '')}', '${esc(b.inventory_number || '')}', ${b.broken ? 'false' : 'true'})">
-                </label>
+                    <input type="checkbox" ${b.broken ? 'checked' : ''} onchange="toggleBroken(this, '${esc(b.product_name)}', '${esc(b.series_name)}', '${esc(b.inventory_number || '')}', ${b.broken ? 'false' : 'true'})">
+                </label>` : '\u2014'}
             </td>
         </tr>`).join('')}</tbody>
     </table></div>`;

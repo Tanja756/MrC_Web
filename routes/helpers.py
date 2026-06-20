@@ -23,6 +23,7 @@ from db import (
     delete_subscription, delete_user_subscriptions,
     save_user_credentials, get_user_credentials, get_all_users_with_credentials,
     set_task_taken, set_task_closed, get_tasks_tracking,
+    get_task_user_snapshot, save_task_user_snapshot,
     count_user_notifications,
     get_balance_item_meta, set_balance_item_broken, get_notification_by_id,
 )
@@ -430,6 +431,31 @@ def check_new_free_tasks(username, free_tasks, old_data):
     save_task_snapshot(username, list(current_free_guids))
 
 
+def _track_task_transitions(username, user_tasks, free_tasks, closed_tasks, old_free_data):
+    current_user_guids = {t['guid'] for t in user_tasks if t.get('guid')}
+    current_closed_guids = {t['guid'] for t in closed_tasks if t.get('guid')}
+
+    old_free_guids = set(old_free_data) if old_free_data else set()
+    old_user_data, _ = get_task_user_snapshot(username)
+    old_user_guids = set(old_user_data) if old_user_data else set()
+
+    taken_guids = (old_free_guids & current_user_guids) - old_user_guids
+    if taken_guids:
+        for guid in taken_guids:
+            set_task_taken(username, guid)
+            logger.info(f"Background: task '{guid}' taken by '{username}' (transition detected)")
+
+    closed_guids = old_user_guids & current_closed_guids
+    if closed_guids:
+        tracking = get_tasks_tracking(list(closed_guids), username)
+        for guid in closed_guids:
+            if not tracking.get(guid, {}).get('closed_at'):
+                set_task_closed(username, guid)
+                logger.info(f"Background: task '{guid}' closed for '{username}' (transition detected)")
+
+    save_task_user_snapshot(username, list(current_user_guids))
+
+
 def check_tasks(username):
     if not username:
         return
@@ -524,6 +550,7 @@ def background_check_user(username):
     except Exception as e:
         logger.warning(f"Background: failed to fetch free tasks for {username}: {e}")
         free_tasks = []
+    closed_tasks = []
     try:
         closed_data = client.get_closed_tasks_user(limit=200)
         closed_tasks = project_tasks(closed_data.get('tasks', []))
@@ -531,6 +558,7 @@ def background_check_user(username):
     except Exception as e:
         logger.warning(f"Background: failed to fetch closed tasks for {username}: {e}")
     check_deadlines(user_tasks + free_tasks, username, now)
+    _track_task_transitions(username, user_tasks, free_tasks, closed_tasks, old_data)
     check_new_free_tasks(username, free_tasks, old_data)
     background_check_balances(client, username)
 
@@ -553,12 +581,17 @@ def background_check_all_users():
             background_check_user(username)
 
 
+def _is_working_hours():
+    h = datetime.now().hour
+    return 7 <= h < 23
+
 def background_check_loop():
     while not _background_stop.is_set():
-        try:
-            background_check_all_users()
-        except Exception as e:
-            logger.error(f"Background check error: {e}", exc_info=True)
+        if _is_working_hours():
+            try:
+                background_check_all_users()
+            except Exception as e:
+                logger.error(f"Background check error: {e}", exc_info=True)
         _background_stop.wait(BACKGROUND_CHECK_INTERVAL)
 
 

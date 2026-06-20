@@ -1,8 +1,20 @@
 import sqlite3
 import logging
 import json
+import time
 
 logger = logging.getLogger(__name__)
+
+def _retry_on_locked(fn, max_retries=5):
+    for attempt in range(max_retries):
+        try:
+            fn()
+            return
+        except sqlite3.OperationalError as e:
+            if 'locked' in str(e) and attempt < max_retries - 1:
+                time.sleep(0.3 * (attempt + 1))
+                continue
+            raise
 
 DB_NAME = "shops.db"
 
@@ -146,15 +158,17 @@ def init_notifications_table():
     conn.close()
 
 def create_notification(username, type_, title, description, storage_guid=None, items=None):
-    conn = get_db_connection()
-    c = conn.cursor()
-    items_json = json.dumps(items) if items else None
-    c.execute("""
-        INSERT INTO notifications (username, type, title, description, storage_guid, items_json)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (username, type_, title, description, storage_guid, items_json))
-    conn.commit()
-    conn.close()
+    def _write():
+        conn = get_db_connection()
+        c = conn.cursor()
+        items_json = json.dumps(items) if items else None
+        c.execute("""
+            INSERT INTO notifications (username, type, title, description, storage_guid, items_json)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (username, type_, title, description, storage_guid, items_json))
+        conn.commit()
+        conn.close()
+    _retry_on_locked(_write)
 
 def get_notification_by_id(notif_id, username):
     conn = get_db_connection()
@@ -238,14 +252,16 @@ def get_snapshot_updated_at(username, storage_guid):
 
 def save_snapshot(username, storage_guid, data):
     import json
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("""
-        INSERT OR REPLACE INTO balance_snapshots (username, storage_guid, data, updated_at)
-        VALUES (?, ?, ?, datetime('now'))
-    """, (username, storage_guid, json.dumps(data)))
-    conn.commit()
-    conn.close()
+    def _write():
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("""
+            INSERT OR REPLACE INTO balance_snapshots (username, storage_guid, data, updated_at)
+            VALUES (?, ?, ?, datetime('now'))
+        """, (username, storage_guid, json.dumps(data)))
+        conn.commit()
+        conn.close()
+    _retry_on_locked(_write)
 
 
 def get_balance_item_meta(username, storage_guid):
@@ -343,14 +359,54 @@ def get_task_snapshot(username):
 
 def save_task_snapshot(username, data):
     import json
+    def _write():
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("""
+            INSERT OR REPLACE INTO task_snapshots (username, data, updated_at)
+            VALUES (?, ?, datetime('now'))
+        """, (username, json.dumps(data)))
+        conn.commit()
+        conn.close()
+    _retry_on_locked(_write)
+
+def init_task_user_snapshots_table():
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("""
-        INSERT OR REPLACE INTO task_snapshots (username, data, updated_at)
-        VALUES (?, ?, datetime('now'))
-    """, (username, json.dumps(data)))
+        CREATE TABLE IF NOT EXISTS task_user_snapshots (
+            username TEXT NOT NULL,
+            data TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (username)
+        )
+    """)
     conn.commit()
     conn.close()
+
+def get_task_user_snapshot(username):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT data, updated_at FROM task_user_snapshots WHERE username=?", (username,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        import json
+        return json.loads(row[0]), row[1]
+    return None, None
+
+def save_task_user_snapshot(username, data):
+    import json
+    def _write():
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("""
+            INSERT OR REPLACE INTO task_user_snapshots (username, data, updated_at)
+            VALUES (?, ?, datetime('now'))
+        """, (username, json.dumps(data)))
+        conn.commit()
+        conn.close()
+    _retry_on_locked(_write)
 
 def notification_exists(username, type_, desc_substring, minutes=60):
     conn = get_db_connection()
@@ -504,6 +560,7 @@ def clear_user_cache(username):
     c.execute("DELETE FROM balance_snapshots WHERE username=?", (username,))
     c.execute("DELETE FROM balance_item_meta WHERE username=?", (username,))
     c.execute("DELETE FROM task_snapshots WHERE username=?", (username,))
+    c.execute("DELETE FROM task_user_snapshots WHERE username=?", (username,))
     c.execute("DELETE FROM push_subscriptions WHERE username=?", (username,))
     c.execute("DELETE FROM user_credentials WHERE username=?", (username,))
     conn.commit()
@@ -529,26 +586,30 @@ def init_task_tracking_table():
     conn.close()
 
 def set_task_taken(username, guid):
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("""
-        INSERT INTO task_tracking (guid, username, taken_at)
-        VALUES (?, ?, datetime('now', 'localtime'))
-        ON CONFLICT(guid, username) DO UPDATE SET taken_at = datetime('now', 'localtime')
-    """, (guid, username))
-    conn.commit()
-    conn.close()
+    def _write():
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO task_tracking (guid, username, taken_at)
+            VALUES (?, ?, datetime('now', 'localtime'))
+            ON CONFLICT(guid, username) DO UPDATE SET taken_at = datetime('now', 'localtime')
+        """, (guid, username))
+        conn.commit()
+        conn.close()
+    _retry_on_locked(_write)
 
 def set_task_closed(username, guid):
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("""
-        INSERT INTO task_tracking (guid, username, closed_at)
-        VALUES (?, ?, datetime('now', 'localtime'))
-        ON CONFLICT(guid, username) DO UPDATE SET closed_at = datetime('now', 'localtime')
-    """, (guid, username))
-    conn.commit()
-    conn.close()
+    def _write():
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO task_tracking (guid, username, closed_at)
+            VALUES (?, ?, datetime('now', 'localtime'))
+            ON CONFLICT(guid, username) DO UPDATE SET closed_at = datetime('now', 'localtime')
+        """, (guid, username))
+        conn.commit()
+        conn.close()
+    _retry_on_locked(_write)
 
 def get_tasks_tracking(guids, username):
     if not guids:
@@ -572,6 +633,7 @@ try:
     init_announcements_table()
     init_task_snapshots_table()
     init_task_tracking_table()
+    init_task_user_snapshots_table()
     init_push_subscriptions_table()
     init_user_credentials_table()
 except Exception as e:
