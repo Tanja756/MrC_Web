@@ -38,7 +38,8 @@ VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
 VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
 VAPID_CLAIM_EMAIL = os.environ.get('VAPID_CLAIM_EMAIL', 'admin@example.com')
 
-BACKGROUND_CHECK_INTERVAL = 600
+BACKGROUND_CHECK_INTERVAL = int(os.environ.get('BACKGROUND_CHECK_INTERVAL', '600'))
+BALANCE_STALE_THRESHOLD = int(os.environ.get('BALANCE_STALE_THRESHOLD', '600'))
 _background_timer = None
 _background_stop = threading.Event()
 
@@ -330,7 +331,7 @@ def refresh_balance_if_stale(username, storage_guid):
     if updated_at:
         try:
             dt = datetime.strptime(updated_at, '%Y-%m-%d %H:%M:%S')
-            if (datetime.now() - dt).total_seconds() < 3600:
+            if (datetime.now() - dt).total_seconds() < BALANCE_STALE_THRESHOLD:
                 return
         except (ValueError, TypeError):
             pass
@@ -463,7 +464,7 @@ def check_tasks(username):
     if updated_at:
         try:
             dt = datetime.strptime(updated_at, '%Y-%m-%d %H:%M:%S')
-            if (datetime.now() - dt).total_seconds() < 600:
+            if (datetime.now() - dt).total_seconds() < BACKGROUND_CHECK_INTERVAL:
                 return
         except (ValueError, TypeError):
             pass
@@ -510,7 +511,7 @@ def background_check_balances(client, username):
             if updated_at:
                 try:
                     dt = datetime.strptime(updated_at, '%Y-%m-%d %H:%M:%S')
-                    if (datetime.now() - dt).total_seconds() < 3600:
+                    if (datetime.now() - dt).total_seconds() < BALANCE_STALE_THRESHOLD:
                         continue
                 except (ValueError, TypeError):
                     pass
