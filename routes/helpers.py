@@ -13,7 +13,7 @@ from functools import wraps
 from flask import session, request, jsonify, redirect, url_for, Response, send_file
 
 from api_client import OneSApiClient
-from yandex_disk import YandexDiskClient, sync_tasks_to_yandex, sync_warehouse_to_yandex, sync_references_to_yandex, sync_hashes_to_yandex
+from yandex_disk import YandexDiskClient, sync_tasks_to_yandex, sync_warehouse_to_yandex, sync_references_to_yandex, sync_hashes_to_yandex, process_close_task_actions
 from db import (
     create_notification, get_active_notifications, dismiss_notification, dismiss_all_notifications,
     get_snapshot, save_snapshot, get_snapshot_updated_at,
@@ -297,8 +297,8 @@ def check_balance_changes(username, storage_guid, new_data, storage_name=''):
             removed.append((item.get('balance', 0) or 0, item.get('product_name', '?'),
                            item.get('series_name', ''), item.get('inventory_number', '')))
 
-    def _fmt_line_add(diff, name, series, inv):
-        parts = [f'+ {diff} шт\t{name}']
+    def _fmt_line(sign, diff, name, series, inv):
+        parts = [f'{sign} {diff} шт\t{name}']
         if series:
             parts.append(f'    SN: {series}')
         return '\n'.join(parts)
@@ -310,7 +310,7 @@ def check_balance_changes(username, storage_guid, new_data, storage_name=''):
         return f'Списание со склада {storage_name}'.strip() if storage_name else 'Списание со склада'
 
     if added:
-        lines = '\n'.join(_fmt_line_add(d, n, s, i) for d, n, s, i in added)
+        lines = '\n'.join(_fmt_line('+', d, n, s, i) for d, n, s, i in added)
         items_data = [{'product_name': n, 'series_name': s or '', 'inventory_number': i or ''} for d, n, s, i in added]
         if not notification_exists(username, 'warehouse_arrival', lines, 60):
             create_notification(username, 'warehouse_arrival',
@@ -318,7 +318,7 @@ def check_balance_changes(username, storage_guid, new_data, storage_name=''):
             send_push_notification(username, _title_arrival(), lines)
 
     if removed:
-        lines = '\n'.join(_fmt_line_add(d, n, s, i) for d, n, s, i in removed)
+        lines = '\n'.join(_fmt_line('-', d, n, s, i) for d, n, s, i in removed)
         if not notification_exists(username, 'warehouse_writeoff', lines, 60):
             create_notification(username, 'warehouse_writeoff',
                 _title_writeoff(), lines, storage_guid)
@@ -473,10 +473,18 @@ def check_tasks(username):
     if not client:
         return
     now = datetime.now()
-    user_data = client.get_tasks_user(limit=200)
-    user_tasks = project_tasks(user_data.get('tasks', []))
-    free_data = client.get_tasks_unallocated(limit=200)
-    free_tasks = project_tasks(free_data.get('tasks', []))
+    try:
+        user_data = client.get_tasks_user(limit=200)
+        user_tasks = project_tasks(user_data.get('tasks', []))
+    except Exception as e:
+        logger.error(f"check_tasks: get_tasks_user failed — {e}")
+        user_tasks = []
+    try:
+        free_data = client.get_tasks_unallocated(limit=200)
+        free_tasks = project_tasks(free_data.get('tasks', []))
+    except Exception as e:
+        logger.error(f"check_tasks: get_tasks_unallocated failed — {e}")
+        free_tasks = []
     check_deadlines(user_tasks + free_tasks, username, now)
     check_new_free_tasks(username, free_tasks, old_data)
 
@@ -588,6 +596,7 @@ def background_check_user(username):
         logger.warning("Background: failed to prepare warehouse data for Yandex sync: %s", e)
 
     sync_hashes_to_yandex(username, yandex=yandex)
+    process_close_task_actions(username, client, yandex=yandex)
 
 
 def background_check_all_users():

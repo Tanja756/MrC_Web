@@ -110,6 +110,39 @@ class YandexDiskClient:
         put_r.raise_for_status()
         logger.info("Uploaded Yandex.Disk: %s (%d bytes)", file_path, len(body))
 
+    def list_folder(self, path):
+        path = path.strip("/")
+        r = self._request("GET", DISK_API, params={"path": path, "limit": 100})
+        if r.status_code == 404:
+            return []
+        r.raise_for_status()
+        items = r.json().get("_embedded", {}).get("items", [])
+        return [{"name": i["name"], "type": i["type"], "path": i["path"]} for i in items]
+
+    def download_file(self, file_path):
+        file_path = file_path.strip("/")
+        r = self._request("GET", DISK_API + "/download", params={"path": file_path})
+        r.raise_for_status()
+        href = r.json()["href"]
+        body = requests.get(href, timeout=30)
+        body.raise_for_status()
+        return body.text
+
+    def delete_file(self, file_path):
+        file_path = file_path.strip("/")
+        r = self._request("DELETE", DISK_API, params={"path": file_path})
+        if r.status_code not in (200, 202, 204, 404):
+            r.raise_for_status()
+
+    def move_file(self, source_path, dest_path):
+        source_path = source_path.strip("/")
+        dest_path = dest_path.strip("/")
+        r = self._request("POST", DISK_API + "/move", params={
+            "from": source_path, "path": dest_path,
+        })
+        if r.status_code not in (200, 201, 202, 204, 409):
+            r.raise_for_status()
+
 
 def compute_hash(data):
     raw = json.dumps(data, ensure_ascii=False, default=str, sort_keys=True)
@@ -193,6 +226,80 @@ def sync_hashes_to_yandex(username, yandex=None):
         logger.info("Yandex sync: hashes updated for %s", username)
     except Exception as e:
         logger.error("Yandex sync: failed to upload hashes for %s: %s", username, e)
+
+
+def _rename_to_error(yandex, file_path, name):
+    error_path = file_path.rsplit(".", 1)[0] + ".error"
+    try:
+        yandex.move_file(file_path, error_path)
+        logger.info("Yandex Action: renamed %s to .error", name)
+    except Exception as e:
+        logger.error("Yandex Action: failed to rename %s: %s", name, e)
+
+
+def process_close_task_actions(username, client, yandex=None):
+    if yandex is None:
+        yandex = YandexDiskClient()
+    if not yandex.is_authenticated():
+        return
+
+    action_folder = f"{username}/Action"
+
+    try:
+        items = yandex.list_folder(action_folder)
+    except Exception as e:
+        logger.debug("Yandex Action folder not available for %s: %s", username, e)
+        return
+
+    close_files = [i for i in items if i["name"].startswith("close_task_") and i["name"].endswith(".json")]
+    if not close_files:
+        return
+
+    logger.info("Yandex Action: found %d close_task file(s) for %s", len(close_files), username)
+
+    for f in close_files:
+        file_path = f"{action_folder}/{f['name']}"
+        try:
+            content = yandex.download_file(file_path)
+            data = json.loads(content)
+        except Exception as e:
+            logger.error("Yandex Action: failed to read %s: %s", f["name"], e)
+            _rename_to_error(yandex, file_path, f["name"])
+            continue
+
+        if data.get("action") != "close_task":
+            logger.warning("Yandex Action: unknown action in %s", f["name"])
+            _rename_to_error(yandex, file_path, f["name"])
+            continue
+
+        guid = data.get("guid")
+        if not guid:
+            logger.error("Yandex Action: missing guid in %s", f["name"])
+            _rename_to_error(yandex, file_path, f["name"])
+            continue
+
+        guid_doc = data.get("guid_doc", "")
+        comment = data.get("comment", "")
+        latitude = data.get("latitude", 0.0)
+        longitude = data.get("longitude", 0.0)
+        attachments = data.get("attachments", [])
+
+        try:
+            result = client.task_close(guid, guid_doc, comment, latitude, longitude, attachments)
+        except Exception as e:
+            logger.error("Yandex Action: 1C close failed for %s (guid=%s): %s", f["name"], guid, e)
+            continue
+
+        if result and result.get("_error"):
+            logger.error("Yandex Action: 1C returned error for %s (guid=%s): %s", f["name"], guid, result["_error"])
+            _rename_to_error(yandex, file_path, f["name"])
+            continue
+
+        try:
+            yandex.delete_file(file_path)
+            logger.info("Yandex Action: task %s closed from %s, file deleted", guid, f["name"])
+        except Exception as e:
+            logger.error("Yandex Action: failed to delete %s after success: %s", f["name"], e)
 
 
 def sync_references_to_yandex(username, client, yandex=None):
