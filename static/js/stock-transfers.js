@@ -5,6 +5,8 @@ let transferPhotos = [];
 let currentTransferDoc = null;
 let transferChangedAmounts = {};
 let transferNewComment = '';
+let transferNewAttachments = [];
+let transferDeletedAttachments = new Set();
 let _transfersCache = [];
 
 function openCreateTransfer() {
@@ -276,6 +278,10 @@ function loadTransfers() {
                 const src = doc.warehouse_source_name || doc.warehouse_source || '\u2014';
                 const dst = doc.warehouse_dest_name || doc.warehouse_dest || '\u2014';
                 const org = doc.organization_name || '';
+                const comments = doc.comments || [];
+                const commentsHtml = comments.length
+                    ? `<div class="small mt-1 text-muted"><i class="bi bi-chat-dots me-1"></i>${esc(typeof comments[comments.length - 1] === 'string' ? comments[comments.length - 1] : (comments[comments.length - 1].content || ''))}</div>`
+                    : '';
                 return `<div class="transfer-card border rounded-3 p-3 mb-2" style="cursor:pointer" onclick="openTransferDetail(${idx})">
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
@@ -291,6 +297,7 @@ function loadTransfers() {
                     <div class="small mt-1">
                         <i class="bi bi-arrow-right-short"></i> ${esc(src)} \u2192 ${esc(dst)}
                     </div>
+                    ${commentsHtml}
                 </div>`;
             }).join('');
         })
@@ -307,6 +314,8 @@ function openTransferDetail(idx) {
     currentTransferDoc = doc;
     transferChangedAmounts = {};
     transferNewComment = '';
+    transferNewAttachments = [];
+    transferDeletedAttachments = new Set();
 
     const title = document.getElementById('transferDetailTitle');
     title.innerHTML = `<i class="bi bi-arrow-left-right me-2"></i>${esc(doc.number || '\u041F\u0435\u0440\u0435\u043C\u0435\u0449\u0435\u043D\u0438\u0435')}`;
@@ -353,9 +362,12 @@ function openTransferDetail(idx) {
 
     const comments = doc.comments || [];
     const commentsHtml = comments.length
-        ? comments.map(c =>
-            `<div class="small mb-1 p-1 bg-light rounded-3">${esc(c.author || '')} \u2014 ${esc(c.date || '')}<br>${esc(c.content || '')}</div>`
-          ).join('')
+        ? comments.map(c => {
+            if (typeof c === 'string') {
+                return `<div class="small mb-1 p-1 bg-light rounded-3">${esc(c)}</div>`;
+            }
+            return `<div class="small mb-1 p-1 bg-light rounded-3">${esc(c.author || '')} \u2014 ${esc(c.date || '')}<br>${esc(c.content || '')}</div>`;
+          }).join('')
         : '<div class="text-muted small mb-2">\u041D\u0435\u0442 \u043A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0435\u0432</div>';
     document.getElementById('transferDetailComments').innerHTML = `
         <label class="fw-semibold small d-block mb-1"><i class="bi bi-chat-dots me-1"></i>\u041A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0438</label>
@@ -367,30 +379,7 @@ function openTransferDetail(idx) {
         </div>
     `;
 
-    const attachments = doc.attachments || [];
-    const mimeFromExt = fname => {
-        const ext = (fname || '').split('.').pop().toLowerCase();
-        const map = {'jpg':'image/jpeg','jpeg':'image/jpeg','png':'image/png','gif':'image/gif','webp':'image/webp','bmp':'image/bmp','pdf':'application/pdf','zip':'application/zip','doc':'application/msword','docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','xls':'application/vnd.ms-excel','xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'};
-        return map[ext] || 'application/octet-stream';
-    };
-    document.getElementById('transferDetailPhotos').innerHTML = attachments.length
-        ? `<label class="fw-semibold small d-block mb-1"><i class="bi bi-paperclip me-1"></i>\u0412\u043B\u043E\u0436\u0435\u043D\u0438\u044F</label>
-           <div class="d-flex gap-2 flex-wrap">${attachments.map(a => {
-               const href = a.content
-                   ? 'data:' + mimeFromExt(a.filename) + ';base64,' + a.content
-                   : null;
-               const icon = a.filename && /\.(pdf|doc|docx|xls|xlsx|zip)$/i.test(a.filename)
-                   ? 'bi bi-file-earmark'
-                   : 'bi bi-file-earmark-image';
-               const inner = `<div style="width:72px;height:72px;border-radius:6px;overflow:hidden;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:#999" title="${esc(a.filename || '')}">
-                   <i class="${icon}" style="font-size:1.5rem"></i>
-               </div>`;
-               if (href) {
-                   return `<a href="${href}" target="_blank" download="${esc(a.filename || 'file')}">${inner}</a>`;
-               }
-               return inner;
-           }).join('')}</div>`
-        : '';
+    renderTransferDetailAttachments();
 
     const modal = new bootstrap.Modal(document.getElementById('transferDetailModal'));
     modal.show();
@@ -404,6 +393,89 @@ function onTransferAmountChange(input, guid) {
     } else {
         delete transferChangedAmounts[guid];
     }
+}
+
+function renderTransferDetailAttachments() {
+    const doc = currentTransferDoc;
+    if (!doc) return;
+    const attachments = doc.attachments || [];
+    const taskGuid = doc.guid;
+    const container = document.getElementById('transferDetailPhotos');
+
+    const existingHtml = attachments.map(a => {
+        const deleted = transferDeletedAttachments.has(a.guid);
+        const icon = a.filename && /\.(pdf|doc|docx|xls|xlsx|zip)$/i.test(a.filename)
+            ? 'bi bi-file-earmark' : 'bi bi-file-earmark-image';
+        return `<div class="position-relative" style="width:72px;height:72px${deleted ? ';opacity:0.4' : ''}">
+            <div style="width:72px;height:72px;border-radius:6px;overflow:hidden;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:#999;cursor:pointer"
+                 title="${esc(a.filename || '')}"
+                 onclick="downloadTransferAttachment('${a.guid}')">
+                <i class="${icon}" style="font-size:1.5rem"></i>
+            </div>
+            <i class="bi ${deleted ? 'bi-arrow-counterclockwise text-success' : 'bi-x-circle-fill text-danger'} position-absolute"
+               style="top:-6px;right:-6px;cursor:pointer;font-size:1rem;background:white;border-radius:50%"
+               onclick="event.stopPropagation();toggleDeleteTransferAttachment('${a.guid}')"></i>
+        </div>`;
+    }).join('');
+
+    const newHtml = transferNewAttachments.map((att, i) =>
+        `<div class="position-relative" style="width:72px;height:72px">
+            <img src="data:image/${att.extension};base64,${att.data}" style="width:100%;height:100%;object-fit:cover;border-radius:6px">
+            <i class="bi bi-x-circle-fill position-absolute" style="top:-6px;right:-6px;cursor:pointer;color:#dc3545;font-size:1rem;background:white;border-radius:50%"
+               onclick="event.stopPropagation();removeNewTransferAttachment(${i})"></i>
+        </div>`
+    ).join('');
+
+    const addBtn = `<div style="width:72px;height:72px;border-radius:6px;border:2px dashed #ccc;display:flex;align-items:center;justify-content:center;cursor:pointer"
+                         onclick="document.getElementById('transferDetailAttachmentInput').click()">
+                        <i class="bi bi-plus-lg" style="font-size:1.5rem;color:#aaa"></i>
+                    </div>`;
+
+    const total = attachments.length + transferNewAttachments.length;
+    container.innerHTML = total
+        ? `<label class="fw-semibold small d-block mb-1"><i class="bi bi-paperclip me-1"></i>\u0412\u043B\u043E\u0436\u0435\u043D\u0438\u044F</label>
+           <div class="d-flex gap-2 flex-wrap align-items-center">${existingHtml}${newHtml}${addBtn}</div>
+           <input type="file" id="transferDetailAttachmentInput" accept="image/*" multiple style="display:none" onchange="onTransferDetailAttachmentSelected(this)">
+           ${transferDeletedAttachments.size ? `<div class="small mt-1 text-danger">${transferDeletedAttachments.size} \u043A \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u044E</div>` : ''}`
+        : `<label class="fw-semibold small d-block mb-1"><i class="bi bi-paperclip me-1"></i>\u0412\u043B\u043E\u0436\u0435\u043D\u0438\u044F</label>
+           <div class="d-flex gap-2 flex-wrap align-items-center">${addBtn}</div>
+           <input type="file" id="transferDetailAttachmentInput" accept="image/*" multiple style="display:none" onchange="onTransferDetailAttachmentSelected(this)">`;
+}
+
+function downloadTransferAttachment(attachmentGuid) {
+    const taskGuid = currentTransferDoc.guid;
+    window.open(`/api/warehouse/stock-transfers/${taskGuid}/attachment/${attachmentGuid}`, '_blank');
+}
+
+function toggleDeleteTransferAttachment(guid) {
+    if (transferDeletedAttachments.has(guid)) {
+        transferDeletedAttachments.delete(guid);
+    } else {
+        transferDeletedAttachments.add(guid);
+    }
+    renderTransferDetailAttachments();
+}
+
+function onTransferDetailAttachmentSelected(input) {
+    const files = input.files;
+    if (!files || !files.length) return;
+    for (const file of files) {
+        if (!file.type.startsWith('image/')) continue;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const base64 = e.target.result.split(',')[1];
+            const ext = file.name.split('.').pop() || 'jpg';
+            transferNewAttachments.push({data: base64, extension: ext, filename: file.name});
+            renderTransferDetailAttachments();
+        };
+        reader.readAsDataURL(file);
+    }
+    input.value = '';
+}
+
+function removeNewTransferAttachment(idx) {
+    transferNewAttachments.splice(idx, 1);
+    renderTransferDetailAttachments();
 }
 
 function saveTransferChanges() {
@@ -428,6 +500,32 @@ function saveTransferChanges() {
                 method: 'PATCH',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({task_guid: taskGuid, comment}),
+            }).then(checkAuth).then(r => r.json())
+        );
+    }
+
+    for (const attGuid of transferDeletedAttachments) {
+        promises.push(
+            fetch('/api/warehouse/stock-transfers/attachments', {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({task_guid: taskGuid, attachment_guid: attGuid}),
+            }).then(checkAuth).then(r => r.json())
+        );
+    }
+
+    if (transferNewAttachments.length) {
+        promises.push(
+            fetch('/api/warehouse/stock-transfers/attachments', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    task_guid: taskGuid,
+                    attachments: transferNewAttachments.map(a => ({
+                        data: a.data,
+                        extension: a.extension,
+                    })),
+                }),
             }).then(checkAuth).then(r => r.json())
         );
     }

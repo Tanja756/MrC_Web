@@ -55,6 +55,6 @@
 {% include "modals/transfer-detail.html" %}
 {% include "modals/transfer-create.html" %}
 <script src="{{ url_for('static', filename='js/warehouse.js') }}?v=1"></script>
-<script src="{{ url_for('static', filename='js/stock-transfers.js') }}?v=1"></script>
+<script src="{{ url_for('static', filename='js/stock-transfers.js') }}?v=4"></script>
 <script>document.addEventListener('DOMContentLoaded',()=>{loadStorages();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&isWorkingHours()){loadBalances();}});const sel=document.getElementById('storageSelect');const saved=lsGet('defaultWarehouse','');if(saved&&sel&&sel.options.length>1){if([...sel.options].some(o=>o.value===saved))sel.value=saved;loadBalances();}});</script>
 {% endblock %}

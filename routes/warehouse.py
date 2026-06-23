@@ -1,6 +1,8 @@
+import io
 import os
 import re
 import uuid
+import base64
 import tempfile
 import subprocess
 from datetime import datetime
@@ -212,3 +214,66 @@ def api_stock_transfer_change_amount():
     if result and result.get('_error'):
         return jsonify({'success': False, 'error': result['_error']}), 400
     return jsonify({'success': True, 'data': result})
+
+
+@warehouse_bp.route('/stock-transfers/<task_guid>/attachment/<attachment_guid>')
+@api_login_required
+def api_stock_transfer_attachment(task_guid, attachment_guid):
+    client = get_api_client()
+    if not client:
+        return jsonify({'error': 'No connection'}), 400
+    data = client.get_stock_transfer_attachment(task_guid, attachment_guid)
+    if not data or data.get('error'):
+        return jsonify({'error': 'Not found'}), 404
+    try:
+        content = base64.b64decode(data.get('content', ''))
+    except Exception:
+        return jsonify({'error': 'Invalid attachment content'}), 500
+    filename = data.get('filename', 'file')
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+    mime_map = {'jpg':'image/jpeg','jpeg':'image/jpeg','png':'image/png','gif':'image/gif','webp':'image/webp','bmp':'image/bmp','pdf':'application/pdf','zip':'application/zip','doc':'application/msword','docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','xls':'application/vnd.ms-excel','xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}
+    mime = mime_map.get(ext, 'application/octet-stream')
+    return send_file(
+        io.BytesIO(content),
+        mimetype=mime,
+        as_attachment=False,
+        download_name=filename
+    )
+
+
+@warehouse_bp.route('/stock-transfers/attachments', methods=['POST'])
+@api_login_required
+def api_stock_transfer_add_attachments():
+    client = get_api_client()
+    if not client:
+        return jsonify({'error': 'No connection'}), 400
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({'error': 'Invalid JSON'}), 400
+    task_guid = body.get('task_guid')
+    attachments = body.get('attachments', [])
+    if not task_guid or not attachments:
+        return jsonify({'error': 'task_guid and attachments required'}), 400
+    result = client.add_transfer_attachments(task_guid, attachments)
+    if result and result.get('_error'):
+        return jsonify({'success': False, 'error': result['_error']}), 400
+    return jsonify({'success': True, 'data': result})
+
+
+@warehouse_bp.route('/stock-transfers/attachments', methods=['DELETE'])
+@api_login_required
+def api_stock_transfer_delete_attachment():
+    client = get_api_client()
+    if not client:
+        return jsonify({'error': 'No connection'}), 400
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({'error': 'Invalid JSON'}), 400
+    task_guid = body.get('task_guid')
+    attachment_guid = body.get('attachment_guid')
+    if not task_guid or not attachment_guid:
+        return jsonify({'error': 'task_guid and attachment_guid required'}), 400
+    result = client.delete_transfer_attachment(task_guid, attachment_guid)
+    if result and result.get('_error'):
+        return jsonify({'success': False, 'error': result['_error']}), 400
+    return jsonify({'success': True})

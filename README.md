@@ -1,147 +1,50 @@
 # Mr.Check
 
-Веб-интерфейс для работы с заявками 1С. Авторизация через 1С, данные тянутся напрямую из HTTP-API 1С без промежуточной БД.
+Веб-интерфейс для работы с заявками 1С. Авторизация через 1С (Basic Auth), данные тянутся из HTTP-API 1С и обогащаются из локальной SQLite: кеш остатков складов, трекинг задач (дата закрытия, назначения), справочник магазинов, поломанные единицы оборудования, пуш-подписки, уведомления. Фоновый воркер периодически опрашивает 1С, выгружает данные на Яндекс.Диск (JSON), обрабатывает action-файлы (закрытие задач извне) и проверяет новые задачи для отправки уведомлений.
 
-## Возможности
+### Возможности
 
-- **Заявки** — просмотр, поиск, сортировка, закрепление. Три вкладки: в работе, свободные, закрытые. Массовое назначение, прикрепление файлов, GPS-координаты при закрытии
-- **Склад** — остатки по складам с фильтрацией (всё / оборудование / ЗИП)
+- **Заявки** — три вкладки (в работе / свободные / закрытые), поиск, сортировка (срок, дата создания, дата закрытия, приоритет), закрепление вверху, массовое назначение, GPS-координаты при закрытии, inline-редактирование даты закрытия (локально, без отправки в 1С)
+- **Склад** — остатки по складам с фильтрацией «всё / оборудование / ЗИП»; перемещения с просмотром/добавлением/удалением вложений
 - **Зарплата** — помесячная разбивка начислений
-- **ППР** — просмотр и закрытие планово-предупредительных работ по отделам с цветовой индикацией сроков
-- **Загрузка ППР** — массовая загрузка графика ППР из XLSX (drag & drop, предпросмотр, валидация)
-- **Формирование документов** — генерация АВР, Акта ФН и М15 в PDF через LibreOffice с подстановкой данных из заявки
-- **Тёмная/светлая тема**
-- **Адаптивная вёрстка** (десктоп + мобильные)
+- **ППР** — просмотр и закрытие планово-предупредительных работ по отделам с цветовой индикацией сроков; массовая загрузка графика из XLSX (drag & drop, предпросмотр, валидация)
+- **Документы** — генерация АВР, Акта ФН и М15 в PDF через LibreOffice с подстановкой данных из заявки
+- **Фон** — тёмная/светлая тема, PWA (установка на экран), адаптивная вёрстка (десктоп + мобильные)
 
-## Технологии
-
-| Компонент | Технология |
-|-----------|------------|
-| Бэкенд | Python 3 + Flask 3.1 |
-| HTTP-клиент | `requests` |
-| Шаблоны | Jinja2 |
-| Фронтенд | Bootstrap 5.3, Bootstrap Icons, vanilla JS |
-| Парсинг XLSX | SheetJS (браузер) |
-| PDF | LibreOffice headless (ODS → PDF), `pypdf` |
-| БД | SQLite (кеш магазинов) |
-| Сессии | Flask signed cookies |
-| Продакшен | Gunicorn + systemd |
-
-## Структура проекта
-
-```
-├── app.py                  # Flask-приложение (маршруты, ~564 строк)
-├── api_client.py           # HTTP-клиент 1С API (~167 строк)
-├── config.py               # Конфигурация Flask
-├── db.py                   # SQLite-операции (~99 строк)
-├── docgen.py               # Генерация документов (ODS → PDF, ~400 строк)
-├── requirements.txt        # Зависимости Python
-├── .env.example            # Шаблон переменных окружения
-├── deploy.sh               # Скрипт деплоя
-├── mrcheck-web.service     # systemd unit
-├── templates/
-│   ├── base.html           # Базовый шаблон
-│   ├── login.html          # Страница входа
-│   └── dashboard.html      # SPA-дашборд
-├── static/
-│   ├── style.css           # Кастомные стили (тёмная/светлая темы)
-│   ├── dashboard.js        # Фронтенд (склад, зарплата, документы)
-│   ├── tasks.js            # Фронтенд задач
-│   └── ppr.js              # Фронтенд ППР и загрузки
-└── templates_docs/         # ODS-шаблоны для документов
-    ├── АВР.ods
-    ├── ФН.ods
-    ├── M15_Обратная.ods
-    └── M15_Прямая.ods
-```
-
-## Установка и запуск
-
-### Требования
-
-- Python 3.x
-- LibreOffice (для генерации PDF):
-  ```bash
-  sudo apt install libreoffice-headless libreoffice-calc
-  ```
-- HTTP-сервер 1С с API
-
-### Разработка
+## Быстрый старт
 
 ```bash
-git clone <repo> && cd MrC_WebApp
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
-# отредактируйте .env
+cp .env.example .env  # отредактировать
 python app.py
 ```
 
-### Продакшен
+Продакшен: `sudo ./deploy.sh` (Gunicorn + systemd, порт 5000).
 
-```bash
-sudo ./deploy.sh
-```
+Требования: Python 3.x, LibreOffice headless (`sudo apt install libreoffice-headless libreoffice-calc`), HTTP-сервис 1С.
 
-Сервис запустится через systemd на порту 5000.
+## Переменные окружения
 
-## Конфигурация
+| Переменная | По умолчанию | Описание |
+|-----------|-------------|----------|
+| `FLASK_ENV` | `development` | Режим Flask (`production` для продакшена) |
+| `SECRET_KEY` | `dev-secret-key` | Ключ подписи сессионных cookie |
+| `SERVER_HOST` | `127.0.0.1` | Хост HTTP-сервиса 1С |
+| `SERVER_PORT` | `5000` | Порт HTTP-сервиса 1С |
+| `SERVER_DB` | `my_db` | Имя базы 1С |
+| `VAPID_PUBLIC_KEY` | — | Публичный ключ Web Push (VAPID) |
+| `VAPID_PRIVATE_KEY` | — | Приватный ключ Web Push (VAPID) |
+| `VAPID_CLAIM_EMAIL` | `admin@example.com` | Email для VAPID |
+| `HOST` | `0.0.0.0` | Хост привязки gunicorn |
+| `PORT` | `5000` | Порт привязки gunicorn |
+| `BACKGROUND_CHECK_INTERVAL` | `600` | Интервал полной фоновой проверки (сек) |
+| `BALANCE_STALE_THRESHOLD` | `600` | Порог устаревания остатков (сек) |
+| `ACTION_CHECK_INTERVAL` | `60` | Интервал проверки action-файлов Яндекс.Диска (сек) |
+| `YANDEX_CLIENT_ID` | — | ID приложения Яндекс.OAuth |
+| `YANDEX_CLIENT_SECRET` | — | Секрет приложения Яндекс.OAuth |
+| `YANDEX_REFRESH_TOKEN` | — | Refresh-токен Яндекс.Диска (получить: `python scripts/get_yandex_token.py --dotenv`) |
 
-| Параметр | Описание |
-|----------|----------|
-| `SERVER_HOST` | Хост Flask (по умолч. `0.0.0.0`) |
-| `SERVER_PORT` | Порт (по умолч. `5000`) |
-| `SECRET_KEY` | Ключ для сессий Flask |
-| `DB_PATH` | Путь к SQLite для кеша магазинов |
-| `API_HOST` | Хост 1С HTTP-сервиса |
-| `API_PORT` | Порт 1С |
-| `API_DB` | Имя базы 1С |
-| `API_USER` | Пользователь 1С |
-| `API_PASS` | Пароль 1С |
-| `API_SEARCH_LIMIT` | Лимит записей при поиске (по умолч. `500`) |
-| `YANDEX_CLIENT_ID` | ID приложения Яндекс.OAuth |
-| `YANDEX_CLIENT_SECRET` | Секрет приложения Яндекс.OAuth |
-| `YANDEX_REFRESH_TOKEN` | Refresh-токен Яндекс.Диска (Device Auth Flow) |
-| `BACKGROUND_CHECK_INTERVAL` | Интервал фоновой проверки (сек, по умолч. `600`) |
-| `BALANCE_STALE_THRESHOLD` | Порог устаревания остатков (сек, по умолч. `600`) |
+## Стек
 
-## Синхронизация с Яндекс.Диском
-
-Фоновый воркер выгружает заявки, остатки складов и справочники (номенклатура, клиенты, склады) в JSON на Яндекс.Диск. Данные группируются по папкам логинов 1С в формате, максимально приближенном к ответам эндпоинтов 1С. Загрузка происходит только при изменениях (хэш SHA256). Для первоначального получения `YANDEX_REFRESH_TOKEN` используется Device Authorization Flow — `python scripts/get_yandex_token.py --dotenv`.
-
-## API endpoints
-
-### Аутентификация
-- `GET/POST /login` — вход
-- `GET /logout` — выход
-
-### Заявки
-- `GET /api/tasks/my` — мои заявки
-- `GET /api/tasks/free` — свободные
-- `GET /api/tasks/closed` — закрытые
-- `GET /api/tasks/<guid>` — детали
-- `POST /api/tasks/take` — взять в работу
-- `POST /api/tasks/close` — закрыть
-
-### Склад
-- `GET /api/warehouse/storages` — список складов
-- `GET /api/warehouse/balances?storage=GUID` — остатки
-
-### Зарплата
-- `GET /api/salary?start_date=&end_date=` — данные
-
-### ППР
-- `GET /api/ppr/list` — список
-- `GET /api/ppr/departments` — отделы
-- `POST /api/ppr/close` — закрыть
-- `POST /api/ppr/add` — массовое создание
-
-### Документы
-- `POST /api/tasks/documents` — все 3 документа (ZIP)
-- `POST /api/tasks/documents/act` — АВР
-- `POST /api/tasks/documents/fn` — Акт ФН
-- `POST /api/tasks/documents/m15` — М15
-
-## Шаблоны документов
-
-ODS-файлы в `templates_docs/` содержат плейсхолдеры вида `{SAP}`, `{SHOP}`, `{KA}` и т.д. При генерации они заменяются на данные из заявки. LibreOffice (headless) конвертирует ODS в PDF.
+Python 3 + Flask 3.1, Bootstrap 5.3 + Icons, vanilla JS, SQLite, requests, LibreOffice headless (ODS→PDF), Gunicorn + systemd.

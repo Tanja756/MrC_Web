@@ -237,11 +237,72 @@ def _rename_to_error(yandex, file_path, name):
         logger.error("Yandex Action: failed to rename %s: %s", name, e)
 
 
-def process_close_task_actions(username, client, yandex=None):
+def _handle_close_task(yandex, client, file_path, name, data) -> bool:
+    """Process a single close_task action file. Returns True on success."""
+    if data.get("action") != "close_task":
+        logger.warning("Yandex Action: unknown action in %s", name)
+        _rename_to_error(yandex, file_path, name)
+        return False
+
+    guid = data.get("guid")
+    if not guid:
+        logger.error("Yandex Action: missing guid in %s", name)
+        _rename_to_error(yandex, file_path, name)
+        return False
+
+    guid_doc = data.get("guid_doc", "")
+    comment = data.get("comment", "")
+    latitude = data.get("latitude", 0.0)
+    longitude = data.get("longitude", 0.0)
+    attachments = data.get("attachments", [])
+
+    # Rename immediately after successful read → .processing
+    # (no longer ends with .json, so process_actions won't pick it up again)
+    processing_path = file_path.rsplit(".", 1)[0] + ".processing"
+    try:
+        yandex.move_file(file_path, processing_path)
+    except Exception as e:
+        logger.error("Yandex Action: failed to rename %s: %s", name, e)
+        return False
+
+    # Guard: check with 1C if task is already closed
+    status = client.task_is_closed(guid)
+    if status is not None and status.get("closed"):
+        logger.info("Yandex Action: task %s already closed in 1C, skipping", guid)
+        try:
+            yandex.delete_file(processing_path)
+        except Exception as e:
+            logger.error("Yandex Action: failed to delete %s: %s", name, e)
+        return True
+
+    try:
+        result = client.task_close(guid, guid_doc, comment, latitude, longitude, attachments)
+    except Exception as e:
+        logger.error("Yandex Action: 1C close failed for %s (guid=%s): %s", name, guid, e)
+        _rename_to_error(yandex, processing_path, name)
+        return False
+
+    if result and result.get("_error"):
+        logger.error("Yandex Action: 1C returned error for %s (guid=%s): %s", name, guid, result["_error"])
+        _rename_to_error(yandex, processing_path, name)
+        return False
+
+    try:
+        yandex.delete_file(processing_path)
+        logger.info("Yandex Action: task %s closed from %s, file deleted", guid, name)
+        return True
+    except Exception as e:
+        logger.error("Yandex Action: failed to delete %s after success: %s", name, e)
+        return False
+
+
+def process_actions(username, client, yandex=None) -> bool:
+    """Read all .json files from {username}/Action/, dispatch to handlers.
+    Returns True if at least one action was successfully handled."""
     if yandex is None:
         yandex = YandexDiskClient()
     if not yandex.is_authenticated():
-        return
+        return False
 
     action_folder = f"{username}/Action"
 
@@ -249,15 +310,16 @@ def process_close_task_actions(username, client, yandex=None):
         items = yandex.list_folder(action_folder)
     except Exception as e:
         logger.debug("Yandex Action folder not available for %s: %s", username, e)
-        return
+        return False
 
-    close_files = [i for i in items if i["name"].startswith("close_task_") and i["name"].endswith(".json")]
-    if not close_files:
-        return
+    json_files = [i for i in items if i["name"].endswith(".json")]
+    if not json_files:
+        return False
 
-    logger.info("Yandex Action: found %d close_task file(s) for %s", len(close_files), username)
+    logger.info("Yandex Action: found %d file(s) for %s", len(json_files), username)
 
-    for f in close_files:
+    any_handled = False
+    for f in json_files:
         file_path = f"{action_folder}/{f['name']}"
         try:
             content = yandex.download_file(file_path)
@@ -267,39 +329,14 @@ def process_close_task_actions(username, client, yandex=None):
             _rename_to_error(yandex, file_path, f["name"])
             continue
 
-        if data.get("action") != "close_task":
-            logger.warning("Yandex Action: unknown action in %s", f["name"])
-            _rename_to_error(yandex, file_path, f["name"])
-            continue
+        handled = False
+        if f["name"].startswith("close_task_"):
+            handled = _handle_close_task(yandex, client, file_path, f["name"], data)
 
-        guid = data.get("guid")
-        if not guid:
-            logger.error("Yandex Action: missing guid in %s", f["name"])
-            _rename_to_error(yandex, file_path, f["name"])
-            continue
+        if handled:
+            any_handled = True
 
-        guid_doc = data.get("guid_doc", "")
-        comment = data.get("comment", "")
-        latitude = data.get("latitude", 0.0)
-        longitude = data.get("longitude", 0.0)
-        attachments = data.get("attachments", [])
-
-        try:
-            result = client.task_close(guid, guid_doc, comment, latitude, longitude, attachments)
-        except Exception as e:
-            logger.error("Yandex Action: 1C close failed for %s (guid=%s): %s", f["name"], guid, e)
-            continue
-
-        if result and result.get("_error"):
-            logger.error("Yandex Action: 1C returned error for %s (guid=%s): %s", f["name"], guid, result["_error"])
-            _rename_to_error(yandex, file_path, f["name"])
-            continue
-
-        try:
-            yandex.delete_file(file_path)
-            logger.info("Yandex Action: task %s closed from %s, file deleted", guid, f["name"])
-        except Exception as e:
-            logger.error("Yandex Action: failed to delete %s after success: %s", f["name"], e)
+    return any_handled
 
 
 def sync_references_to_yandex(username, client, yandex=None):

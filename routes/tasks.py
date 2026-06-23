@@ -5,6 +5,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, session
 from api_client import OneSApiClient
 
+from db import set_task_closed, update_task_closed_date
 from .helpers import (
     api_login_required, get_api_client,
     project_tasks, attach_tracking, filter_tasks,
@@ -69,6 +70,7 @@ def api_tasks_closed():
 @api_login_required
 def api_task_detail(guid):
     client = get_api_client()
+    username = session.get('username', '')
     if not client:
         return jsonify({'error': 'No connection'}), 400
     for fetcher in ('get_tasks_user', 'get_tasks_unallocated', 'get_closed_tasks_user'):
@@ -76,6 +78,7 @@ def api_task_detail(guid):
         if data and 'tasks' in data:
             for t in data['tasks']:
                 if t.get('guid') == guid:
+                    attach_tracking([t], username)
                     return jsonify(t)
     return jsonify({'error': 'Task not found'}), 404
 
@@ -126,6 +129,25 @@ def api_task_close():
     result = client.task_close(guid, guid_doc, comment, latitude, longitude, attachments)
     if result and result.get('_error'):
         return jsonify({'success': False, 'error': result['_error'], 'detail': result}), 400
+    set_task_closed(session.get('username', ''), guid)
+    return jsonify({'success': True})
+
+
+@tasks_bp.route('/<guid>/update-closed-at', methods=['POST'])
+@api_login_required
+def api_task_update_closed_at(guid):
+    username = session.get('username', '')
+    if not username:
+        return jsonify({'error': 'No auth'}), 401
+    data = request.json or {}
+    closed_at = (data.get('closed_at') or '').strip()
+    if not closed_at:
+        return jsonify({'error': 'closed_at required'}), 400
+    try:
+        datetime.strptime(closed_at, '%Y-%m-%d %H:%M:%S')
+    except ValueError:
+        return jsonify({'error': 'Invalid date format, expected YYYY-MM-DD HH:MM:SS'}), 400
+    update_task_closed_date(username, guid, closed_at)
     return jsonify({'success': True})
 
 

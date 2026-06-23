@@ -44,17 +44,17 @@ function setSortDir(dir) {
 }
 
 function loadTasks(search, types) {
-    const sort = document.getElementById('taskSort').value;
-    const params = new URLSearchParams();
-    if (search) params.set('search', search);
-    params.set('sort', sort);
-    params.set('dir', tabPrefs[currentTab].dir);
-    const qs = params.toString() ? '?' + params.toString() : '';
     const fetches = [];
     const labels = types || ['my', 'free'];
     const ttl = document.hidden ? 0 : 15000;
-    if (labels.includes('my')) fetches.push(fetchDeduped('/api/tasks/my' + qs, undefined, ttl).then(r => { if (r instanceof Response) return r.json().catch(() => ({})); return r; }));
-    if (labels.includes('free')) fetches.push(fetchDeduped('/api/tasks/free' + qs, undefined, ttl).then(r => { if (r instanceof Response) return r.json().catch(() => ({})); return r; }));
+    for (const label of labels) {
+        const params = new URLSearchParams();
+        if (search) params.set('search', search);
+        params.set('sort', tabPrefs[label].sort);
+        params.set('dir', tabPrefs[label].dir);
+        const qs = params.toString() ? '?' + params.toString() : '';
+        fetches.push(fetchDeduped('/api/tasks/' + label + qs, undefined, ttl).then(r => { if (r instanceof Response) return r.json().catch(() => ({})); return r; }));
+    }
     if (fetches.length === 0) return;
     Promise.all(fetches).then(results => {
         let i = 0;
@@ -186,8 +186,9 @@ function togglePin(guid) {
 
 function renderTasks(containerId, tasks, query, mode) {
     const container = document.getElementById(containerId);
-    const sort = tabPrefs[mode]?.sort || 'date';
-    const dir = tabPrefs[mode]?.dir || 'desc';
+    const defaultSort = mode === 'closed' ? 'closed_at' : 'deadline';
+    const sort = tabPrefs[mode]?.sort || defaultSort;
+    const dir = tabPrefs[mode]?.dir || (mode === 'closed' ? 'desc' : 'asc');
     const filtered = tasks.filter(t => {
         const searchStr = [
             t.number, t.name, t.status, t.name_department, t.user,
@@ -203,7 +204,7 @@ function renderTasks(containerId, tasks, query, mode) {
             const rest = filtered.filter(t => !t.status || (!t.status.includes('Подтвердить') && !t.status.includes('подтвердить')));
             sorted = [...confirming, ...rest];
         } else {
-            sorted = filtered;
+            sorted = sortTasks(filtered, sort, dir);
         }
     } else {
         const pinned = sortTasks(filtered.filter(t => isPinned(t.guid)), sort, dir);
@@ -214,7 +215,9 @@ function renderTasks(containerId, tasks, query, mode) {
     // Show only closed tasks with locations
     const showLocation = (mode === 'closed');
 
-    document.getElementById('taskCount').textContent = sorted.length;
+    if (mode === currentTab) {
+        document.getElementById('taskCount').textContent = sorted.length;
+    }
 
     if (sorted.length === 0) {
         container.innerHTML = '<div class="empty-state"><i class="bi bi-inbox"></i><p>Нет заявок</p></div>';
@@ -397,6 +400,17 @@ function showTaskDetail(task, mode, guid) {
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
                 <button class="btn btn-primary" onclick="takeTask('${guid}')"><i class="bi bi-hand-index-thumb me-1"></i>Взять заявку</button>`;
         } else if (mode === 'closed') {
+            body += `
+                <hr class="my-3">
+                <div class="row g-3">
+                    <div class="col-6 col-md-4">
+                        <small class="text-muted d-block">Дата закрытия</small>
+                        <span class="fw-semibold" id="closedAtDisplay" data-value="${task.closed_at || ''}">
+                            ${formatDate(task.closed_at)}
+                            <i class="bi bi-pencil ms-1 edit-icon" onclick="editClosedAt('${guid}')" title="Изменить дату закрытия"></i>
+                        </span>
+                    </div>
+                </div>`;
             body += `<hr class="my-3"><div><small class="text-muted d-block mb-1">Комментарий при закрытии</small>${formatComments(task.comments)}</div>`;
             if (task.hasAttachments) {
                 body += `<hr class="my-3"><div><small class="text-muted d-block mb-1">Вложения</small><div id="closedAttachments"><button class="btn btn-outline-secondary btn-sm" onclick="loadClosedAttachments('${guid}')"><i class="bi bi-download me-1"></i>Загрузить вложения</button></div></div>`;
@@ -406,6 +420,76 @@ function showTaskDetail(task, mode, guid) {
 
     document.getElementById('taskDetailBody').innerHTML = body;
     document.getElementById('taskDetailFooter').innerHTML = footer;
+}
+
+// ============ EDIT CLOSED AT ============
+function editClosedAt(guid) {
+    const display = document.getElementById('closedAtDisplay');
+    if (!display) return;
+    const raw = display.dataset.value || '';
+    const inputId = 'closedAtInput';
+    let value = '';
+    const parts = raw.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2})/);
+    if (parts) {
+        value = `${parts[1]}-${parts[2]}-${parts[3]}T${String(parts[4]).padStart(2,'0')}:${parts[5]}`;
+    } else {
+        const now = new Date();
+        const y = now.getFullYear();
+        const mo = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        const h = String(now.getHours()).padStart(2, '0');
+        const mi = String(now.getMinutes()).padStart(2, '0');
+        value = `${y}-${mo}-${d}T${h}:${mi}`;
+    }
+    display.innerHTML = `
+        <div class="d-flex align-items-center gap-1 flex-nowrap">
+            <input type="datetime-local" id="${inputId}" class="form-control form-control-sm" value="${value}" style="max-width:190px">
+            <button class="btn btn-sm btn-outline-success" onclick="saveClosedAt('${guid}')" title="Сохранить"><i class="bi bi-check-lg"></i></button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="cancelEditClosedAt()" title="Отмена"><i class="bi bi-x-lg"></i></button>
+        </div>`;
+    document.getElementById(inputId).focus();
+}
+
+function saveClosedAt(guid) {
+    const input = document.getElementById('closedAtInput');
+    if (!input) return;
+    const val = input.value;
+    if (!val) return;
+    const closedAt = val.replace('T', ' ') + ':00';
+    const display = document.getElementById('closedAtDisplay');
+    const originalHtml = display.innerHTML;
+    display.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    fetch(`/api/tasks/${guid}/update-closed-at`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({closed_at: closedAt})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            const d = parseDate(closedAt);
+            const dd = d ? `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getFullYear()).slice(-2)} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` : '—';
+            display.innerHTML = `${dd} <i class="bi bi-pencil ms-1 edit-icon" onclick="editClosedAt('${guid}')" title="Изменить дату закрытия"></i>`;
+            display.dataset.value = closedAt;
+        } else {
+            display.innerHTML = originalHtml;
+            showAlert(data.error || 'Ошибка сохранения', 'danger');
+        }
+    })
+    .catch(() => {
+        display.innerHTML = originalHtml;
+        showAlert('Ошибка сети', 'danger');
+    });
+}
+
+function cancelEditClosedAt() {
+    const display = document.getElementById('closedAtDisplay');
+    if (!display) return;
+    const raw = display.dataset.value || '';
+    const d = parseDate(raw);
+    const text = d ? `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getFullYear()).slice(-2)} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` : '—';
+    const guid = (_taskCtx && _taskCtx.guid) || '';
+    display.innerHTML = `${text} <i class="bi bi-pencil ms-1 edit-icon" onclick="editClosedAt('${guid}')" title="Изменить дату закрытия"></i>`;
 }
 
 // ============ REJECT FORM ============
@@ -496,13 +580,15 @@ function closeTask(guid, guidDoc) {
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Закрытие...';
 
     const doClose = (lat, lng) => {
+        const attachments = pendingAttachments;
+        pendingAttachments = [];
         fetch('/api/tasks/close', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 guid, guidDoc, comment,
                 latitude: lat, longitude: lng,
-                attachments: pendingAttachments,
+                attachments: attachments,
             })
         }).then(checkAuth).then(r => r.json()).then(data => {
             btn.disabled = false;
@@ -513,7 +599,6 @@ function closeTask(guid, guidDoc) {
                     lsSet('taskLocations', JSON.stringify(taskLocations));
                 }
                 showAlert('Заявка закрыта! После проверки менеджером статус будет обновлён.', 'success');
-                pendingAttachments = [];
                 bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
                 tasksMy = tasksMy.filter(t => t.guid !== guid);
                 reqCache.delete('/api/tasks/my');

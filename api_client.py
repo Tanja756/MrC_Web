@@ -28,8 +28,19 @@ class OneSApiClient:
             r = self.session.get(url, params=params, timeout=30)
             r.raise_for_status()
             return r.json()
+        except requests.exceptions.Timeout:
+            logger.error(f"_get timeout: {url}")
+            return None
+        except requests.exceptions.HTTPError as e:
+            resp = e.response
+            status = resp.status_code if resp is not None else 0
+            logger.error(f"_get HTTP {status}: {url}")
+            return None
         except requests.exceptions.RequestException:
             logger.warning(f"_get failed: {url}")
+            return None
+        except Exception as e:
+            logger.error(f"_get error: {url} — {e}")
             return None
 
     def _post(self, endpoint: str, data: dict):
@@ -219,4 +230,22 @@ class OneSApiClient:
             "guid": guid,
             "task_guid": task_guid,
             "amount": amount,
+        })
+
+    def get_stock_transfer_attachment(self, task_guid: str, attachment_guid: str):
+        return self._get("stock-transfers-attachment", {
+            "task_guid": task_guid,
+            "attachment_guid": attachment_guid,
+        })
+
+    def add_transfer_attachments(self, task_guid: str, attachments: list):
+        return self._patch("stock-transfers-add-attachments", {
+            "task_guid": task_guid,
+            "attachments": attachments,
+        })
+
+    def delete_transfer_attachment(self, task_guid: str, attachment_guid: str):
+        return self._patch("stock-transfers-delete-attachment", {
+            "task_guid": task_guid,
+            "attachment_guid": attachment_guid,
         })

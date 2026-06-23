@@ -8,12 +8,13 @@ import subprocess
 import tempfile
 import logging
 import threading
+import time
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import session, request, jsonify, redirect, url_for, Response, send_file
 
 from api_client import OneSApiClient
-from yandex_disk import YandexDiskClient, sync_tasks_to_yandex, sync_warehouse_to_yandex, sync_references_to_yandex, sync_hashes_to_yandex, process_close_task_actions
+from yandex_disk import YandexDiskClient, sync_tasks_to_yandex, sync_warehouse_to_yandex, sync_references_to_yandex, sync_hashes_to_yandex, process_actions
 from db import (
     create_notification, get_active_notifications, dismiss_notification, dismiss_all_notifications,
     get_snapshot, save_snapshot, get_snapshot_updated_at,
@@ -41,6 +42,7 @@ VAPID_CLAIM_EMAIL = os.environ.get('VAPID_CLAIM_EMAIL', 'admin@example.com')
 
 BACKGROUND_CHECK_INTERVAL = int(os.environ.get('BACKGROUND_CHECK_INTERVAL', '600'))
 BALANCE_STALE_THRESHOLD = int(os.environ.get('BALANCE_STALE_THRESHOLD', '600'))
+ACTION_CHECK_INTERVAL = int(os.environ.get('ACTION_CHECK_INTERVAL', '60'))
 _background_timer = None
 _background_stop = threading.Event()
 
@@ -107,7 +109,7 @@ def attach_tracking(tasks, username):
         if not t.get('taken_at'):
             t['taken_at'] = t.get('date')
         if not t.get('closed_at'):
-            t['closed_at'] = t.get('period')
+            t['closed_at'] = t.get('date')
 
 
 def auto_close_tracked_tasks(tasks, username):
@@ -533,17 +535,20 @@ def background_check_balances(client, username):
         logger.warning(f"Background: failed to check balances for {username}: {e}")
 
 
-def background_check_user(username):
+def background_check_user(username, force=False):
     if not username:
         return
-    old_data, updated_at = get_task_snapshot(username)
-    if updated_at:
-        try:
-            dt = datetime.strptime(updated_at, '%Y-%m-%d %H:%M:%S')
-            if (datetime.now() - dt).total_seconds() < BACKGROUND_CHECK_INTERVAL:
-                return
-        except (ValueError, TypeError):
-            pass
+    if not force:
+        old_data, updated_at = get_task_snapshot(username)
+        if updated_at:
+            try:
+                dt = datetime.strptime(updated_at, '%Y-%m-%d %H:%M:%S')
+                if (datetime.now() - dt).total_seconds() < BACKGROUND_CHECK_INTERVAL:
+                    return
+            except (ValueError, TypeError):
+                pass
+    else:
+        old_data, _ = get_task_snapshot(username)
     client = get_background_api_client(username)
     if not client:
         return
@@ -576,6 +581,11 @@ def background_check_user(username):
     check_new_free_tasks(username, free_tasks, old_data)
     background_check_balances(client, username)
 
+    process_actions(username, client)
+
+    attach_tracking(user_tasks, username)
+    attach_tracking(closed_tasks, username)
+
     yandex = YandexDiskClient()
     sync_tasks_to_yandex(username, user_data, free_data, closed_data, yandex=yandex)
     sync_references_to_yandex(username, client, yandex=yandex)
@@ -596,7 +606,6 @@ def background_check_user(username):
         logger.warning("Background: failed to prepare warehouse data for Yandex sync: %s", e)
 
     sync_hashes_to_yandex(username, yandex=yandex)
-    process_close_task_actions(username, client, yandex=yandex)
 
 
 def background_check_all_users():
@@ -622,13 +631,41 @@ def _is_working_hours():
     return 7 <= h < 23
 
 def background_check_loop():
+    last_action_check = 0.0
+    last_full_check = 0.0
     while not _background_stop.is_set():
         if _is_working_hours():
-            try:
-                background_check_all_users()
-            except Exception as e:
-                logger.error(f"Background check error: {e}", exc_info=True)
-        _background_stop.wait(BACKGROUND_CHECK_INTERVAL)
+            now = time.time()
+            action_due = (now - last_action_check) >= ACTION_CHECK_INTERVAL
+            full_due = (now - last_full_check) >= BACKGROUND_CHECK_INTERVAL
+
+            if action_due or full_due:
+                all_users = set()
+                for sub in get_all_subscriptions():
+                    all_users.add(sub['username'])
+                for uname in get_all_task_snapshot_users():
+                    all_users.add(uname)
+
+                actions_found = set()
+                if action_due:
+                    for username in sorted(all_users):
+                        client = get_background_api_client(username)
+                        if client and process_actions(username, client):
+                            actions_found.add(username)
+                    last_action_check = time.time()
+
+                if full_due or actions_found:
+                    users_to_check = all_users if full_due else actions_found
+                    for username in sorted(users_to_check):
+                        force = username in actions_found
+                        try:
+                            background_check_user(username, force=force)
+                        except Exception as e:
+                            logger.warning(f"Background check failed for {username}: {e}")
+                    last_full_check = time.time()
+
+        sleep_interval = min(ACTION_CHECK_INTERVAL, BACKGROUND_CHECK_INTERVAL)
+        _background_stop.wait(sleep_interval)
 
 
 def start_background_worker():

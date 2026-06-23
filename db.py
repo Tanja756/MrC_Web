@@ -612,6 +612,19 @@ def set_task_closed(username, guid):
         conn.close()
     _retry_on_locked(_write)
 
+def update_task_closed_date(username, guid, closed_at):
+    def _write():
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO task_tracking (guid, username, closed_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(guid, username) DO UPDATE SET closed_at = ?
+        """, (guid, username, closed_at, closed_at))
+        conn.commit()
+        conn.close()
+    _retry_on_locked(_write)
+
 def get_tasks_tracking(guids, username):
     if not guids:
         return {}

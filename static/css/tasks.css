@@ -311,3 +311,12 @@
     font-size: 0.68rem;
     font-weight: 500;
 }
+
+.edit-icon {
+    cursor: pointer;
+    opacity: 0.5;
+    transition: opacity 0.15s;
+}
+.edit-icon:hover {
+    opacity: 1;
+}

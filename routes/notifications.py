@@ -23,7 +23,7 @@ def api_notifications():
     if request.args.get('check_tasks'):
         try:
             check_tasks(username)
-        except Exception:
+        except BaseException:
             pass
     notifs = get_active_notifications(username)
     if not notifs:
