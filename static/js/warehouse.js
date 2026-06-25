@@ -306,3 +306,142 @@ function changeMonth(delta) {
     currentDate.setMonth(currentDate.getMonth() + delta);
     loadSalary();
 }
+
+// ============ STOCK TRANSFERS HISTORY (ARCHIVE) ============
+let _archiveCache = [];
+let _archiveDetailDoc = null;
+
+function loadStockTransfersHistory() {
+    const container = document.getElementById('archiveTransfersList');
+    container.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-muted"></div></div>';
+
+    fetchDeduped('/api/warehouse/stock-transfers-history', undefined, 3600000)
+        .then(r => r instanceof Response ? r.json().catch(() => []) : r)
+        .then(data => {
+            _archiveCache = data || [];
+            if (!_archiveCache.length) {
+                container.innerHTML = '<div class="empty-state"><i class="bi bi-archive"></i><p>Нет документов в архиве</p></div>';
+                return;
+            }
+            container.innerHTML = _archiveCache.map((doc, idx) => {
+                const itemsCount = (doc.items || []).length;
+                const totalQty = (doc.items || []).reduce((s, it) => s + (it.amount || 0), 0);
+                const src = doc.warehouse_source_name || doc.warehouse_source || '\u2014';
+                const dst = doc.warehouse_dest_name || doc.warehouse_dest || '\u2014';
+                const org = doc.organization_name || '';
+                const comments = doc.comments || [];
+                const commentsHtml = comments.length
+                    ? `<div class="small mt-1 text-muted"><i class="bi bi-chat-dots me-1"></i>${esc(typeof comments[comments.length - 1] === 'string' ? comments[comments.length - 1] : (comments[comments.length - 1].content || ''))}</div>`
+                    : '';
+                const attachmentsCount = (doc.attachments || []).length;
+                return `<div class="transfer-card border rounded-3 p-3 mb-2" style="cursor:pointer" onclick="openArchiveDetail(${idx})">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fw-semibold">${esc(doc.number || '\u2014')}</div>
+                            <div class="small text-muted">${formatDate(doc.date)}</div>
+                            ${org ? `<div class="small text-muted">${esc(org)}</div>` : ''}
+                        </div>
+                        <div class="text-end small text-muted">
+                            <div>${itemsCount} поз.</div>
+                            <div>${totalQty} шт.</div>
+                        </div>
+                    </div>
+                    <div class="small mt-1">
+                        <i class="bi bi-arrow-right-short"></i> ${esc(src)} → ${esc(dst)}
+                    </div>
+                    ${commentsHtml}
+                    ${attachmentsCount ? `<div class="small mt-1 text-primary"><i class="bi bi-paperclip me-1"></i>${attachmentsCount} влож.</div>` : ''}
+                </div>`;
+            }).join('');
+        })
+        .catch(() => {
+            container.innerHTML = '<div class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Ошибка загрузки архива</p></div>';
+        });
+}
+
+function openArchiveDetail(idx) {
+    const modalEl = document.getElementById('archiveDetailModal');
+    if (modalEl.classList.contains('show')) return;
+    const doc = _archiveCache[idx];
+    if (!doc) return;
+
+    document.getElementById('archiveDetailTitle').innerHTML = `<i class="bi bi-archive me-2"></i>${esc(doc.number || '\u0414\u043E\u043A\u0443\u043C\u0435\u043D\u0442')}`;
+
+    const src = doc.warehouse_source_name || doc.warehouse_source || '\u2014';
+    const dst = doc.warehouse_dest_name || doc.warehouse_dest || '\u2014';
+
+    document.getElementById('archiveDetailInfo').innerHTML = `
+        <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+                <div class="small text-muted">${formatDate(doc.date)}</div>
+                <div class="small">${esc(doc.organization_name || '')}</div>
+            </div>
+            <div class="text-end small">
+                <div><strong>${esc(src)}</strong> <i class="bi bi-arrow-right"></i> <strong>${esc(dst)}</strong></div>
+            </div>
+        </div>
+    `;
+
+    const items = doc.items || [];
+    document.getElementById('archiveDetailProducts').innerHTML = `
+        <label class="fw-semibold small d-block mb-1"><i class="bi bi-box-seam me-1"></i>\u0422\u043E\u0432\u0430\u0440\u044B</label>
+        <div class="table-responsive">
+        <table class="table table-sm table-borderless mb-0">
+            <thead><tr><th>\u0422\u043E\u0432\u0430\u0440</th><th>\u0421\u0435\u0440\u0438\u044F</th><th class="text-center" style="width:80px">\u041A\u043E\u043B-\u0432\u043E</th><th class="text-center" style="width:80px">\u041E\u0441\u0442\u0430\u0442\u043E\u043A</th></tr></thead>
+            <tbody>${items.map((item) => {
+                const name = item.product_name || item.product_guid || '\u2014';
+                const series = item.series || null;
+                const seriesName = series ? (series.name || series.inventory_number || '\u2014') : '\u2014';
+                const inv = series ? (series.inventory_number || '') : '';
+                return `<tr>
+                    <td class="small">${esc(name)}</td>
+                    <td class="small text-muted">${series ? esc(seriesName) + (inv ? '<br><small>'+esc(inv)+'</small>' : '') : '\u2014'}</td>
+                    <td class="text-center small">${item.amount ?? 0}</td>
+                    <td class="text-center small">${item.balance ?? 0}</td>
+                </tr>`;
+            }).join('')}</tbody>
+        </table>
+        </div>
+    `;
+
+    const comments = doc.comments || [];
+    const commentsHtml = comments.length
+        ? comments.map(c => {
+            if (typeof c === 'string') {
+                return `<div class="small mb-1 p-1 bg-light rounded-3">${esc(c)}</div>`;
+            }
+            return `<div class="small mb-1 p-1 bg-light rounded-3"><strong>${esc(c.author || '')}</strong> \u2014 ${esc(c.date || '')}<br>${esc(c.content || '')}</div>`;
+          }).join('')
+        : '<div class="text-muted small">\u041D\u0435\u0442 \u043A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0435\u0432</div>';
+    document.getElementById('archiveDetailComments').innerHTML = `
+        <label class="fw-semibold small d-block mb-1"><i class="bi bi-chat-dots me-1"></i>\u041A\u043E\u043C\u043C\u0435\u043D\u0442\u0430\u0440\u0438\u0438</label>
+        ${commentsHtml}
+    `;
+
+    const attachments = doc.attachments || [];
+    const attachmentsHtml = attachments.length
+        ? `<label class="fw-semibold small d-block mb-1"><i class="bi bi-paperclip me-1"></i>\u0412\u043B\u043E\u0436\u0435\u043D\u0438\u044F</label>
+           <div class="d-flex gap-2 flex-wrap">${attachments.map(a => {
+               const icon = a.filename && /\.(pdf|doc|docx|xls|xlsx|zip)$/i.test(a.filename)
+                   ? 'bi bi-file-earmark' : 'bi bi-file-earmark-image';
+               return `<div style="width:72px;height:72px;border-radius:6px;overflow:hidden;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:#999;cursor:pointer"
+                           title="${esc(a.filename || '')}"
+                           onclick="downloadArchiveAttachment('${doc.guid}', '${a.guid}')">
+                           <i class="${icon}" style="font-size:1.5rem"></i>
+                       </div>`;
+           }).join('')}</div>`
+        : '<div class="text-muted small">\u041D\u0435\u0442 \u0432\u043B\u043E\u0436\u0435\u043D\u0438\u0439</div>';
+    document.getElementById('archiveDetailAttachments').innerHTML = attachmentsHtml;
+
+    const modal = new bootstrap.Modal(document.getElementById('archiveDetailModal'));
+    modal.show();
+}
+
+function downloadArchiveAttachment(docGuid, attachmentGuid) {
+    window.open(`/api/warehouse/stock-transfers-history-attachment?doc_guid=${docGuid}&attachment_guid=${attachmentGuid}`, '_blank');
+}
+
+// Auto-load archive when switching to the archive tab
+document.querySelector('#warehouseTabs [data-bs-target="#wh-archive"]')?.addEventListener('shown.bs.tab', () => {
+    loadStockTransfersHistory();
+});

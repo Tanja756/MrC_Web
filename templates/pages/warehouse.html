@@ -46,7 +46,10 @@
         <div id="transfersList"><div class="text-muted small text-center py-4">Выберите склад для загрузки перемещений</div></div>
     </div>
     <div class="tab-pane fade" id="wh-archive">
-        <div class="empty-state"><i class="bi bi-archive"></i><p>Раздел в разработке</p></div>
+        <div class="d-flex align-items-center gap-2 mb-3">
+            <button class="btn btn-outline-secondary btn-sm" onclick="loadStockTransfersHistory()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
+        </div>
+        <div id="archiveTransfersList"><div class="text-center py-4"><div class="spinner-border spinner-border-sm text-muted"></div></div></div>
     </div>
 </div>
 {% endblock %}
@@ -54,6 +57,7 @@
 <link href="{{ url_for('static', filename='css/warehouse.css') }}?v=1" rel="stylesheet">
 {% include "modals/transfer-detail.html" %}
 {% include "modals/transfer-create.html" %}
+{% include "modals/archive-detail.html" %}
 <script src="{{ url_for('static', filename='js/warehouse.js') }}?v=1"></script>
 <script src="{{ url_for('static', filename='js/stock-transfers.js') }}?v=4"></script>
 <script>document.addEventListener('DOMContentLoaded',()=>{loadStorages();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&isWorkingHours()){loadBalances();}});const sel=document.getElementById('storageSelect');const saved=lsGet('defaultWarehouse','');if(saved&&sel&&sel.options.length>1){if([...sel.options].some(o=>o.value===saved))sel.value=saved;loadBalances();}});</script>

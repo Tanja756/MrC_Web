@@ -249,3 +249,13 @@ class OneSApiClient:
             "task_guid": task_guid,
             "attachment_guid": attachment_guid,
         })
+
+    def get_stock_transfers_history(self):
+        return self._get("stock-transfers-history") or []
+
+    def get_stock_transfers_history_attachment(self, doc_guid: str, attachment_guid: str, date: str):
+        return self._get("stock-transfers-history-attachment", {
+            "doc_guid": doc_guid,
+            "attachment_guid": attachment_guid,
+            "date": date,
+        })

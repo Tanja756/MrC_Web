@@ -5,7 +5,7 @@ import uuid
 import base64
 import tempfile
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, send_file, session
 from .helpers import (
     api_login_required, get_api_client,
@@ -15,6 +15,13 @@ from .helpers import (
 )
 
 warehouse_bp = Blueprint('warehouse', __name__, url_prefix='/api/warehouse')
+
+# In-memory cache for stock-transfers-history (4-hour TTL)
+_stock_transfers_history_cache = {
+    "data": None,
+    "updated_at": None,
+}
+STOCK_TRANSFERS_HISTORY_TTL = 4 * 3600  # 4 hours
 
 
 @warehouse_bp.route('/storages')
@@ -277,3 +284,130 @@ def api_stock_transfer_delete_attachment():
     if result and result.get('_error'):
         return jsonify({'success': False, 'error': result['_error']}), 400
     return jsonify({'success': True})
+
+
+# ─────── Stock Transfers History (Archive) ───────
+
+@warehouse_bp.route('/stock-transfers-history')
+@api_login_required
+def api_stock_transfers_history():
+    global _stock_transfers_history_cache
+    now = datetime.now()
+
+    # Check in-memory cache (4-hour TTL)
+    cached = _stock_transfers_history_cache["data"]
+    updated = _stock_transfers_history_cache["updated_at"]
+    if cached is not None and updated is not None:
+        elapsed = (now - updated).total_seconds()
+        if elapsed < STOCK_TRANSFERS_HISTORY_TTL:
+            # Ensure enriched even for cached data (fresh start after code update)
+            client_for_enrich = get_api_client()
+            if client_for_enrich:
+                storages = {s['guid']: s['name'] for s in (client_for_enrich.get_storages() or [])}
+                products = {p['guid']: p for p in (client_for_enrich.get_products() or [])}
+                for doc in cached:
+                    if not doc.get('warehouse_source_name'):
+                        doc['warehouse_source_name'] = storages.get(doc.get('warehouse_source', ''), doc.get('warehouse_source', ''))
+                        doc['warehouse_dest_name'] = storages.get(doc.get('warehouse_dest', ''), doc.get('warehouse_dest', ''))
+                    for item in doc.get('items', []):
+                        if not item.get('product_name'):
+                            guid = item.get('product_guid', '')
+                            prod = products.get(guid, {})
+                            item['product_name'] = prod.get('name', '') or prod.get('article', '') or guid
+            return jsonify(cached)
+
+    client = get_api_client()
+    if not client:
+        return jsonify([])
+
+    data = client.get_stock_transfers_history()
+    if data is None:
+        return jsonify({'error': 'Upstream error'}), 502
+
+    # Enrich with storage names and product names
+    storages = {s['guid']: s['name'] for s in (client.get_storages() or [])}
+    products = {p['guid']: p for p in (client.get_products() or [])}
+    for doc in data:
+        doc['warehouse_source_name'] = storages.get(doc.get('warehouse_source', ''), doc.get('warehouse_source', ''))
+        doc['warehouse_dest_name'] = storages.get(doc.get('warehouse_dest', ''), doc.get('warehouse_dest', ''))
+        for item in doc.get('items', []):
+            guid = item.get('product_guid', '')
+            prod = products.get(guid, {})
+            item['product_name'] = prod.get('name', '') or prod.get('article', '') or guid
+
+    # Sort by date DESC (from new to old) — parse as datetime
+    def _parse_dt(s):
+        if not s:
+            return datetime.min
+        for fmt in ('%d.%m.%Y %H:%M:%S', '%d.%m.%Y', '%d.%m.%y %H:%M:%S', '%d.%m.%y %H:%M', '%d.%m.%Y %H:%M', '%d.%m.%y'):
+            try:
+                return datetime.strptime(s, fmt)
+            except ValueError:
+                continue
+        return datetime.min
+
+    def _sort_dt(doc):
+        return _parse_dt(doc.get('date', ''))
+    data.sort(key=_sort_dt, reverse=True)
+
+    # Update cache
+    _stock_transfers_history_cache["data"] = data
+    _stock_transfers_history_cache["updated_at"] = now
+
+    return jsonify(data)
+
+
+@warehouse_bp.route('/stock-transfers-history-attachment')
+@api_login_required
+def api_stock_transfers_history_attachment():
+    doc_guid = request.args.get('doc_guid')
+    attachment_guid = request.args.get('attachment_guid')
+
+    if not doc_guid or not attachment_guid:
+        return jsonify({'error': 'doc_guid and attachment_guid are required'}), 400
+
+    # Find document date from cache
+    cached = _stock_transfers_history_cache.get("data")
+    if not cached:
+        return jsonify({'error': 'Document not found in cache'}), 404
+
+    found_doc = None
+    for doc in cached:
+        if doc.get('guid') == doc_guid:
+            found_doc = doc
+            break
+
+    if not found_doc:
+        return jsonify({'error': 'Document not found in cache'}), 404
+
+    doc_date = found_doc.get('date')
+    if not doc_date:
+        return jsonify({'error': 'Document date not available in cache'}), 404
+
+    # Request 1C with date filter
+    client = get_api_client()
+    if not client:
+        return jsonify({'error': 'No connection'}), 502
+
+    # Extract date portion (e.g. "10.06.2026 12:25:33" -> "10.06.2026")
+    short_date_str = doc_date[:10] if len(doc_date) >= 10 else doc_date
+    response_data = client.get_stock_transfers_history_attachment(doc_guid, attachment_guid, short_date_str)
+
+    # Response should be an array of documents for that day
+    if not response_data or not isinstance(response_data, list):
+        return jsonify({'error': 'Attachment not found'}), 404
+
+    # Find the specific document and attachment
+    for doc in response_data:
+        if doc.get('guid') == doc_guid:
+            attachments = doc.get('attachments', [])
+            for att in attachments:
+                if att.get('guid') == attachment_guid:
+                    return jsonify({
+                        'guid': att['guid'],
+                        'filename': att.get('filename', 'file'),
+                        'content': att.get('content', ''),
+                    })
+            break
+
+    return jsonify({'error': 'Attachment not found'}), 404
