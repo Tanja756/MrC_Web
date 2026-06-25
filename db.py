@@ -315,7 +315,7 @@ def add_announcement(title, content):
     conn.commit()
     conn.close()
 
-def get_announcements(limit=5):
+def get_announcements(limit=3):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute(
@@ -654,7 +654,7 @@ def init_yandex_uploads_table():
             hashes_hash TEXT
         )
     """)
-    for col in ('references_hash', 'hashes_hash'):
+    for col in ('references_hash', 'hashes_hash', 'tasks_user_hash', 'tasks_free_hash', 'tasks_closed_hash'):
         try:
             c.execute(f"ALTER TABLE yandex_uploads ADD COLUMN {col} TEXT")
         except Exception:
@@ -665,27 +665,33 @@ def init_yandex_uploads_table():
 def get_yandex_upload_status(username):
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT tasks_hash, warehouse_hash, references_hash, hashes_hash FROM yandex_uploads WHERE username=?", (username,))
+    c.execute("SELECT tasks_hash, warehouse_hash, references_hash, hashes_hash, tasks_user_hash, tasks_free_hash, tasks_closed_hash FROM yandex_uploads WHERE username=?", (username,))
     row = c.fetchone()
     conn.close()
     if row:
-        return {"tasks_hash": row[0], "warehouse_hash": row[1], "references_hash": row[2], "hashes_hash": row[3]}
+        return {"tasks_hash": row[0], "warehouse_hash": row[1], "references_hash": row[2], "hashes_hash": row[3],
+                "tasks_user_hash": row[4], "tasks_free_hash": row[5], "tasks_closed_hash": row[6]}
     return None
 
-def save_yandex_upload_status(username, tasks_hash=None, warehouse_hash=None, references_hash=None, hashes_hash=None):
+def save_yandex_upload_status(username, tasks_hash=None, warehouse_hash=None, references_hash=None, hashes_hash=None,
+                                tasks_user_hash=None, tasks_free_hash=None, tasks_closed_hash=None):
     def _write():
         conn = get_db_connection()
         c = conn.cursor()
         existing = get_yandex_upload_status(username) or {}
         c.execute("""
-            INSERT OR REPLACE INTO yandex_uploads (username, tasks_hash, warehouse_hash, references_hash, hashes_hash)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO yandex_uploads (username, tasks_hash, warehouse_hash, references_hash, hashes_hash,
+                                                   tasks_user_hash, tasks_free_hash, tasks_closed_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             username,
             tasks_hash if tasks_hash is not None else existing.get("tasks_hash"),
             warehouse_hash if warehouse_hash is not None else existing.get("warehouse_hash"),
             references_hash if references_hash is not None else existing.get("references_hash"),
             hashes_hash if hashes_hash is not None else existing.get("hashes_hash"),
+            tasks_user_hash if tasks_user_hash is not None else existing.get("tasks_user_hash"),
+            tasks_free_hash if tasks_free_hash is not None else existing.get("tasks_free_hash"),
+            tasks_closed_hash if tasks_closed_hash is not None else existing.get("tasks_closed_hash"),
         ))
         conn.commit()
         conn.close()

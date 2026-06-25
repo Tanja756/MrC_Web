@@ -518,13 +518,23 @@ function attachFile(type) {
         const base64 = await fileToBase64(file);
         pendingAttachments.push({
             data: base64.split(',')[1],
-            extension: file.name.split('.').pop()
+            extension: file.name.split('.').pop(),
+            filename: file.name
         });
-        document.getElementById('attachmentsList').innerHTML = pendingAttachments.map(a =>
-            `<span class="badge bg-light text-dark me-1">📎 .${a.extension} (${(a.data.length * 0.75 / 1024).toFixed(0)} KB)</span>`
-        ).join('');
+        renderPendingAttachments();
     };
     input.click();
+}
+
+function renderPendingAttachments() {
+    document.getElementById('attachmentsList').innerHTML = pendingAttachments.map((a, i) =>
+        `<span class="badge bg-light text-dark me-1 d-inline-flex align-items-center gap-1">📎 ${a.filename || ('.' + a.extension)} (${(a.data.length * 0.75 / 1024).toFixed(0)} KB) <i class="bi bi-x-circle-fill text-danger" style="cursor:pointer;font-size:0.7rem" onclick="removePendingAttachment(${i})"></i></span>`
+    ).join('');
+}
+
+function removePendingAttachment(idx) {
+    pendingAttachments.splice(idx, 1);
+    renderPendingAttachments();
 }
 
 function fileToBase64(file) {

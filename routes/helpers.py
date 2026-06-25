@@ -9,6 +9,7 @@ import tempfile
 import logging
 import threading
 import time
+import fcntl
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import session, request, jsonify, redirect, url_for, Response, send_file
@@ -43,6 +44,7 @@ VAPID_CLAIM_EMAIL = os.environ.get('VAPID_CLAIM_EMAIL', 'admin@example.com')
 BACKGROUND_CHECK_INTERVAL = int(os.environ.get('BACKGROUND_CHECK_INTERVAL', '600'))
 BALANCE_STALE_THRESHOLD = int(os.environ.get('BALANCE_STALE_THRESHOLD', '600'))
 ACTION_CHECK_INTERVAL = int(os.environ.get('ACTION_CHECK_INTERVAL', '60'))
+BACKGROUND_LOCK_PATH = "/tmp/mrcheck_background.lock"
 _background_timer = None
 _background_stop = threading.Event()
 
@@ -630,6 +632,18 @@ def _is_working_hours():
     h = datetime.now().hour
     return 7 <= h < 23
 
+def _try_background_lock():
+    """Try to acquire inter-process flock. Returns fd on success, None on failure."""
+    fd = None
+    try:
+        fd = os.open(BACKGROUND_LOCK_PATH, os.O_RDWR | os.O_CREAT, 0o644)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return fd
+    except (IOError, OSError):
+        if fd is not None:
+            os.close(fd)
+        return None
+
 def background_check_loop():
     last_action_check = 0.0
     last_full_check = 0.0
@@ -640,29 +654,37 @@ def background_check_loop():
             full_due = (now - last_full_check) >= BACKGROUND_CHECK_INTERVAL
 
             if action_due or full_due:
-                all_users = set()
-                for sub in get_all_subscriptions():
-                    all_users.add(sub['username'])
-                for uname in get_all_task_snapshot_users():
-                    all_users.add(uname)
+                lock_fd = _try_background_lock()
+                if not lock_fd:
+                    logger.debug("Background: another worker holds the lock, skipping cycle")
+                    _background_stop.wait(min(ACTION_CHECK_INTERVAL, BACKGROUND_CHECK_INTERVAL))
+                    continue
+                try:
+                    all_users = set()
+                    for sub in get_all_subscriptions():
+                        all_users.add(sub['username'])
+                    for uname in get_all_task_snapshot_users():
+                        all_users.add(uname)
 
-                actions_found = set()
-                if action_due:
-                    for username in sorted(all_users):
-                        client = get_background_api_client(username)
-                        if client and process_actions(username, client):
-                            actions_found.add(username)
-                    last_action_check = time.time()
+                    actions_found = set()
+                    if action_due:
+                        for username in sorted(all_users):
+                            client = get_background_api_client(username)
+                            if client and process_actions(username, client):
+                                actions_found.add(username)
+                        last_action_check = time.time()
 
-                if full_due or actions_found:
-                    users_to_check = all_users if full_due else actions_found
-                    for username in sorted(users_to_check):
-                        force = username in actions_found
-                        try:
-                            background_check_user(username, force=force)
-                        except Exception as e:
-                            logger.warning(f"Background check failed for {username}: {e}")
-                    last_full_check = time.time()
+                    if full_due or actions_found:
+                        users_to_check = all_users if full_due else actions_found
+                        for username in sorted(users_to_check):
+                            force = username in actions_found
+                            try:
+                                background_check_user(username, force=force)
+                            except Exception as e:
+                                logger.warning(f"Background check failed for {username}: {e}")
+                        last_full_check = time.time()
+                finally:
+                    os.close(lock_fd)
 
         sleep_interval = min(ACTION_CHECK_INTERVAL, BACKGROUND_CHECK_INTERVAL)
         _background_stop.wait(sleep_interval)

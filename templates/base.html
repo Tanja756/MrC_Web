@@ -64,7 +64,7 @@
 </div>
 
 {% if request.endpoint and request.endpoint != 'auth.login' %}
-<nav class="nav nav-pills d-md-none justify-content-center gap-1 py-1 bg-body-tertiary border-top border-secondary sticky-top" id="mobileSubNav">
+<nav class="nav nav-pills d-md-none justify-content-center gap-1 py-2 bg-body-tertiary border-top border-secondary sticky-top" id="mobileSubNav">
     <a class="nav-link px-3 py-1 small {{ 'active' if request.endpoint == 'pages.tasks_page' }}" href="{{ url_for('pages.tasks_page') }}">Заявки</a>
     <a class="nav-link px-3 py-1 small {{ 'active' if request.endpoint == 'pages.warehouse_page' }}" href="{{ url_for('pages.warehouse_page') }}">Склад</a>
     <a class="nav-link px-3 py-1 small {{ 'active' if request.endpoint == 'pages.salary_page' }}" href="{{ url_for('pages.salary_page') }}">Зарплата</a>

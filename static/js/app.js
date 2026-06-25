@@ -225,6 +225,7 @@ function dismissAllNotifications() {
     for (const key of reqCache.keys()) {
         if (key.startsWith('/api/notifications')) reqCache.delete(key);
     }
+    document.getElementById('notifDropdown')?.classList.remove('show');
     fetch('/api/notifications/dismiss-all', {method: 'POST'})
         .then(checkAuth)
         .then(() => { loadNotifications(storage); })

@@ -26,7 +26,7 @@ function openCreateTransfer() {
 
     const pickSel = document.getElementById('transferStoragePick');
     if (pickSel) {
-        pickSel.innerHTML = sel ? sel.innerHTML : '<option value="">\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u043A\u043B\u0430\u0434...</option>';
+        pickSel.innerHTML = sel ? sel.innerHTML : '<option value="">Выберите склад...</option>';
     }
 
     transferSelectedItems = [];
@@ -35,8 +35,15 @@ function openCreateTransfer() {
     document.getElementById('transferPhotoPreview').innerHTML = '';
     document.getElementById('transferComment').value = '';
     document.getElementById('transferProductSearch').value = '';
-    document.getElementById('transferProductsList').innerHTML = '<div class="text-muted small text-center py-3">\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u043A\u043B\u0430\u0434 \u043E\u0441\u0442\u0430\u0442\u043A\u043E\u0432</div>';
     transferPickProducts = [];
+
+    const sourceEl = document.getElementById('transferSource');
+    if (sourceEl.value) {
+        document.getElementById('transferStoragePick').value = sourceEl.value;
+        loadTransferProducts();
+    } else {
+        document.getElementById('transferProductsList').innerHTML = '<div class="text-muted small text-center py-3">Выберите склад-отправитель</div>';
+    }
 
     const modal = new bootstrap.Modal(document.getElementById('createTransferModal'));
     modal.show();
@@ -58,7 +65,7 @@ function loadTransferProducts() {
     const guid = document.getElementById('transferStoragePick').value;
     const list = document.getElementById('transferProductsList');
     if (!guid) {
-        list.innerHTML = '<div class="text-muted small text-center py-3">\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u043A\u043B\u0430\u0434 \u043E\u0441\u0442\u0430\u0442\u043A\u043E\u0432</div>';
+        list.innerHTML = '<div class="text-muted small text-center py-3">\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u043A\u043B\u0430\u0434-\u043E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u0435\u043B\u044C</div>';
         transferPickProducts = [];
         renderTransferProducts();
         return;
@@ -155,25 +162,53 @@ function removeTransferItem(idx) {
     renderTransferSelected();
 }
 
-function onTransferPhotoSelected(input) {
+function compressImage(file, maxDimension = 1920, quality = 0.7) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = new Image();
+            img.onload = function() {
+                let w = img.width, h = img.height;
+                if (w > h && w > maxDimension) {
+                    h = Math.round(h * maxDimension / w);
+                    w = maxDimension;
+                } else if (h > maxDimension) {
+                    w = Math.round(w * maxDimension / h);
+                    h = maxDimension;
+                }
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, w, h);
+                resolve(canvas.toDataURL('image/jpeg', quality).split(',')[1]);
+            };
+            img.onerror = reject;
+            img.src = e.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+async function onTransferPhotoSelected(input) {
     const files = input.files;
     if (!files || !files.length) return;
     for (const file of files) {
         if (!file.type.startsWith('image/')) continue;
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const base64 = e.target.result.split(',')[1];
-            const ext = file.name.split('.').pop() || 'jpg';
-            transferPhotos.push({data: base64, extension: ext});
+        try {
+            const base64 = await compressImage(file, 1920, 0.7);
+            transferPhotos.push({data: base64, extension: 'jpg', filename: file.name});
             renderTransferPhotos();
-        };
-        reader.readAsDataURL(file);
+        } catch (e) {
+            console.error('Image compression failed', e);
+        }
     }
     input.value = '';
 }
 
 function captureTransferPhoto() {
-    const input = document.getElementById('transferPhotoInput');
+    const input = document.getElementById('transferCameraInput');
     if (input) input.click();
 }
 
@@ -232,6 +267,7 @@ function submitTransfer() {
         attachments: transferPhotos.map(ph => ({
             data: ph.data,
             extension: ph.extension,
+            filename: ph.filename || ('photo.' + ph.extension),
         })),
     };
 
@@ -456,19 +492,18 @@ function toggleDeleteTransferAttachment(guid) {
     renderTransferDetailAttachments();
 }
 
-function onTransferDetailAttachmentSelected(input) {
+async function onTransferDetailAttachmentSelected(input) {
     const files = input.files;
     if (!files || !files.length) return;
     for (const file of files) {
         if (!file.type.startsWith('image/')) continue;
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const base64 = e.target.result.split(',')[1];
-            const ext = file.name.split('.').pop() || 'jpg';
-            transferNewAttachments.push({data: base64, extension: ext, filename: file.name});
+        try {
+            const base64 = await compressImage(file, 1920, 0.7);
+            transferNewAttachments.push({data: base64, extension: 'jpg', filename: file.name});
             renderTransferDetailAttachments();
-        };
-        reader.readAsDataURL(file);
+        } catch (e) {
+            console.error('Image compression failed', e);
+        }
     }
     input.value = '';
 }
@@ -524,6 +559,7 @@ function saveTransferChanges() {
                     attachments: transferNewAttachments.map(a => ({
                         data: a.data,
                         extension: a.extension,
+                        filename: a.filename || ('photo.' + a.extension),
                     })),
                 }),
             }).then(checkAuth).then(r => r.json())
@@ -559,6 +595,14 @@ function saveTransferChanges() {
             showAlert('\u041E\u0448\u0438\u0431\u043A\u0430: ' + err.message, 'danger');
         });
 }
+
+document.getElementById('createTransferModal')?.addEventListener('change', function(e) {
+    if (e.target.id === 'transferSource') {
+        const pick = document.getElementById('transferStoragePick');
+        if (pick) pick.value = e.target.value;
+        loadTransferProducts();
+    }
+});
 
 document.querySelector('#warehouseTabs [data-bs-target="#wh-transfers"]')?.addEventListener('shown.bs.tab', () => {
     const sel = document.getElementById('storageSelect');

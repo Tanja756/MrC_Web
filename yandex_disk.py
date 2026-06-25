@@ -155,20 +155,35 @@ def sync_tasks_to_yandex(username, user_data, free_data, closed_data, yandex=Non
     if not yandex.is_authenticated():
         return
 
-    current = {"user": user_data, "free": free_data, "closed": closed_data}
-    h = compute_hash(current)
-
     saved = get_yandex_upload_status(username)
-    if saved and saved.get("tasks_hash") == h:
-        return
+
+    sections = [
+        ("tasks_user.json", (user_data or {}).get("tasks", [])),
+        ("tasks_free.json", (free_data or {}).get("tasks", [])),
+        ("tasks_closed.json", (closed_data or {}).get("tasks", [])),
+    ]
 
     try:
         yandex.ensure_folder(f"/{username}")
-        yandex.upload_json(f"/{username}", "tasks.json", current)
-        save_yandex_upload_status(username, tasks_hash=h)
-        logger.info("Yandex sync: tasks updated for %s", username)
     except Exception as e:
-        logger.error("Yandex sync: failed to upload tasks for %s: %s", username, e)
+        logger.error("Yandex sync: failed to ensure folder for %s: %s", username, e)
+        return
+
+    hash_kw = {}
+    for filename, data in sections:
+        h = compute_hash(data)
+        key = filename.replace(".json", "_hash")
+        if saved and saved.get(key) == h:
+            continue
+        try:
+            yandex.upload_json(f"/{username}", filename, data)
+            hash_kw[key] = h
+            logger.info("Yandex sync: %s updated for %s", filename, username)
+        except Exception as e:
+            logger.error("Yandex sync: failed to upload %s for %s: %s", filename, username, e)
+
+    if hash_kw:
+        save_yandex_upload_status(username, **hash_kw)
 
 
 def sync_warehouse_to_yandex(username, warehouse_data, yandex=None):
@@ -206,7 +221,9 @@ def sync_hashes_to_yandex(username, yandex=None):
         return
 
     hashes = {
-        "tasks.json": saved.get("tasks_hash"),
+        "tasks_user.json": saved.get("tasks_user_hash"),
+        "tasks_free.json": saved.get("tasks_free_hash"),
+        "tasks_closed.json": saved.get("tasks_closed_hash"),
         "warehouse.json": saved.get("warehouse_hash"),
         "references.json": saved.get("references_hash"),
     }

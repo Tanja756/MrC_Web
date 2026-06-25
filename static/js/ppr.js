@@ -165,13 +165,23 @@ function pprAttachFile(type) {
         const base64 = await fileToBase64(file);
         pprPendingAttachments.push({
             data: base64.split(',')[1],
-            extension: file.name.split('.').pop()
+            extension: file.name.split('.').pop(),
+            filename: file.name
         });
-        document.getElementById('pprAttachmentsList').innerHTML = pprPendingAttachments.map(a =>
-            `<span class="badge bg-light text-dark me-1">📎 .${a.extension} (${(a.data.length * 0.75 / 1024).toFixed(0)} KB)</span>`
-        ).join('');
+        renderPprPendingAttachments();
     };
     input.click();
+}
+
+function renderPprPendingAttachments() {
+    document.getElementById('pprAttachmentsList').innerHTML = pprPendingAttachments.map((a, i) =>
+        `<span class="badge bg-light text-dark me-1 d-inline-flex align-items-center gap-1">📎 ${a.filename || ('.' + a.extension)} (${(a.data.length * 0.75 / 1024).toFixed(0)} KB) <i class="bi bi-x-circle-fill text-danger" style="cursor:pointer;font-size:0.7rem" onclick="removePprPendingAttachment(${i})"></i></span>`
+    ).join('');
+}
+
+function removePprPendingAttachment(idx) {
+    pprPendingAttachments.splice(idx, 1);
+    renderPprPendingAttachments();
 }
 
 function openPprClose(guid) {
