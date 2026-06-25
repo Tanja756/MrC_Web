@@ -12,6 +12,7 @@ from .helpers import (
     auto_close_tracked_tasks,
     SERVER_HOST, SERVER_PORT, SERVER_DB,
 )
+from utils import compress_attachments
 
 tasks_bp = Blueprint('tasks', __name__, url_prefix='/api/tasks')
 
@@ -125,7 +126,7 @@ def api_task_close():
     comment = data.get('comment', '')
     latitude = data.get('latitude', 0.0)
     longitude = data.get('longitude', 0.0)
-    attachments = data.get('attachments', [])
+    attachments = compress_attachments(data.get('attachments', []))
     result = client.task_close(guid, guid_doc, comment, latitude, longitude, attachments)
     if result and result.get('_error'):
         return jsonify({'success': False, 'error': result['_error'], 'detail': result}), 400

@@ -158,16 +158,19 @@ function openPprDetail(guid) {
 function pprAttachFile(type) {
     const input = document.createElement('input');
     input.type = 'file';
+    input.multiple = true;
     if (type === 'pdf') input.accept = '.pdf';
     input.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const base64 = await fileToBase64(file);
-        pprPendingAttachments.push({
-            data: base64.split(',')[1],
-            extension: file.name.split('.').pop(),
-            filename: file.name
-        });
+        const files = e.target.files;
+        if (!files || !files.length) return;
+        for (const file of files) {
+            const base64 = await fileToBase64(file);
+            pprPendingAttachments.push({
+                data: base64.split(',')[1],
+                extension: file.name.split('.').pop(),
+                filename: file.name
+            });
+        }
         renderPprPendingAttachments();
     };
     input.click();

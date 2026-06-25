@@ -20,9 +20,9 @@
                 <div class="mb-3">
                     <label class="fw-semibold small d-block mb-1"><i class="bi bi-camera me-1"></i>Фото</label>
                     <div class="d-flex gap-2 align-items-center">
-                        <input type="file" class="form-control form-control-sm" id="transferPhotoInput" accept="image/*" onchange="onTransferPhotoSelected(this)">
+                        <input type="file" class="form-control form-control-sm" id="transferPhotoInput" accept="image/*" multiple onchange="onTransferPhotoSelected(this)">
                         <button class="btn btn-outline-secondary btn-sm" onclick="captureTransferPhoto()" title="Сделать фото"><i class="bi bi-camera"></i></button>
-                        <input type="file" id="transferCameraInput" accept="image/*" capture="environment" style="display:none" onchange="onTransferPhotoSelected(this)">
+                        <input type="file" id="transferCameraInput" accept="image/*" capture="environment" multiple style="display:none" onchange="onTransferPhotoSelected(this)">
                     </div>
                     <div id="transferPhotoPreview" class="d-flex gap-2 flex-wrap mt-2"></div>
                 </div>

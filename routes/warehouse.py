@@ -12,7 +12,9 @@ from .helpers import (
     get_storage_name, check_balance_changes, short_date, plural,
     warehouse_pdf_html,
     get_balance_item_meta, set_balance_item_broken,
+    sync_and_enrich_products, enrich_products_to_dict,
 )
+from utils import compress_attachments
 
 warehouse_bp = Blueprint('warehouse', __name__, url_prefix='/api/warehouse')
 
@@ -149,19 +151,20 @@ def api_stock_transfers():
     if request.method == 'GET':
         data = client.get_stock_transfers()
         storages = {s['guid']: s['name'] for s in (client.get_storages() or [])}
-        products = {p['guid']: p for p in (client.get_products() or [])}
         for doc in data:
             doc['warehouse_source_name'] = storages.get(doc.get('warehouse_source', ''), doc.get('warehouse_source', ''))
             doc['warehouse_dest_name'] = storages.get(doc.get('warehouse_dest', ''), doc.get('warehouse_dest', ''))
-            for item in doc.get('items', []):
-                guid = item.get('product_guid', '')
-                prod = products.get(guid, {})
-                item['product_name'] = prod.get('name', '') or prod.get('article', '') or guid
+        sync_and_enrich_products(
+            [item for doc in data for item in (doc.get('items', []))],
+            client=client
+        )
         return jsonify(data)
     elif request.method == 'POST':
         body = request.get_json(silent=True)
         if not body:
             return jsonify({'error': 'Invalid JSON'}), 400
+        if 'attachments' in body:
+            body['attachments'] = compress_attachments(body['attachments'])
         result = client.create_stock_transfer(body)
         if result and result.get('_error'):
             return jsonify({'success': False, 'error': result['_error']}), 400
@@ -176,11 +179,7 @@ def api_balances_pick():
     if not storage_guid or not client:
         return jsonify([])
     data = client.get_balances_pick(storage_guid)
-    products = {p['guid']: p for p in (client.get_products() or [])}
-    for item in data:
-        guid = item.get('product_guid', '')
-        prod = products.get(guid, {})
-        item['product_name'] = prod.get('name', '') or prod.get('article', '') or guid
+    sync_and_enrich_products(data, client=client)
     return jsonify(data)
 
 
@@ -258,7 +257,7 @@ def api_stock_transfer_add_attachments():
     if not body:
         return jsonify({'error': 'Invalid JSON'}), 400
     task_guid = body.get('task_guid')
-    attachments = body.get('attachments', [])
+    attachments = compress_attachments(body.get('attachments', []))
     if not task_guid or not attachments:
         return jsonify({'error': 'task_guid and attachments required'}), 400
     result = client.add_transfer_attachments(task_guid, attachments)
@@ -304,16 +303,15 @@ def api_stock_transfers_history():
             client_for_enrich = get_api_client()
             if client_for_enrich:
                 storages = {s['guid']: s['name'] for s in (client_for_enrich.get_storages() or [])}
-                products = {p['guid']: p for p in (client_for_enrich.get_products() or [])}
                 for doc in cached:
                     if not doc.get('warehouse_source_name'):
                         doc['warehouse_source_name'] = storages.get(doc.get('warehouse_source', ''), doc.get('warehouse_source', ''))
                         doc['warehouse_dest_name'] = storages.get(doc.get('warehouse_dest', ''), doc.get('warehouse_dest', ''))
-                    for item in doc.get('items', []):
-                        if not item.get('product_name'):
-                            guid = item.get('product_guid', '')
-                            prod = products.get(guid, {})
-                            item['product_name'] = prod.get('name', '') or prod.get('article', '') or guid
+                items_to_enrich = [item for doc in cached if not any(
+                    item.get('product_name') for item in doc.get('items', [])
+                ) for item in doc.get('items', [])]
+                if items_to_enrich:
+                    sync_and_enrich_products(items_to_enrich, client=client_for_enrich)
             return jsonify(cached)
 
     client = get_api_client()
@@ -326,14 +324,13 @@ def api_stock_transfers_history():
 
     # Enrich with storage names and product names
     storages = {s['guid']: s['name'] for s in (client.get_storages() or [])}
-    products = {p['guid']: p for p in (client.get_products() or [])}
     for doc in data:
         doc['warehouse_source_name'] = storages.get(doc.get('warehouse_source', ''), doc.get('warehouse_source', ''))
         doc['warehouse_dest_name'] = storages.get(doc.get('warehouse_dest', ''), doc.get('warehouse_dest', ''))
-        for item in doc.get('items', []):
-            guid = item.get('product_guid', '')
-            prod = products.get(guid, {})
-            item['product_name'] = prod.get('name', '') or prod.get('article', '') or guid
+    sync_and_enrich_products(
+        [item for doc in data for item in (doc.get('items', []))],
+        client=client
+    )
 
     # Sort by date DESC (from new to old) — parse as datetime
     def _parse_dt(s):
@@ -393,21 +390,38 @@ def api_stock_transfers_history_attachment():
     short_date_str = doc_date[:10] if len(doc_date) >= 10 else doc_date
     response_data = client.get_stock_transfers_history_attachment(doc_guid, attachment_guid, short_date_str)
 
-    # Response should be an array of documents for that day
-    if not response_data or not isinstance(response_data, list):
+    if not response_data:
         return jsonify({'error': 'Attachment not found'}), 404
 
-    # Find the specific document and attachment
-    for doc in response_data:
-        if doc.get('guid') == doc_guid:
-            attachments = doc.get('attachments', [])
-            for att in attachments:
-                if att.get('guid') == attachment_guid:
-                    return jsonify({
-                        'guid': att['guid'],
-                        'filename': att.get('filename', 'file'),
-                        'content': att.get('content', ''),
-                    })
-            break
+    # Case 1: direct attachment response ({"guid": ..., "filename": ..., "content": ...})
+    if isinstance(response_data, dict) and 'content' in response_data:
+        return _send_attachment(response_data)
+
+    # Case 2: list of documents for that day — find matching one
+    if isinstance(response_data, list):
+        for doc in response_data:
+            if doc.get('guid') == doc_guid:
+                attachments = doc.get('attachments', [])
+                for att in attachments:
+                    if att.get('guid') == attachment_guid:
+                        return _send_attachment(att)
+                break
 
     return jsonify({'error': 'Attachment not found'}), 404
+
+
+def _send_attachment(att):
+    try:
+        content = base64.b64decode(att.get('content', ''))
+    except Exception:
+        return jsonify({'error': 'Invalid attachment content'}), 500
+    filename = att.get('filename', 'file')
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+    mime_map = {'jpg':'image/jpeg','jpeg':'image/jpeg','png':'image/png','gif':'image/gif','webp':'image/webp','bmp':'image/bmp','pdf':'application/pdf','zip':'application/zip','doc':'application/msword','docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','xls':'application/vnd.ms-excel','xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}
+    mime = mime_map.get(ext, 'application/octet-stream')
+    return send_file(
+        io.BytesIO(content),
+        mimetype=mime,
+        as_attachment=False,
+        download_name=filename,
+    )

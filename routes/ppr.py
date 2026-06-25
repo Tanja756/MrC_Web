@@ -1,6 +1,7 @@
 from datetime import datetime
 from flask import Blueprint, request, jsonify
 from .helpers import api_login_required, get_api_client
+from utils import compress_attachments
 
 ppr_bp = Blueprint('ppr', __name__, url_prefix='/api/ppr')
 
@@ -36,7 +37,9 @@ def api_ppr_close():
     client = get_api_client()
     if not client:
         return jsonify({'error': 'No connection'}), 400
-    data = request.json
+    data = request.json or {}
+    if 'attachments' in data:
+        data['attachments'] = compress_attachments(data['attachments'])
     result = client.ppr_close(**data)
     if result and result.get('_error'):
         return jsonify({'success': False, 'error': result['_error']}), 400

@@ -26,6 +26,7 @@ class OneSApiClient:
         url = f"{self.base_url}/{endpoint}"
         try:
             r = self.session.get(url, params=params, timeout=30)
+            logger.info(f"_get {r.status_code} {url}")
             r.raise_for_status()
             return r.json()
         except requests.exceptions.Timeout:
@@ -34,7 +35,8 @@ class OneSApiClient:
         except requests.exceptions.HTTPError as e:
             resp = e.response
             status = resp.status_code if resp is not None else 0
-            logger.error(f"_get HTTP {status}: {url}")
+            body = resp.text[:500] if resp is not None else ''
+            logger.error(f"_get HTTP {status}: {url} — {body}")
             return None
         except requests.exceptions.RequestException:
             logger.warning(f"_get failed: {url}")

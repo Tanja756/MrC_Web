@@ -219,9 +219,12 @@ function renderTransferPhotos() {
         return;
     }
     container.innerHTML = transferPhotos.map((photo, i) =>
-        `<div class="position-relative" style="width:72px;height:72px">
-            <img src="data:image/${photo.extension};base64,${photo.data}" style="width:100%;height:100%;object-fit:cover;border-radius:6px">
-            <i class="bi bi-x-circle-fill position-absolute" style="top:-6px;right:-6px;cursor:pointer;color:#dc3545;font-size:1rem" onclick="removeTransferPhoto(${i})"></i>
+        `<div style="text-align:center">
+            <div class="position-relative d-inline-block" style="width:72px;height:72px">
+                <img src="data:image/${photo.extension};base64,${photo.data}" style="width:100%;height:100%;object-fit:cover;border-radius:6px">
+                <i class="bi bi-x-circle-fill position-absolute" style="top:-6px;right:-6px;cursor:pointer;color:#dc3545;font-size:1rem" onclick="removeTransferPhoto(${i})"></i>
+            </div>
+            <div class="small text-muted text-truncate" style="max-width:80px">${esc(photo.filename || '')}</div>
         </div>`
     ).join('');
 }
@@ -455,10 +458,13 @@ function renderTransferDetailAttachments() {
     }).join('');
 
     const newHtml = transferNewAttachments.map((att, i) =>
-        `<div class="position-relative" style="width:72px;height:72px">
-            <img src="data:image/${att.extension};base64,${att.data}" style="width:100%;height:100%;object-fit:cover;border-radius:6px">
-            <i class="bi bi-x-circle-fill position-absolute" style="top:-6px;right:-6px;cursor:pointer;color:#dc3545;font-size:1rem;background:white;border-radius:50%"
-               onclick="event.stopPropagation();removeNewTransferAttachment(${i})"></i>
+        `<div style="text-align:center">
+            <div class="position-relative d-inline-block" style="width:72px;height:72px">
+                <img src="data:image/${att.extension};base64,${att.data}" style="width:100%;height:100%;object-fit:cover;border-radius:6px">
+                <i class="bi bi-x-circle-fill position-absolute" style="top:-6px;right:-6px;cursor:pointer;color:#dc3545;font-size:1rem;background:white;border-radius:50%"
+                   onclick="event.stopPropagation();removeNewTransferAttachment(${i})"></i>
+            </div>
+            <div class="small text-muted text-truncate" style="max-width:80px">${esc(att.filename || '')}</div>
         </div>`
     ).join('');
 
