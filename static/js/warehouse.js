@@ -311,14 +311,24 @@ function changeMonth(delta) {
 let _archiveCache = [];
 let _archiveDetailDoc = null;
 
-function loadStockTransfersHistory() {
+function loadStockTransfersHistory(force) {
     const container = document.getElementById('archiveTransfersList');
     container.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-muted"></div></div>';
 
-    fetchDeduped('/api/warehouse/stock-transfers-history', undefined, 3600000)
+    if (force) {
+        for (const key of reqCache.keys()) {
+            if (key.startsWith('/api/warehouse/stock-transfers-history')) reqCache.delete(key);
+        }
+    }
+
+    fetchDeduped('/api/warehouse/stock-transfers-history', undefined, 300000)
         .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(data => {
-            _archiveCache = data || [];
+            if (!Array.isArray(data)) {
+                container.innerHTML = '<div class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Ошибка загрузки архива</p></div>';
+                return;
+            }
+            _archiveCache = data;
             if (!_archiveCache.length) {
                 container.innerHTML = '<div class="empty-state"><i class="bi bi-archive"></i><p>Нет документов в архиве</p></div>';
                 return;
@@ -441,7 +451,30 @@ function downloadArchiveAttachment(docGuid, attachmentGuid) {
     window.open(`/api/warehouse/stock-transfers-history-attachment?doc_guid=${docGuid}&attachment_guid=${attachmentGuid}`, '_blank');
 }
 
+function updateArrivalFromTransfers() {
+    const guid = document.getElementById('storageSelect').value;
+    if (!guid) {
+        showNotification('\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u043A\u043B\u0430\u0434', 'warning');
+        return;
+    }
+    fetch('/api/warehouse/update-arrival-from-transfers', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({storage_guid: guid})
+    })
+    .then(r => r.json().catch(() => ({})))
+    .then(res => {
+        if (res.updated !== undefined) {
+            showNotification('\u0414\u0430\u0442\u044B \u043F\u043E\u0441\u0442\u0443\u043F\u043B\u0435\u043D\u0438\u044F \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u044B \u0434\u043B\u044F ' + res.updated + ' \u043F\u043E\u0437\u0438\u0446\u0438\u0439', 'success');
+            refreshBalances();
+        } else {
+            showNotification(res.error || '\u041E\u0448\u0438\u0431\u043A\u0430 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F', 'danger');
+        }
+    })
+    .catch(() => showNotification('\u041E\u0448\u0438\u0431\u043A\u0430 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F \u0434\u0430\u0442', 'danger'));
+}
+
 // Auto-load archive when switching to the archive tab
 document.querySelector('#warehouseTabs [data-bs-target="#wh-archive"]')?.addEventListener('shown.bs.tab', () => {
-    loadStockTransfersHistory();
+    loadStockTransfersHistory(true);
 });

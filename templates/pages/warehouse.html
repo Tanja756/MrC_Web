@@ -22,23 +22,24 @@
                     </div>
                 </div>
                 <div class="col-md-5">
-                    <div class="d-flex gap-1">
+                    <div class="d-flex gap-1 flex-wrap">
                         <div class="btn-group flex-grow-1">
                             <button class="btn btn-outline-secondary" onclick="filterBalanceType('all')" id="bf-all">Все</button>
                             <button class="btn btn-outline-secondary" onclick="filterBalanceType('equipment')" id="bf-equipment">Оборудование</button>
                             <button class="btn btn-outline-secondary" onclick="filterBalanceType('zip')" id="bf-zip">ЗИП</button>
                             <button class="btn btn-outline-secondary" onclick="filterBalanceType('repair')" id="bf-repair">Ремонт</button>
                         </div>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="updateArrivalFromTransfers()" title="Обновить даты поступления из перемещений"><i class="bi bi-calendar-check"></i></button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="exportWarehousePdf()" title="Экспорт PDF"><i class="bi bi-filetype-pdf"></i></button>
                         <button class="btn btn-outline-secondary" onclick="refreshBalances()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
                     </div>
-                </div>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="exportWarehousePdf()" title="Экспорт PDF"><i class="bi bi-filetype-pdf"></i></button>
                 </div>
             </div>
         </div>
         <div id="balancesList"></div>
     </div>
-    <div class="tab-pane fade" id="wh-transfers">
+</div>
+<div class="tab-pane fade" id="wh-transfers">
         <div class="d-flex align-items-center gap-2 mb-3">
             <button class="btn btn-primary btn-sm" onclick="openCreateTransfer()"><i class="bi bi-plus-lg me-1"></i>Создать перемещение</button>
             <button class="btn btn-outline-secondary btn-sm" onclick="loadTransfers()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
@@ -47,7 +48,7 @@
     </div>
     <div class="tab-pane fade" id="wh-archive">
         <div class="d-flex align-items-center gap-2 mb-3">
-            <button class="btn btn-outline-secondary btn-sm" onclick="loadStockTransfersHistory()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="loadStockTransfersHistory(true)" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
         </div>
         <div id="archiveTransfersList"><div class="text-center py-4"><div class="spinner-border spinner-border-sm text-muted"></div></div></div>
     </div>
@@ -58,7 +59,7 @@
 {% include "modals/transfer-detail.html" %}
 {% include "modals/transfer-create.html" %}
 {% include "modals/archive-detail.html" %}
-<script src="{{ url_for('static', filename='js/warehouse.js') }}?v=1"></script>
+<script src="{{ url_for('static', filename='js/warehouse.js') }}?v=3"></script>
 <script src="{{ url_for('static', filename='js/stock-transfers.js') }}?v=5"></script>
 <script>document.addEventListener('DOMContentLoaded',()=>{loadStorages();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&isWorkingHours()){loadBalances();}});const sel=document.getElementById('storageSelect');const saved=lsGet('defaultWarehouse','');if(saved&&sel&&sel.options.length>1){if([...sel.options].some(o=>o.value===saved))sel.value=saved;loadBalances();}});</script>
 {% endblock %}

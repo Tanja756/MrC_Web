@@ -12,6 +12,7 @@ from .helpers import (
     get_storage_name, check_balance_changes, short_date, plural,
     warehouse_pdf_html,
     get_balance_item_meta, set_balance_item_broken,
+    get_arrival_overrides, set_arrival_override,
     sync_and_enrich_products, enrich_products_to_dict,
 )
 from utils import compress_attachments
@@ -51,6 +52,11 @@ def api_balances():
         item['date_writeoff'] = short_date(item.get('date_writeoff'))
         key = f"{item.get('product_name','')}|{item.get('series_name','') or ''}|{item.get('inventory_number','') or ''}"
         item['broken'] = meta.get(key, {}).get('broken', False)
+    overrides = get_arrival_overrides(storage_guid)
+    for item in data:
+        key = f"{item.get('product_name','')}|{item.get('series_name','') or ''}|{item.get('inventory_number','') or ''}"
+        if key in overrides:
+            item['date_arrival'] = overrides[key]
     return jsonify(data)
 
 
@@ -285,6 +291,53 @@ def api_stock_transfer_delete_attachment():
     return jsonify({'success': True})
 
 
+@warehouse_bp.route('/update-arrival-from-transfers', methods=['POST'])
+@api_login_required
+def api_update_arrival_from_transfers():
+    body = request.get_json(silent=True) or {}
+    storage_guid = body.get('storage_guid')
+    if not storage_guid:
+        return jsonify({'error': 'storage_guid required'}), 400
+
+    # Fetch or reuse cached archive data
+    global _stock_transfers_history_cache
+    cached = _stock_transfers_history_cache.get("data")
+    if cached is None:
+        client = get_api_client()
+        if not client:
+            return jsonify({'error': 'Нет соединения'}), 502
+        cached = client.get_stock_transfers_history()
+        if not cached:
+            return jsonify({'error': 'Не удалось загрузить архив перемещений'}), 502
+        all_items = [item for doc in cached for item in (doc.get('items', []))]
+        sync_and_enrich_products(all_items, client=client)
+        _stock_transfers_history_cache["data"] = cached
+        _stock_transfers_history_cache["updated_at"] = datetime.now()
+
+    updated = 0
+    seen = set()
+    for doc in cached:
+        if doc.get('warehouse_dest') != storage_guid:
+            continue
+        doc_date = doc.get('date', '')
+        if not doc_date:
+            continue
+        date_part = doc_date[:10]
+        for item in doc.get('items', []):
+            series = item.get('series') or {}
+            pname = item.get('product_name', '') or ''
+            sname = (series.get('name') or '') if isinstance(series, dict) else ''
+            inv = (series.get('inventory_number') or '') if isinstance(series, dict) else ''
+            key = f"{pname}|{sname}|{inv}"
+            if key in seen:
+                continue
+            seen.add(key)
+            set_arrival_override(storage_guid, pname, sname, inv, date_part)
+            updated += 1
+
+    return jsonify({'updated': updated})
+
+
 # ─────── Stock Transfers History (Archive) ───────
 
 @warehouse_bp.route('/stock-transfers-history')
@@ -347,9 +400,10 @@ def api_stock_transfers_history():
         return _parse_dt(doc.get('date', ''))
     data.sort(key=_sort_dt, reverse=True)
 
-    # Update cache
-    _stock_transfers_history_cache["data"] = data
-    _stock_transfers_history_cache["updated_at"] = now
+    # Update cache (only cache non-empty results)
+    if data:
+        _stock_transfers_history_cache["data"] = data
+        _stock_transfers_history_cache["updated_at"] = now
 
     return jsonify(data)
 

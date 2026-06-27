@@ -29,6 +29,9 @@ from db import (
     get_task_user_snapshot, save_task_user_snapshot,
     count_user_notifications,
     get_balance_item_meta, set_balance_item_broken, get_notification_by_id,
+    get_arrival_overrides, set_arrival_override,
+    sync_products, get_products_dict,
+    sync_product_instances_from_balances, sync_product_instances_from_items,
 )
 
 logger = logging.getLogger(__name__)
@@ -268,6 +271,7 @@ tr:nth-child(even) td {{ background: #fafafa; }}
 def check_balance_changes(username, storage_guid, new_data, storage_name=''):
     if not username or not new_data:
         return
+    sync_product_instances_from_balances(new_data, storage_guid)
     old = get_snapshot(username, storage_guid)
     if old is None:
         save_snapshot(username, storage_guid, new_data)
@@ -329,6 +333,38 @@ def check_balance_changes(username, storage_guid, new_data, storage_name=''):
             send_push_notification(username, _title_writeoff(), lines)
 
     save_snapshot(username, storage_guid, new_data)
+
+
+def sync_and_enrich_products(items, client=None, key='product_guid'):
+    """Fetch products from 1C, sync to local DB, enrich items with product_name.
+    Falls back to local cache when 1C is unreachable or product is missing from API."""
+    if client:
+        try:
+            api_products = client.get_products()
+            if api_products:
+                sync_products(api_products)
+        except Exception:
+            pass
+    cached = get_products_dict()
+    for item in items:
+        guid = item.get(key, '')
+        if not guid:
+            continue
+        prod = cached.get(guid, {})
+        item['product_name'] = prod.get('name', '') or prod.get('article', '') or guid
+    sync_product_instances_from_items(items)
+
+
+def enrich_products_to_dict(client=None):
+    """Fetch products from 1C, sync to local DB, return full {guid: product} dict."""
+    if client:
+        try:
+            api_products = client.get_products()
+            if api_products:
+                sync_products(api_products)
+        except Exception:
+            pass
+    return get_products_dict()
 
 
 def refresh_balance_if_stale(username, storage_guid):
@@ -591,6 +627,13 @@ def background_check_user(username, force=False):
     yandex = YandexDiskClient()
     sync_tasks_to_yandex(username, user_data, free_data, closed_data, yandex=yandex)
     sync_references_to_yandex(username, client, yandex=yandex)
+
+    try:
+        products = client.get_products()
+        if products:
+            sync_products(products)
+    except Exception as e:
+        logger.warning("Background: failed to sync products: %s", e)
 
     auto_close_tracked_tasks(closed_tasks, username)
 

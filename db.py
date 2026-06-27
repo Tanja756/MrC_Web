@@ -149,6 +149,17 @@ def init_notifications_table():
             PRIMARY KEY (username, storage_guid, product_name, series_name, inventory_number)
         )
     """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS balance_arrival (
+            storage_guid TEXT NOT NULL,
+            product_name TEXT NOT NULL,
+            series_name TEXT NOT NULL DEFAULT '',
+            inventory_number TEXT NOT NULL DEFAULT '',
+            arrival_date TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            PRIMARY KEY (storage_guid, product_name, series_name, inventory_number)
+        )
+    """)
     # migration: add items_json column if not exists
     try:
         c.execute("ALTER TABLE notifications ADD COLUMN items_json TEXT DEFAULT NULL")
@@ -292,6 +303,29 @@ def set_balance_item_broken(username, storage_guid, product_name, series_name, i
     conn.close()
 
 
+def get_arrival_overrides(storage_guid):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT product_name, series_name, inventory_number, arrival_date
+        FROM balance_arrival
+        WHERE storage_guid = ?
+    """, (storage_guid,))
+    rows = c.fetchall()
+    conn.close()
+    return {f"{r[0]}|{r[1]}|{r[2]}": r[3] for r in rows}
+
+def set_arrival_override(storage_guid, product_name, series_name, inventory_number, arrival_date):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        INSERT OR REPLACE INTO balance_arrival
+            (storage_guid, product_name, series_name, inventory_number, arrival_date, updated_at)
+        VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'))
+    """, (storage_guid, product_name, series_name or '', inventory_number or '', arrival_date))
+    conn.commit()
+    conn.close()
+
 # --- ANNOUNCEMENTS ---
 
 def init_announcements_table():
@@ -326,6 +360,144 @@ def get_announcements(limit=3):
     conn.close()
     return [
         {'id': r[0], 'title': r[1], 'content': r[2], 'created_at': r[3]}
+        for r in rows
+    ]
+
+
+# --- PRODUCTS CATALOG ---
+
+def init_products_table():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS products (
+            guid TEXT PRIMARY KEY,
+            name TEXT NOT NULL DEFAULT '',
+            article TEXT NOT NULL DEFAULT '',
+            unit TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def sync_products(products_list):
+    if not products_list:
+        return
+    conn = get_db_connection()
+    c = conn.cursor()
+    for p in products_list:
+        guid = p.get('guid', '')
+        if not guid:
+            continue
+        c.execute("""
+            INSERT INTO products (guid, name, article, unit, updated_at)
+            VALUES (?, ?, ?, ?, datetime('now', 'localtime'))
+            ON CONFLICT(guid) DO UPDATE SET
+                name = excluded.name,
+                article = excluded.article,
+                unit = excluded.unit,
+                updated_at = datetime('now', 'localtime')
+        """, (guid, p.get('name', ''), p.get('article', ''), p.get('unit', '')))
+    conn.commit()
+    conn.close()
+
+def get_products_dict():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT guid, name, article, unit FROM products")
+    rows = c.fetchall()
+    conn.close()
+    return {r[0]: {'guid': r[0], 'name': r[1], 'article': r[2], 'unit': r[3]} for r in rows}
+
+
+# --- PRODUCT INSTANCES (история серийных и инвентарных номеров) ---
+
+def init_product_instances_table():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS product_instances (
+            product_guid TEXT NOT NULL DEFAULT '',
+            product_name TEXT NOT NULL,
+            series_name TEXT NOT NULL DEFAULT '',
+            inventory_number TEXT NOT NULL DEFAULT '',
+            last_storage_guid TEXT DEFAULT '',
+            first_seen TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            last_seen TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            PRIMARY KEY (product_name, series_name, inventory_number)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def sync_product_instances_from_balances(balances, storage_guid=''):
+    if not balances:
+        return
+    conn = get_db_connection()
+    c = conn.cursor()
+    now = "datetime('now', 'localtime')"
+    for item in balances:
+        c.execute(f"""
+            INSERT INTO product_instances
+                (product_name, series_name, inventory_number, last_storage_guid, last_seen)
+            VALUES (?, ?, ?, ?, {now})
+            ON CONFLICT(product_name, series_name, inventory_number) DO UPDATE SET
+                last_storage_guid = excluded.last_storage_guid,
+                last_seen = excluded.last_seen
+        """, (item.get('product_name', ''), item.get('series_name', '') or '',
+              item.get('inventory_number', '') or '', storage_guid))
+    conn.commit()
+    conn.close()
+
+def sync_product_instances_from_items(items, storage_guid=''):
+    """Sync instances from stock transfer/pick items that have product_guid."""
+    if not items:
+        return
+    conn = get_db_connection()
+    c = conn.cursor()
+    now = "datetime('now', 'localtime')"
+    for item in items:
+        product_guid = item.get('product_guid', '') or ''
+        product_name = item.get('product_name', '') or ''
+        series_name = item.get('series_name', '') or ''
+        inventory_number = item.get('inventory_number', '') or ''
+        if not product_name and not series_name and not inventory_number:
+            continue
+        c.execute(f"""
+            INSERT INTO product_instances
+                (product_guid, product_name, series_name, inventory_number, last_storage_guid, last_seen)
+            VALUES (?, ?, ?, ?, ?, {now})
+            ON CONFLICT(product_name, series_name, inventory_number) DO UPDATE SET
+                product_guid = CASE WHEN excluded.product_guid != '' THEN excluded.product_guid ELSE product_guid END,
+                last_storage_guid = excluded.last_storage_guid,
+                last_seen = excluded.last_seen
+        """, (product_guid, product_name, series_name, inventory_number, storage_guid))
+    conn.commit()
+    conn.close()
+
+def get_product_instances(product_name=None, product_guid=None):
+    conn = get_db_connection()
+    c = conn.cursor()
+    params = []
+    where = []
+    if product_name:
+        where.append("product_name = ?")
+        params.append(product_name)
+    if product_guid:
+        where.append("product_guid = ?")
+        params.append(product_guid)
+    query = "SELECT product_guid, product_name, series_name, inventory_number, last_storage_guid, first_seen, last_seen FROM product_instances"
+    if where:
+        query += " WHERE " + " AND ".join(where)
+    query += " ORDER BY last_seen DESC"
+    c.execute(query, params)
+    rows = c.fetchall()
+    conn.close()
+    return [
+        {'product_guid': r[0], 'product_name': r[1], 'series_name': r[2],
+         'inventory_number': r[3], 'last_storage_guid': r[4],
+         'first_seen': r[5], 'last_seen': r[6]}
         for r in rows
     ]
 
@@ -698,6 +870,45 @@ def save_yandex_upload_status(username, tasks_hash=None, warehouse_hash=None, re
     _retry_on_locked(_write)
 
 
+# --- TASK M15 ITEMS ---
+
+def init_task_m15_items_table():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS task_m15_items (
+            task_guid TEXT NOT NULL,
+            product_name TEXT NOT NULL,
+            series_name TEXT NOT NULL,
+            PRIMARY KEY (task_guid, product_name, series_name)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def save_task_m15_items(task_guid, items):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM task_m15_items WHERE task_guid = ?", (task_guid,))
+    for item in items:
+        name = item.get('name', '')
+        series = item.get('series', '')
+        if name or series:
+            c.execute(
+                "INSERT INTO task_m15_items (task_guid, product_name, series_name) VALUES (?, ?, ?)",
+                (task_guid, name, series)
+            )
+    conn.commit()
+    conn.close()
+
+def get_task_m15_items(task_guid):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT product_name, series_name FROM task_m15_items WHERE task_guid = ?", (task_guid,))
+    rows = c.fetchall()
+    conn.close()
+    return [{'name': r[0], 'series': r[1]} for r in rows]
+
 # Инициализация БД при импорте модуля
 try:
     init_db()
@@ -707,7 +918,10 @@ try:
     init_task_tracking_table()
     init_task_user_snapshots_table()
     init_push_subscriptions_table()
+    init_products_table()
+    init_product_instances_table()
     init_user_credentials_table()
     init_yandex_uploads_table()
+    init_task_m15_items_table()
 except Exception as e:
     logger.warning(f"init_db failed (readonly?): {e}")

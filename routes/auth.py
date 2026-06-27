@@ -1,6 +1,6 @@
 import secrets
 from datetime import datetime
-from flask import Blueprint, render_template, request, redirect, url_for, session, flash
+from flask import Blueprint, render_template, request, redirect, url_for, session, flash, jsonify
 from api_client import OneSApiClient
 from db import save_user_credentials, delete_user_subscriptions
 from .helpers import SERVER_HOST, SERVER_PORT, SERVER_DB
@@ -70,6 +70,32 @@ def login():
         return redirect(url_for('pages.tasks_page'))
 
     return render_template('login.html')
+
+
+@auth_bp.route('/api/register-credentials', methods=['POST'])
+def api_register_credentials():
+    data = request.get_json(silent=True) or {}
+    username = (data.get('username') or '').strip()
+    password = data.get('password', '')
+
+    if not username or not password:
+        return jsonify({'success': False, 'error': 'username and password required'}), 400
+
+    try:
+        client = OneSApiClient(
+            host=SERVER_HOST, port=SERVER_PORT, db_name=SERVER_DB,
+            username=username, password=password,
+        )
+        client.login()
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Connection failed: {e}'}), 400
+
+    try:
+        save_user_credentials(username, password)
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Failed to save credentials: {e}'}), 500
+
+    return jsonify({'success': True, 'message': 'Credentials saved'})
 
 
 @auth_bp.route('/logout')

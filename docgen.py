@@ -105,6 +105,25 @@ class ODSFiller:
         content_path = os.path.join(temp_dir, 'content.xml')
         tree = ET.parse(content_path)
         root = tree.getroot()
+        NS_TEXT = 'urn:oasis:names:tc:opendocument:xmlns:text:1.0'
+        def merge_adjacent_spans(parent):
+            children = list(parent)
+            i = 0
+            while i < len(children) - 1:
+                c = children[i]
+                n = children[i+1]
+                if (c.tag == n.tag
+                        and c.tag == f'{{{NS_TEXT}}}span'
+                        and c.get(f'{{{NS_TEXT}}}style-name') == n.get(f'{{{NS_TEXT}}}style-name')):
+                    c.text = (c.text or '') + (n.text or '')
+                    parent.remove(n)
+                    children = list(parent)
+                else:
+                    merge_adjacent_spans(c)
+                    i += 1
+            if children:
+                merge_adjacent_spans(children[-1])
+        merge_adjacent_spans(root)
         self._replace_text_recursive(root, replacements)
         tree.write(content_path, encoding='utf-8', xml_declaration=True)
         return content_path
@@ -211,6 +230,15 @@ def build_replacements(parsed: dict, profile_name: str = '') -> dict:
         '{SN2}': parsed.get('sn2', ''),
         '{TV3}': parsed.get('tv3', ''),
         '{SN3}': parsed.get('sn3', ''),
+        '{TV4}': parsed.get('tv4', ''),
+        '{SN4}': parsed.get('sn4', ''),
+        '{TV5}': parsed.get('tv5', ''),
+        '{SN5}': parsed.get('sn5', ''),
+        '{DS1}': (parsed.get('tv1', '') + ' ' + parsed.get('sn1', '')).strip(),
+        '{DS2}': (parsed.get('tv2', '') + ' ' + parsed.get('sn2', '')).strip(),
+        '{DS3}': (parsed.get('tv3', '') + ' ' + parsed.get('sn3', '')).strip(),
+        '{DS4}': (parsed.get('tv4', '') + ' ' + parsed.get('sn4', '')).strip(),
+        '{DS5}': (parsed.get('tv5', '') + ' ' + parsed.get('sn5', '')).strip(),
     }
     shop = parsed.get('shop', '')
     sap = parsed.get('sap', '')
@@ -345,7 +373,7 @@ def generate_documents(task: dict, profile_name: str = '',
         # Product items for TV/SN placeholders
         items = field_overrides.get('items')
         if items:
-            for i, item in enumerate(items[:3], 1):
+            for i, item in enumerate(items[:5], 1):
                 parsed[f'tv{i}'] = item.get('name', '')
                 parsed[f'sn{i}'] = item.get('series', '')
 

@@ -1,6 +1,7 @@
 // ============ TASKS ============
 let taskSearchTimeout;
 
+let pendingAttachments = [];
 let tasksMy = [], tasksFree = [], tasksClosed = [];
 let multiSelectMode = false;
 const selectedGuids = new Set();
@@ -58,8 +59,8 @@ function loadTasks(search, types) {
     if (fetches.length === 0) return;
     Promise.all(fetches).then(results => {
         let i = 0;
-        if (labels.includes('my')) { tasksMy = (results[i] || {}).tasks || []; i++; }
-        if (labels.includes('free')) { tasksFree = (results[i] || {}).tasks || []; i++; }
+        if (labels.includes('my')) { const d = results[i] || {}; if (Array.isArray(d.tasks)) tasksMy = d.tasks; i++; }
+        if (labels.includes('free')) { const d = results[i] || {}; if (Array.isArray(d.tasks)) tasksFree = d.tasks; i++; }
         filterTasks();
     });
 }
@@ -74,8 +75,8 @@ function loadClosedTasks(search, sort) {
     params.set('dir', tabPrefs.closed.dir);
     const qs = '?' + params.toString();
 
-    fetchDeduped('/api/tasks/closed' + qs, undefined, 15000).then(r => r instanceof Response ? r.json().catch(() => ({})) : r).then(data => {
-        tasksClosed = data.tasks || [];
+    fetchDeduped('/api/tasks/closed' + qs, undefined, 15000).then(r => r instanceof Response ? r.json().catch(() => null) : r).then(data => {
+        if (data && Array.isArray(data.tasks)) tasksClosed = data.tasks;
         filterTasks();
     });
 }
@@ -372,7 +373,7 @@ function showTaskDetail(task, mode, guid) {
         let footer = '';
 
         if (mode === 'user') {
-            pendingAttachments = [];
+            if (_taskCtx && _taskCtx.guid !== guid) pendingAttachments = [];
             body += `
                 <hr class="my-3">
                 <div class="mb-3">
@@ -420,6 +421,19 @@ function showTaskDetail(task, mode, guid) {
 
     document.getElementById('taskDetailBody').innerHTML = body;
     document.getElementById('taskDetailFooter').innerHTML = footer;
+
+    if (mode === 'user' && guid) {
+        fetch('/api/tasks/' + guid + '/m15-items')
+            .then(checkAuth)
+            .then(r => r.json())
+            .then(items => {
+                if (items && items.length > 0) {
+                    const el = document.getElementById('closeComment');
+                    if (el) el.value = items.map(i => i.name + ' ' + i.series).join('\n');
+                }
+            })
+            .catch(() => {});
+    }
 }
 
 // ============ EDIT CLOSED AT ============
@@ -593,41 +607,51 @@ function closeTask(guid, guidDoc) {
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Закрытие...';
 
     const doClose = (lat, lng) => {
-        const attachments = pendingAttachments;
-        pendingAttachments = [];
-        fetch('/api/tasks/close', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
+        try {
+            const attachments = pendingAttachments;
+            pendingAttachments = [];
+            const body = JSON.stringify({
                 guid, guidDoc, comment,
                 latitude: lat, longitude: lng,
                 attachments: attachments,
-            })
-        }).then(checkAuth).then(r => r.json()).then(data => {
+            });
+            fetch('/api/tasks/close', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: body,
+            }).then(checkAuth).then(r => {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            }).then(data => {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+                if (data.success) {
+                    if (lat || lng) {
+                        taskLocations[guid] = { lat, lng, ts: Date.now() };
+                        lsSet('taskLocations', JSON.stringify(taskLocations));
+                    }
+                    showAlert('Заявка закрыта! После проверки менеджером статус будет обновлён.', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
+                    tasksMy = tasksMy.filter(t => t.guid !== guid);
+                    reqCache.delete('/api/tasks/my');
+                    for (const key of reqCache.keys()) {
+                        if (key.startsWith('/api/tasks/closed')) reqCache.delete(key);
+                    }
+                    filterTasks();
+                } else {
+                    const msg = data.error || data.detail?._error || data.detail?._raw || 'Ошибка при закрытии заявки';
+                    showAlert('Ошибка: ' + msg, 'danger');
+                }
+            }).catch(() => {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+                showAlert('Ошибка сети', 'danger');
+            });
+        } catch (e) {
             btn.disabled = false;
             btn.innerHTML = origHtml;
-            if (data.success) {
-                if (lat || lng) {
-                    taskLocations[guid] = { lat, lng, ts: Date.now() };
-                    lsSet('taskLocations', JSON.stringify(taskLocations));
-                }
-                showAlert('Заявка закрыта! После проверки менеджером статус будет обновлён.', 'success');
-                bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
-                tasksMy = tasksMy.filter(t => t.guid !== guid);
-                reqCache.delete('/api/tasks/my');
-                for (const key of reqCache.keys()) {
-                    if (key.startsWith('/api/tasks/closed')) reqCache.delete(key);
-                }
-                filterTasks();
-            } else {
-                const msg = data.error || data.detail?._error || data.detail?._raw || 'Ошибка при закрытии заявки';
-                showAlert('Ошибка: ' + msg, 'danger');
-            }
-        }).catch(() => {
-            btn.disabled = false;
-            btn.innerHTML = origHtml;
-            showAlert('Ошибка сети', 'danger');
-        });
+            showAlert('Ошибка при подготовке данных: ' + e.message, 'danger');
+        }
     };
 
     doClose(0, 0);
@@ -809,7 +833,7 @@ function renderDocProducts() {
         return;
     }
 
-    const maxReached = docSelectedItems.length >= 3;
+    const maxReached = docSelectedItems.length >= 5;
     container.innerHTML = filtered.map(p => {
             const key = p.product_name + '|' + p.series_name;
             const checked = docSelectedItems.some(s => s.key === key);
@@ -833,7 +857,7 @@ document.getElementById('docProductsList')?.addEventListener('click', (e) => {
         const si = docSelectedItems.findIndex(s => s.key === key);
         if (si !== -1) docSelectedItems.splice(si, 1);
     } else {
-        if (docSelectedItems.length >= 3) { renderDocProducts(); return; }
+        if (docSelectedItems.length >= 5) { renderDocProducts(); return; }
         const p = docAllProducts.find(x => (x.product_name || '') + '|' + (x.series_name || '') === key);
         if (!p) return;
         docSelectedItems.push({ key, name: p.product_name || '', series: p.series_name || '' });
