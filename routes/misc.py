@@ -119,6 +119,13 @@ def api_shop_by_sap():
     return jsonify({})
 
 
+# --- Priorities ---
+@misc_bp.route('/api/priorities')
+@api_login_required
+def api_priorities():
+    return jsonify(session.get('priorities', []))
+
+
 # --- Static file endpoints ---
 @misc_bp.route('/sw.js')
 def service_worker():

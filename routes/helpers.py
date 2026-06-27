@@ -20,7 +20,7 @@ from db import (
     create_notification, get_active_notifications, dismiss_notification, dismiss_all_notifications,
     get_snapshot, save_snapshot, get_snapshot_updated_at,
     get_announcements,
-    get_task_snapshot, save_task_snapshot, notification_exists,
+    get_task_snapshot, save_task_snapshot, notification_exists, get_new_task_guids,
     save_subscription, get_subscriptions, get_all_subscriptions,
     get_all_task_snapshot_users,
     delete_subscription, delete_user_subscriptions,
@@ -468,7 +468,7 @@ def check_new_free_tasks(username, free_tasks, old_data):
         if task.get('guid') in new_guids:
             desc = f'Заявка {task.get("number", "")} "{task.get("name", "")}"'
             if not notification_exists(username, 'new_task', desc, None):
-                create_notification(username, 'new_task', 'Новая свободная заявка', desc)
+                create_notification(username, 'new_task', 'Новая свободная заявка', desc, task.get('guid'))
                 send_push_notification(username, 'Новая свободная заявка', desc)
     save_task_snapshot(username, list(current_free_guids))
 

@@ -65,6 +65,41 @@ function loadTasks(search, types) {
     });
 }
 
+function onRefreshClick() {
+    const btn = document.getElementById('refreshBtn');
+    btn.classList.remove('refreshed');
+    btn.classList.add('refreshing');
+    Promise.all([
+        refreshCurrentTab(),
+        new Promise(r => setTimeout(r, 300)),
+    ]).then(() => {
+        btn.classList.remove('refreshing');
+        btn.classList.add('refreshed');
+        setTimeout(() => btn.classList.remove('refreshed'), 1500);
+    }).catch(() => btn.classList.remove('refreshing'));
+}
+
+function refreshCurrentTab(search) {
+    const s = search !== undefined ? search : document.getElementById('taskSearch').value.trim();
+    if (currentTab === 'closed') {
+        return loadClosedTasks(s || '', tabPrefs.closed.sort);
+    }
+    const params = new URLSearchParams();
+    if (s) params.set('search', s);
+    params.set('sort', tabPrefs[currentTab].sort);
+    params.set('dir', tabPrefs[currentTab].dir);
+    const qs = params.toString() ? '?' + params.toString() : '';
+    return fetchDeduped('/api/tasks/' + currentTab + qs, undefined, 15000)
+        .then(r => r instanceof Response ? r.json().catch(() => ({})) : r)
+        .then(data => {
+            if (Array.isArray(data.tasks)) {
+                if (currentTab === 'my') tasksMy = data.tasks;
+                else tasksFree = data.tasks;
+            }
+            filterTasks();
+        });
+}
+
 function loadClosedTasks(search, sort) {
     if (search === undefined) search = document.getElementById('taskSearch').value.trim();
     if (sort === undefined) sort = tabPrefs.closed.sort;
@@ -75,7 +110,7 @@ function loadClosedTasks(search, sort) {
     params.set('dir', tabPrefs.closed.dir);
     const qs = '?' + params.toString();
 
-    fetchDeduped('/api/tasks/closed' + qs, undefined, 15000).then(r => r instanceof Response ? r.json().catch(() => null) : r).then(data => {
+    return fetchDeduped('/api/tasks/closed' + qs, undefined, 15000).then(r => r instanceof Response ? r.json().catch(() => null) : r).then(data => {
         if (data && Array.isArray(data.tasks)) tasksClosed = data.tasks;
         filterTasks();
     });
@@ -86,8 +121,7 @@ function onTaskSearch() {
     filterTasks();
     clearTimeout(taskSearchTimeout);
     taskSearchTimeout = setTimeout(() => {
-        loadTasks(q || undefined);
-        loadClosedTasks(q || '', tabPrefs.closed.sort);
+        refreshCurrentTab(q || undefined);
     }, 400);
 }
 
@@ -111,8 +145,7 @@ function resetFilters() {
     document.getElementById('taskSort').value = tabPrefs[currentTab].sort;
     document.querySelectorAll('#sortDirGroup .btn').forEach(b => b.classList.toggle('active', b.dataset.dir === 'asc'));
     clearTimeout(taskSearchTimeout);
-    loadTasks();
-    loadClosedTasks('', tabPrefs.closed.sort);
+    refreshCurrentTab();
 }
 
 function sortTasks(tasks, sort, dir) {
@@ -227,7 +260,10 @@ function renderTasks(containerId, tasks, query, mode) {
 
     container.innerHTML = sorted.map(t => {
         const urgency = mode === 'closed' ? { level: 0, label: '' } : getUrgency(t);
-        const uc = urgencyClass(urgency.level);
+        const markMine = lsGet('markMyTasks', '') === 'true';
+        const keywords = lsGet('myTaskKeywords', '').split(',').map(s => s.trim()).filter(Boolean);
+        const isMine = mode === 'free' && markMine && keywords.length > 0 && keywords.some(k => (t.name && t.name.toLowerCase().includes(k.toLowerCase())) || (t.number && t.number.toLowerCase().includes(k.toLowerCase())));
+        const uc = isMine ? 'urgency-mine' : (t.is_new && mode === 'free' ? 'urgency-new' : urgencyClass(urgency.level));
         const pinIcon = isPinned(t.guid) ? 'pinned bi-pin-fill' : 'bi-pin';
         const pinHtml = mode === 'closed' ? '' : `<i class="bi ${pinIcon} pin-icon" onclick="togglePin('${t.guid}')"></i>`;
         const hasLoc = !!taskLocations[t.guid];
@@ -256,11 +292,13 @@ function renderTasks(containerId, tasks, query, mode) {
             ? `<input type="checkbox" class="form-check-input multi-check" ${selectedGuids.has(t.guid) ? 'checked' : ''} onchange="toggleSelect('${t.guid}')">`
             : '';
 
+        const typeName = taskPriorityMap[t.priority] || '';
+        const typeBadge = typeName ? `<span class="task-type-badge ms-auto">${esc(typeName)}</span>` : '';
         let actionHtml = '';
         if (mode === 'my' && !isClosed) {
             actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action" onclick="openDocForm('${t.guid}')" title="Документы"><i class="bi bi-file-earmark-text"></i><span class="btn-label"> Документы</span></button><button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','user')" title="Завершить"><i class="bi bi-check-lg"></i><span class="btn-label"> Завершить</span></button>`;
         } else if (mode === 'free' && !multiSelectMode) {
-            actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action" onclick="takeTask('${t.guid}')" title="Взять"><i class="bi bi-hand-index-thumb"></i><span class="btn-label"> Взять</span></button>`;
+            actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action" onclick="openDocForm('${t.guid}')" title="Документы"><i class="bi bi-file-earmark-text"></i><span class="btn-label"> Документы</span></button><button class="btn btn-outline-secondary btn-action" onclick="takeTask('${t.guid}')" title="Взять"><i class="bi bi-hand-index-thumb"></i><span class="btn-label"> Взять</span></button>`;
         } else if (mode === 'closed') {
             actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button>`;
         }
@@ -293,7 +331,7 @@ function renderTasks(containerId, tasks, query, mode) {
                     <span class="task-meta-item ${deadlineClass}"><i class="bi bi-alarm"></i>${deadlineLabel}</span>
                 </div>
                 <div class="task-actions">
-                    ${actionHtml}
+                    ${actionHtml}${typeBadge}
                 </div>
             </div>
         </div>`;

@@ -45,6 +45,8 @@ function openSettings(firstLogin) {
         titleEl.innerHTML = '<i class="bi bi-gear me-2"></i>\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438';
     }
     document.getElementById('profileName').value = savedProfileName;
+    document.getElementById('markMyTasks').checked = lsGet('markMyTasks', '') === 'true';
+    document.getElementById('myTaskKeywords').value = lsGet('myTaskKeywords', '');
     document.getElementById('settingsModal').querySelector('.theme-toggle').classList.toggle('active', currentTheme === 'light');
     document.getElementById('settingsModal').querySelector('.theme-toggle').setAttribute('aria-checked', currentTheme === 'light');
 
@@ -92,6 +94,10 @@ function saveProfile() {
     lsSet('profileName', savedProfileName);
     const warehouseGuid = document.getElementById('settingsWarehouse').value;
     lsSet('defaultWarehouse', warehouseGuid);
+    const markMyTasks = document.getElementById('markMyTasks').checked ? 'true' : '';
+    lsSet('markMyTasks', markMyTasks);
+    const myTaskKeywords = document.getElementById('myTaskKeywords').value.trim();
+    lsSet('myTaskKeywords', myTaskKeywords);
     updateProfileAvatar();
 
     fetch('/api/profile', {
@@ -102,6 +108,8 @@ function saveProfile() {
                 profileName: savedProfileName,
                 defaultWarehouse: warehouseGuid,
                 theme: currentTheme,
+                markMyTasks: markMyTasks,
+                myTaskKeywords: myTaskKeywords,
             }
         })
     }).catch(() => {});

@@ -252,3 +252,17 @@ function isWorkingHours() {
     const h = new Date().getHours();
     return h >= 7 && h < 23;
 }
+
+let taskPriorityMap = {};
+
+function fetchPriorities() {
+    fetch('/api/priorities', {cache: 'no-cache'})
+        .then(r => r.json())
+        .then(data => {
+            if (Array.isArray(data)) {
+                taskPriorityMap = {};
+                data.forEach(p => { if (p.value != null) taskPriorityMap[p.value] = p.name; });
+            }
+        })
+        .catch(() => {});
+}

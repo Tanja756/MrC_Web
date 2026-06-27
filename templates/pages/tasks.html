@@ -7,7 +7,7 @@
             <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tasks-free">Свободные</button></li>
             <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tasks-closed" id="closed-pill">Закрытые</button></li>
             <li class="nav-item ms-auto">
-                <button class="btn btn-sm btn-outline-secondary border-0" onclick="event.stopPropagation();loadTasks()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
+                <button id="refreshBtn" class="btn btn-sm btn-outline-secondary border-0" onclick="event.stopPropagation();onRefreshClick()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
             </li>
         </ul>
         <div class="filter-bar">
@@ -20,7 +20,7 @@
                     <div class="input-group">
                         <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
                         <input type="text" class="form-control" id="taskSearch" placeholder="Поиск..." oninput="onTaskSearch()">
-                        <button class="btn btn-outline-secondary btn-reset-filter" onclick="document.getElementById('taskSearch').value='';clearTimeout(taskSearchTimeout);loadTasks()"><i class="bi bi-x-lg"></i></button>
+                        <button class="btn btn-outline-secondary btn-reset-filter" onclick="document.getElementById('taskSearch').value='';clearTimeout(taskSearchTimeout);refreshCurrentTab()"><i class="bi bi-x-lg"></i></button>
                     </div>
                 </div>
                 <div class="col-md-4">
@@ -79,11 +79,11 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<link href="{{ url_for('static', filename='css/tasks.css') }}?v=2" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/tasks.css') }}?v=4" rel="stylesheet">
 {% include "modals/task-detail.html" %}
 <div class="modal fade" id="docFormModal" tabindex="-1">{% include "modals/doc-form.html" %}</div>
 {% include "modals/confirm-take.html" %}
 <button id="scrollTopBtn" class="scroll-top-btn" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Наверх"><i class="bi bi-arrow-up"></i></button>
-<script src="{{ url_for('static', filename='js/tasks.js') }}?v=3"></script>
-<script>document.addEventListener('DOMContentLoaded',()=>{loadClients();loadTabIntoUI(currentTab);loadTasks('',['my','free']);initSwipeTabs();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&isWorkingHours()){loadTasks('',['my','free']);}});document.querySelectorAll('#taskTabs .nav-link').forEach(p=>{p.addEventListener('shown.bs.tab',()=>{const id=p.getAttribute('data-bs-target');const tab=id==='#tasks-my'?'my':id==='#tasks-free'?'free':'closed';switchTab(tab);});});document.getElementById('tasksFreeList')?.addEventListener('contextmenu',(e)=>{e.preventDefault();multiSelectMode=!multiSelectMode;if(!multiSelectMode)cancelMultiSelect();else{selectedGuids.clear();filterTasks();}});const tab=localStorage.getItem('taskTab')||'my';if(tab!=='my'){const target='#tasks-'+tab;const pill=document.querySelector('#taskTabs .nav-link[data-bs-target="'+target+'"]');if(pill)pill.click();}});</script>
+<script src="{{ url_for('static', filename='js/tasks.js') }}?v=5"></script>
+<script>document.addEventListener('DOMContentLoaded',()=>{loadClients();loadTabIntoUI(currentTab);loadTasks('',['my','free']);fetchPriorities();initSwipeTabs();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&isWorkingHours()){loadTasks('',['my','free']);}});document.querySelectorAll('#taskTabs .nav-link').forEach(p=>{p.addEventListener('shown.bs.tab',()=>{const id=p.getAttribute('data-bs-target');const tab=id==='#tasks-my'?'my':id==='#tasks-free'?'free':'closed';switchTab(tab);});});document.getElementById('tasksFreeList')?.addEventListener('contextmenu',(e)=>{e.preventDefault();multiSelectMode=!multiSelectMode;if(!multiSelectMode)cancelMultiSelect();else{selectedGuids.clear();filterTasks();}});const tab=localStorage.getItem('taskTab')||'my';if(tab!=='my'){const target='#tasks-'+tab;const pill=document.querySelector('#taskTabs .nav-link[data-bs-target="'+target+'"]');if(pill)pill.click();}});</script>
 {% endblock %}

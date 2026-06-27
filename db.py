@@ -580,6 +580,18 @@ def save_task_user_snapshot(username, data):
         conn.close()
     _retry_on_locked(_write)
 
+def get_new_task_guids(username):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT storage_guid FROM notifications
+        WHERE username = ? AND type = 'new_task' AND dismissed = 0
+          AND storage_guid IS NOT NULL
+    """, (username,))
+    guids = [row[0] for row in c.fetchall()]
+    conn.close()
+    return guids
+
 def notification_exists(username, type_, desc_substring, minutes=60):
     conn = get_db_connection()
     c = conn.cursor()

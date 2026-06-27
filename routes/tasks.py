@@ -9,7 +9,7 @@ from db import set_task_closed, update_task_closed_date, save_task_m15_items
 from .helpers import (
     api_login_required, get_api_client,
     project_tasks, attach_tracking, filter_tasks,
-    auto_close_tracked_tasks,
+    auto_close_tracked_tasks, get_new_task_guids,
     SERVER_HOST, SERVER_PORT, SERVER_DB,
 )
 from utils import compress_attachments
@@ -43,8 +43,13 @@ def api_tasks_free():
     search = request.args.get('search')
     sort = request.args.get('sort')
     dir = request.args.get('dir', 'desc')
+    username = session.get('username', '')
     data = client.get_tasks_unallocated(limit=5000, offset=0)
     tasks = project_tasks(data.get('tasks', []))
+    new_guids = get_new_task_guids(username)
+    for t in tasks:
+        if t.get('guid') in new_guids:
+            t['is_new'] = True
     tasks = filter_tasks(tasks, search, sort, dir)
     return jsonify({"tasks": tasks})
 

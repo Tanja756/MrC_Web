@@ -1,3 +1,14 @@
+#refreshBtn.refreshing,
+#refreshBtn.refreshing:hover,
+#refreshBtn.refreshing:active,
+#refreshBtn.refreshing:focus-visible { color: #dc3545 !important; }
+#refreshBtn.refreshed,
+#refreshBtn.refreshed:hover,
+#refreshBtn.refreshed:active,
+#refreshBtn.refreshed:focus-visible { color: #198754 !important; }
+#refreshBtn.refreshing .bi-arrow-clockwise { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
 /* ===== Tasks ===== */
 .task-card {
     position: relative;
@@ -25,6 +36,14 @@
 .task-card.urgency-overdue::before {
     border-width: 24px 24px 0 0;
     border-color: var(--danger) transparent transparent transparent;
+}
+.task-card.urgency-new::before {
+    border-width: 24px 24px 0 0;
+    border-color: #22c55e transparent transparent transparent;
+}
+.task-card.urgency-mine::before {
+    border-width: 24px 24px 0 0;
+    border-color: #3b82f6 transparent transparent transparent;
 }
 .task-card.urgency-imminent::before {
     border-width: 20px 20px 0 0;
@@ -153,6 +172,18 @@
     flex-wrap: wrap;
     gap: 6px;
     margin-left: 16px;
+}
+
+.task-type-badge {
+    font-size: 0.65rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+    white-space: nowrap;
+    line-height: 1.4;
+    background: rgba(0,120,212,0.12);
+    color: var(--primary);
+    align-self: center;
 }
 
 .pin-icon {
