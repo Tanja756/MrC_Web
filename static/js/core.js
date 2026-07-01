@@ -222,7 +222,7 @@ function getFilenameFromHeaders(headers, fallback) {
     const cd = headers.get('Content-Disposition');
     if (cd) {
         const m = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
-        if (m) return m[1];
+        if (m) return decodeURIComponent(m[1]);
     }
     return fallback;
 }

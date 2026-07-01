@@ -784,9 +784,14 @@ def init_task_tracking_table():
             username TEXT NOT NULL,
             taken_at TEXT,
             closed_at TEXT,
+            task_name TEXT NOT NULL DEFAULT '',
             PRIMARY KEY (guid, username)
         )
     """)
+    try:
+        c.execute("ALTER TABLE task_tracking ADD COLUMN task_name TEXT NOT NULL DEFAULT ''")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -803,28 +808,28 @@ def set_task_taken(username, guid):
         conn.close()
     _retry_on_locked(_write)
 
-def set_task_closed(username, guid):
+def set_task_closed(username, guid, task_name=''):
     def _write():
         conn = get_db_connection()
         c = conn.cursor()
         c.execute("""
-            INSERT INTO task_tracking (guid, username, closed_at)
-            VALUES (?, ?, datetime('now', 'localtime'))
-            ON CONFLICT(guid, username) DO UPDATE SET closed_at = datetime('now', 'localtime')
-        """, (guid, username))
+            INSERT INTO task_tracking (guid, username, closed_at, task_name)
+            VALUES (?, ?, datetime('now', 'localtime'), ?)
+            ON CONFLICT(guid, username) DO UPDATE SET closed_at = datetime('now', 'localtime'), task_name = ?
+        """, (guid, username, task_name, task_name))
         conn.commit()
         conn.close()
     _retry_on_locked(_write)
 
-def update_task_closed_date(username, guid, closed_at):
+def update_task_closed_date(username, guid, closed_at, task_name=''):
     def _write():
         conn = get_db_connection()
         c = conn.cursor()
         c.execute("""
-            INSERT INTO task_tracking (guid, username, closed_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(guid, username) DO UPDATE SET closed_at = ?
-        """, (guid, username, closed_at, closed_at))
+            INSERT INTO task_tracking (guid, username, closed_at, task_name)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(guid, username) DO UPDATE SET closed_at = ?, task_name = ?
+        """, (guid, username, closed_at, task_name, closed_at, task_name))
         conn.commit()
         conn.close()
     _retry_on_locked(_write)
@@ -910,18 +915,23 @@ def init_task_m15_text_table():
     c.execute("""
         CREATE TABLE IF NOT EXISTS task_m15_text (
             task_guid TEXT PRIMARY KEY,
-            equipment_text TEXT NOT NULL
+            equipment_text TEXT NOT NULL,
+            request_code TEXT DEFAULT ''
         )
     """)
+    c.execute("PRAGMA table_info(task_m15_text)")
+    cols = [row[1] for row in c.fetchall()]
+    if 'request_code' not in cols:
+        c.execute("ALTER TABLE task_m15_text ADD COLUMN request_code TEXT DEFAULT ''")
     conn.commit()
     conn.close()
 
-def save_task_m15_text(task_guid, text):
+def save_task_m15_text(task_guid, text, code=''):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute(
-        "INSERT OR REPLACE INTO task_m15_text (task_guid, equipment_text) VALUES (?, ?)",
-        (task_guid, text)
+        "INSERT OR REPLACE INTO task_m15_text (task_guid, equipment_text, request_code) VALUES (?, ?, ?)",
+        (task_guid, text, code)
     )
     conn.commit()
     conn.close()
@@ -929,10 +939,12 @@ def save_task_m15_text(task_guid, text):
 def get_task_m15_text(task_guid):
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT equipment_text FROM task_m15_text WHERE task_guid = ?", (task_guid,))
+    c.execute("SELECT equipment_text, request_code FROM task_m15_text WHERE task_guid = ?", (task_guid,))
     row = c.fetchone()
     conn.close()
-    return row[0] if row else None
+    if row:
+        return {'text': row[0], 'code': row[1] or ''}
+    return None
 
 # --- TASK M15 ITEMS ---
 

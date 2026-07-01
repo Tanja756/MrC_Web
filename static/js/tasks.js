@@ -648,10 +648,12 @@ function closeTask(guid, guidDoc) {
         try {
             const attachments = pendingAttachments;
             pendingAttachments = [];
+            const taskName = task ? (task.number ? `Заявка ${task.number} — ${task.name || ''}` : (task.name || '')) : '';
             const body = JSON.stringify({
                 guid, guidDoc, comment,
                 latitude: lat, longitude: lng,
                 attachments: attachments,
+                taskName: taskName,
             });
             fetch('/api/tasks/close', {
                 method: 'POST',
@@ -988,7 +990,9 @@ function viewM15Equipment(guid) {
         .then(r => r.json())
         .then(data => {
             if (data.text) {
-                showM15EquipmentModal(data.text);
+                const code = data.code || '';
+                const text = code ? `Код заявки: ${code}\n${data.text}` : data.text;
+                showM15EquipmentModal(text);
             } else {
                 showAlert('Нет сохранённого оборудования для этой заявки', 'info');
             }
@@ -1143,8 +1147,12 @@ function generateDocForm() {
         footer.querySelectorAll('button').forEach(b => b.disabled = false);
         bootstrap.Modal.getInstance(document.getElementById('docFormModal'))?.hide();
         if (docSelectedItems.length > 0) {
-            const text = docSelectedItems.map(i => i.name + ' (' + i.series + ')').join('\n');
-            setTimeout(() => showM15EquipmentModal(text), 300);
+            const shop = document.getElementById('docShop').value;
+            const sap = document.getElementById('docSap').value;
+            const code = document.getElementById('docCode').value;
+            const items = docSelectedItems.map(i => i.name + ' (' + i.series + ')').join('\n');
+            const header = `Перемещение оборудования на/с магазин(а) ${shop} - ${sap} - ${code}:`;
+            setTimeout(() => showM15EquipmentModal(header + '\n' + items), 300);
         }
     }).catch(e => {
         loading.classList.add('d-none');

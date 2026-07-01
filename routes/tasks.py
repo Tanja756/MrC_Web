@@ -2,6 +2,7 @@ import os
 import io
 import zipfile
 from datetime import datetime
+from urllib.parse import quote
 from flask import Blueprint, request, jsonify, session
 from api_client import OneSApiClient
 
@@ -137,7 +138,8 @@ def api_task_close():
         return jsonify({'success': False, 'error': 'Empty response from 1C'}), 400
     if isinstance(result, dict) and result.get('_error'):
         return jsonify({'success': False, 'error': result['_error'], 'detail': result}), 400
-    set_task_closed(session.get('username', ''), guid)
+    task_name = (data.get('taskName', '') or '').strip()
+    set_task_closed(session.get('username', ''), guid, task_name)
     return jsonify({'success': True})
 
 
@@ -155,7 +157,8 @@ def api_task_update_closed_at(guid):
         datetime.strptime(closed_at, '%Y-%m-%d %H:%M:%S')
     except ValueError:
         return jsonify({'error': 'Invalid date format, expected YYYY-MM-DD HH:MM:SS'}), 400
-    update_task_closed_date(username, guid, closed_at)
+    task_name = (data.get('taskName', '') or '').strip()
+    update_task_closed_date(username, guid, closed_at, task_name)
     return jsonify({'success': True})
 
 
@@ -233,6 +236,8 @@ def api_task_documents_post():
         return jsonify({'error': 'Task not found'}), 404
     parsed = extract_task_data(task)
     sap = parsed.get('sap', 'unknown')
+    shop = parsed.get('shop', '')
+    code = parsed.get('code', '')
     ts = datetime.now().strftime('%Y.%m.%d_%H.%M')
     try:
         pdfs = generate_documents(task, profile_name=profile_name,
@@ -245,7 +250,7 @@ def api_task_documents_post():
         if include_m15:
             save_task_m15_items(guid, fields['items'])
         text = '\n'.join(f"{item['name']} ({item['series']})" for item in fields['items'])
-        save_task_m15_text(guid, text)
+        save_task_m15_text(guid, text, code)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         for path in pdfs:
@@ -254,7 +259,7 @@ def api_task_documents_post():
     buf.seek(0)
     return buf.getvalue(), 200, {
         'Content-Type': 'application/zip',
-        'Content-Disposition': f'attachment; filename="{ts}_{sap}_doc.zip"',
+        'Content-Disposition': f'attachment; filename="{quote(f"{ts}-{sap}-{shop}-{code}-doc.zip", safe="")}"; filename*=UTF-8\'\'{quote(f"{ts}-{sap}-{shop}-{code}-doc.zip", safe="")}',
     }
 
 
@@ -289,6 +294,8 @@ def _make_doc_endpoint(include_act, include_fn, include_m15, suffix):
         return jsonify({'error': 'Task not found'}), 404
     parsed = extract_task_data(task)
     sap = parsed.get('sap', 'unknown')
+    shop = parsed.get('shop', '')
+    code = parsed.get('code', '')
     ts = datetime.now().strftime('%Y.%m.%d_%H.%M')
     try:
         pdfs = generate_documents(task, include_act=include_act, include_fn=include_fn,
@@ -300,14 +307,14 @@ def _make_doc_endpoint(include_act, include_fn, include_m15, suffix):
         if include_m15:
             save_task_m15_items(guid, fields['items'])
         text = '\n'.join(f"{item['name']} ({item['series']})" for item in fields['items'])
-        save_task_m15_text(guid, text)
+        save_task_m15_text(guid, text, code)
     pdf_path = pdfs[0]
     with open(pdf_path, 'rb') as f:
         data = f.read()
     os.unlink(pdf_path)
     return data, 200, {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': f'attachment; filename="{ts}_{sap}_{suffix}.pdf"',
+        'Content-Disposition': f'attachment; filename="{quote(f"{ts}-{sap}-{shop}-{code}-{suffix}.pdf", safe="")}"; filename*=UTF-8\'\'{quote(f"{ts}-{sap}-{shop}-{code}-{suffix}.pdf", safe="")}',
     }
 
 
@@ -337,5 +344,7 @@ def api_task_m15_items(guid):
 @api_login_required
 def api_task_m15_text(guid):
     from db import get_task_m15_text
-    text = get_task_m15_text(guid)
-    return jsonify({'text': text})
+    data = get_task_m15_text(guid)
+    if data:
+        return jsonify(data)
+    return jsonify({'text': None, 'code': ''})
