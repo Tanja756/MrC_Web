@@ -700,9 +700,14 @@ def init_user_credentials_table():
         CREATE TABLE IF NOT EXISTS user_credentials (
             username TEXT NOT NULL PRIMARY KEY,
             password TEXT NOT NULL,
+            is_service INTEGER NOT NULL DEFAULT 0,
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
     """)
+    try:
+        c.execute("ALTER TABLE user_credentials ADD COLUMN is_service INTEGER NOT NULL DEFAULT 0")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -723,6 +728,21 @@ def get_user_credentials(username):
     row = c.fetchone()
     conn.close()
     return row[0] if row else None
+
+def get_user_by_username(username):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT username, password, is_service, updated_at FROM user_credentials WHERE username=?", (username,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {
+            'username': row[0],
+            'password': row[1],
+            'is_service': bool(row[2]),
+            'updated_at': row[3],
+        }
+    return None
 
 def get_all_users_with_credentials():
     conn = get_db_connection()
