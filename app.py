@@ -28,6 +28,7 @@ def create_app():
     from routes.ppr import ppr_bp
     from routes.notifications import notif_bp
     from routes.misc import misc_bp
+    from routes.route import route_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(pages_bp)
@@ -36,6 +37,7 @@ def create_app():
     app.register_blueprint(ppr_bp)
     app.register_blueprint(notif_bp)
     app.register_blueprint(misc_bp)
+    app.register_blueprint(route_bp)
 
     @app.context_processor
     def inject_now():

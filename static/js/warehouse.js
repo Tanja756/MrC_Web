@@ -454,8 +454,13 @@ function downloadArchiveAttachment(docGuid, attachmentGuid) {
 function updateArrivalFromTransfers() {
     const guid = document.getElementById('storageSelect').value;
     if (!guid) {
-        showNotification('\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u043A\u043B\u0430\u0434', 'warning');
+        showAlert('\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u043A\u043B\u0430\u0434', 'warning');
         return;
+    }
+    const btn = document.querySelector('[onclick="updateArrivalFromTransfers()"]');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>\u041E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435...';
     }
     fetch('/api/warehouse/update-arrival-from-transfers', {
         method: 'POST',
@@ -465,13 +470,19 @@ function updateArrivalFromTransfers() {
     .then(r => r.json().catch(() => ({})))
     .then(res => {
         if (res.updated !== undefined) {
-            showNotification('\u0414\u0430\u0442\u044B \u043F\u043E\u0441\u0442\u0443\u043F\u043B\u0435\u043D\u0438\u044F \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u044B \u0434\u043B\u044F ' + res.updated + ' \u043F\u043E\u0437\u0438\u0446\u0438\u0439', 'success');
+            showAlert('\u0414\u0430\u0442\u044B \u043F\u043E\u0441\u0442\u0443\u043F\u043B\u0435\u043D\u0438\u044F \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u044B \u0434\u043B\u044F ' + res.updated + ' \u043F\u043E\u0437\u0438\u0446\u0438\u0439', 'success');
             refreshBalances();
         } else {
-            showNotification(res.error || '\u041E\u0448\u0438\u0431\u043A\u0430 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F', 'danger');
+            showAlert(res.error || '\u041E\u0448\u0438\u0431\u043A\u0430 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F', 'danger');
         }
     })
-    .catch(() => showNotification('\u041E\u0448\u0438\u0431\u043A\u0430 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F \u0434\u0430\u0442', 'danger'));
+    .catch(() => showAlert('\u041E\u0448\u0438\u0431\u043A\u0430 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F \u0434\u0430\u0442', 'danger'))
+    .finally(() => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-calendar-check"></i>';
+        }
+    });
 }
 
 // Auto-load archive when switching to the archive tab

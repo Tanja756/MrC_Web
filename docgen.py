@@ -147,6 +147,12 @@ def extract_task_data(task: dict) -> dict:
     m = re.search(r'Номер:\s*([^\s]+)', text)
     if m:
         result['zd'] = m.group(1)
+
+    if not result['zd']:
+        m = re.search(r'([А-ЯЁ]{2}-\d{6})(?=[,\s])', text)
+        if m:
+            result['zd'] = m.group(1)
+
     m = re.search(r'Код заявки:\s*([^\s]+)', text)
     if m:
         code = m.group(1)

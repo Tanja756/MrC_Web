@@ -2,6 +2,7 @@ import os
 import json
 import hashlib
 import logging
+import re
 from datetime import datetime, timedelta
 
 import requests
@@ -109,6 +110,25 @@ class YandexDiskClient:
         put_r = requests.put(upload_url, data=body, timeout=30)
         put_r.raise_for_status()
         logger.info("Uploaded Yandex.Disk: %s (%d bytes)", file_path, len(body))
+
+    def upload_file(self, folder_path, filename, data: bytes):
+        folder_path = folder_path.strip("/")
+        file_path = f"{folder_path}/{filename}"
+
+        delete_r = self._request("DELETE", DISK_API, params={"path": file_path})
+        if delete_r.status_code not in (200, 202, 204, 404):
+            delete_r.raise_for_status()
+
+        upload_r = self._request("GET", DISK_API + "/upload", params={
+            "path": file_path,
+            "overwrite": "true",
+        })
+        upload_r.raise_for_status()
+        upload_url = upload_r.json()["href"]
+
+        put_r = requests.put(upload_url, data=data, timeout=60)
+        put_r.raise_for_status()
+        logger.info("Uploaded Yandex.Disk: %s (%d bytes)", file_path, len(data))
 
     def list_folder(self, path):
         path = path.strip("/")
@@ -313,6 +333,136 @@ def _handle_close_task(yandex, client, file_path, name, data) -> bool:
         return False
 
 
+_PDF_SUFFIX_MAP = {
+    re.compile(r'-ACT-'): 'AVR',
+    re.compile(r'-FN-'): 'FN',
+    re.compile(r'-M15-'): 'm15',
+}
+
+
+def _get_pdf_type(filepath):
+    basename = os.path.basename(filepath)
+    for pattern, suffix in _PDF_SUFFIX_MAP.items():
+        if pattern.search(basename):
+            return suffix
+    return 'doc'
+
+
+def _handle_generate_docs(yandex, client, username, file_path, name, data) -> bool:
+    from docgen import extract_task_data, generate_documents
+
+    if data.get("action") != "generate_docs":
+        logger.warning("Yandex Action: unknown action in %s", name)
+        _rename_to_error(yandex, file_path, name)
+        return False
+
+    guid = data.get("guid")
+    if not guid:
+        logger.error("Yandex Action: missing guid in %s", name)
+        _rename_to_error(yandex, file_path, name)
+        return False
+
+    profile_name = data.get("profile_name", "")
+    include_act = data.get("include_act", True)
+    include_m15 = data.get("include_m15", True)
+    include_fn = data.get("include_fn", False)
+
+    if not include_act and not include_m15 and not include_fn:
+        logger.error("Yandex Action: no document types enabled in %s", name)
+        _rename_to_error(yandex, file_path, name)
+        return False
+
+    processing_path = file_path.rsplit(".", 1)[0] + ".processing"
+    try:
+        yandex.move_file(file_path, processing_path)
+    except Exception as e:
+        logger.error("Yandex Action: failed to rename %s: %s", name, e)
+        return False
+
+    task = None
+    for fetcher in ('get_tasks_user', 'get_tasks_unallocated', 'get_closed_tasks_user'):
+        try:
+            tasks_data = getattr(client, fetcher)()
+            if tasks_data and 'tasks' in tasks_data:
+                task = next((t for t in tasks_data['tasks'] if t.get('guid') == guid), None)
+                if task:
+                    break
+        except Exception:
+            continue
+
+    if not task:
+        logger.error("Yandex Action: task %s not found in 1C", guid)
+        _rename_to_error(yandex, processing_path, name)
+        return False
+
+    parsed = extract_task_data(task)
+    sap = parsed.get('sap', '')
+    shop = parsed.get('shop', '')
+    code = parsed.get('code', '')
+
+    if not sap:
+        logger.error("Yandex Action: could not determine SAP for task %s", guid)
+        _rename_to_error(yandex, processing_path, name)
+        return False
+
+    ts = datetime.now().strftime('%Y.%m.%d_%H.%M')
+    date_str = datetime.now().strftime('%Y-%m-%d')
+    folder = f"{username}/Docs/{date_str}/{sap}"
+
+    try:
+        pdfs = generate_documents(task, profile_name=profile_name,
+                                  include_act=include_act,
+                                  include_fn=include_fn,
+                                  include_m15=include_m15)
+    except Exception as e:
+        logger.error("Yandex Action: document generation failed for %s (guid=%s): %s", name, guid, e)
+        _rename_to_error(yandex, processing_path, name)
+        return False
+
+    if not pdfs:
+        logger.error("Yandex Action: no documents generated for %s (guid=%s)", name, guid)
+        _rename_to_error(yandex, processing_path, name)
+        return False
+
+    try:
+        yandex.ensure_folder(folder)
+    except Exception as e:
+        logger.error("Yandex Action: failed to create folder %s: %s", folder, e)
+        for p in pdfs:
+            try:
+                os.unlink(p)
+            except Exception:
+                pass
+        _rename_to_error(yandex, processing_path, name)
+        return False
+
+    try:
+        for pdf_path in pdfs:
+            pdf_type = _get_pdf_type(pdf_path)
+            filename = f"{ts}-{sap}-{shop}-{code}-{pdf_type}.pdf"
+            with open(pdf_path, 'rb') as f:
+                pdf_data = f.read()
+            yandex.upload_file(folder, filename, pdf_data)
+            os.unlink(pdf_path)
+    except Exception as e:
+        logger.error("Yandex Action: failed to upload documents for %s (guid=%s): %s", name, guid, e)
+        for p in pdfs:
+            try:
+                os.unlink(p)
+            except Exception:
+                pass
+        _rename_to_error(yandex, processing_path, name)
+        return False
+
+    try:
+        yandex.delete_file(processing_path)
+        logger.info("Yandex Action: documents generated for task %s (%s), uploaded to %s", guid, name, folder)
+        return True
+    except Exception as e:
+        logger.error("Yandex Action: failed to delete %s after success: %s", name, e)
+        return False
+
+
 def process_actions(username, client, yandex=None) -> bool:
     """Read all .json files from {username}/Action/, dispatch to handlers.
     Returns True if at least one action was successfully handled."""
@@ -349,6 +499,8 @@ def process_actions(username, client, yandex=None) -> bool:
         handled = False
         if f["name"].startswith("close_task_"):
             handled = _handle_close_task(yandex, client, file_path, f["name"], data)
+        elif f["name"].startswith("generate_docs_"):
+            handled = _handle_generate_docs(yandex, client, username, file_path, f["name"], data)
 
         if handled:
             any_handled = True

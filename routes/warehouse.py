@@ -56,7 +56,7 @@ def api_balances():
     for item in data:
         key = f"{item.get('product_name','')}|{item.get('series_name','') or ''}|{item.get('inventory_number','') or ''}"
         if key in overrides:
-            item['date_arrival'] = overrides[key]
+            item['date_arrival'] = short_date(overrides[key])
     return jsonify(data)
 
 

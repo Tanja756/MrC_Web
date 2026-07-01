@@ -136,7 +136,10 @@ def auto_close_tracked_tasks(tasks, username):
                 continue
             deadline = parse_1c_date(period_str)
             if deadline and now <= deadline:
-                set_task_closed(username, g)
+                tn = t.get('number', '') or ''
+                nm = t.get('name', '') or ''
+                task_name = f"Заявка {tn} — {nm}" if tn else nm
+                set_task_closed(username, g, task_name)
                 t['closed_at'] = now.strftime('%Y-%m-%d %H:%M:%S')
 
 
@@ -506,9 +509,14 @@ def _track_task_transitions(username, user_tasks, free_tasks, closed_tasks, old_
     closed_guids = old_user_guids & current_closed_guids
     if closed_guids:
         tracking = get_tasks_tracking(list(closed_guids), username)
+        closed_lookup = {t.get('guid'): t for t in closed_tasks if t.get('guid')}
         for guid in closed_guids:
             if not tracking.get(guid, {}).get('closed_at'):
-                set_task_closed(username, guid)
+                t = closed_lookup.get(guid, {})
+                tn = t.get('number', '') or ''
+                nm = t.get('name', '') or ''
+                task_name = f"Заявка {tn} — {nm}" if tn else nm
+                set_task_closed(username, guid, task_name)
                 logger.info(f"Background: task '{guid}' closed for '{username}' (transition detected)")
 
     save_task_user_snapshot(username, list(current_user_guids))

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-signpost-2 me-2"></i>Маршрутный лист</h5>
+        <div class="row g-2 align-items-end mb-3">
+            <div class="col-md-3">
+                <label class="form-label small">Месяц</label>
+                <input type="month" class="form-control" id="routeMonth" value="{{ now().strftime('%Y-%m') }}">
+            </div>
+            <div class="col-md-3">
+                <button class="btn btn-primary w-100" onclick="loadRouteSheet()">
+                    <i class="bi bi-search me-1"></i>Сформировать
+                </button>
+            </div>
+        </div>
+        <div id="routeTableContainer" style="display:none">
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered align-middle" id="routeTable">
+                    <thead class="table-dark">
+                        <tr>
+                            <th class="text-center" style="width:50px">№ п.п.</th>
+                            <th>Логин1с</th>
+                            <th style="width:130px">Дата</th>
+                            <th>Содержание</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+        <div id="routeEmpty" class="text-muted small" style="display:none">Нет данных за выбранный месяц</div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/route.js') }}?v=1"></script>
+<script>document.addEventListener('DOMContentLoaded',()=>{loadRouteSheet();});</script>
+{% endblock %}

@@ -28,6 +28,12 @@ def ppr_page():
     return render_template('pages/ppr.html', title='ППР')
 
 
+@pages_bp.route('/route')
+@login_required
+def route_page():
+    return render_template('pages/route.html', title='Маршрутный лист')
+
+
 @pages_bp.route('/settings')
 @login_required
 def settings_page():
