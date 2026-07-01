@@ -2,7 +2,7 @@ import secrets
 from datetime import datetime
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, jsonify
 from api_client import OneSApiClient
-from db import save_user_credentials, delete_user_subscriptions
+from db import save_user_credentials
 from .helpers import SERVER_HOST, SERVER_PORT, SERVER_DB
 
 auth_bp = Blueprint('auth', __name__)
@@ -100,11 +100,6 @@ def api_register_credentials():
 
 @auth_bp.route('/logout')
 def logout():
-    username = session.get('username', '')
-    if username:
-        delete_user_subscriptions(username)
-        from db import clear_user_cache
-        clear_user_cache(username)
     session.clear()
     return _logout_page()
 
