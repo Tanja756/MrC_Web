@@ -36,6 +36,22 @@ function toggleTheme() {
     applyTheme(currentTheme === 'light' ? 'dark' : 'light');
 }
 
+function toggleMarkMyTasks() {
+    const el = document.getElementById('markMyTasksToggle');
+    const on = !el.classList.contains('active');
+    el.classList.toggle('active', on);
+    el.setAttribute('aria-checked', on);
+    saveProfile();
+}
+
+function toggleNotifyOnlyMine() {
+    const el = document.getElementById('notifyOnlyMineToggle');
+    const on = !el.classList.contains('active');
+    el.classList.toggle('active', on);
+    el.setAttribute('aria-checked', on);
+    saveProfile();
+}
+
 function openSettings(firstLogin) {
     const modal = new bootstrap.Modal(document.getElementById('settingsModal'));
     const titleEl = document.querySelector('#settingsModal .modal-title');
@@ -45,10 +61,15 @@ function openSettings(firstLogin) {
         titleEl.innerHTML = '<i class="bi bi-gear me-2"></i>\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438';
     }
     document.getElementById('profileName').value = savedProfileName;
-    document.getElementById('markMyTasks').checked = lsGet('markMyTasks', '') === 'true';
+    const markOn = lsGet('markMyTasks', '') === 'true';
+    document.getElementById('markMyTasksToggle').classList.toggle('active', markOn);
+    document.getElementById('markMyTasksToggle').setAttribute('aria-checked', markOn);
     document.getElementById('myTaskKeywords').value = lsGet('myTaskKeywords', '');
-    document.getElementById('settingsModal').querySelector('.theme-toggle').classList.toggle('active', currentTheme === 'light');
-    document.getElementById('settingsModal').querySelector('.theme-toggle').setAttribute('aria-checked', currentTheme === 'light');
+    const notifyOn = lsGet('notifyOnlyMine', '') === 'true';
+    document.getElementById('notifyOnlyMineToggle').classList.toggle('active', notifyOn);
+    document.getElementById('notifyOnlyMineToggle').setAttribute('aria-checked', notifyOn);
+    document.getElementById('themeToggle').classList.toggle('active', currentTheme === 'light');
+    document.getElementById('themeToggle').setAttribute('aria-checked', currentTheme === 'light');
 
     const ws = document.getElementById('settingsWarehouse');
     const saved = lsGet('defaultWarehouse', '');
@@ -94,10 +115,12 @@ function saveProfile() {
     lsSet('profileName', savedProfileName);
     const warehouseGuid = document.getElementById('settingsWarehouse').value;
     lsSet('defaultWarehouse', warehouseGuid);
-    const markMyTasks = document.getElementById('markMyTasks').checked ? 'true' : '';
+    const markMyTasks = document.getElementById('markMyTasksToggle').classList.contains('active') ? 'true' : '';
     lsSet('markMyTasks', markMyTasks);
     const myTaskKeywords = document.getElementById('myTaskKeywords').value.trim();
     lsSet('myTaskKeywords', myTaskKeywords);
+    const notifyOnlyMine = document.getElementById('notifyOnlyMineToggle').classList.contains('active') ? 'true' : '';
+    lsSet('notifyOnlyMine', notifyOnlyMine);
     updateProfileAvatar();
 
     fetch('/api/profile', {
@@ -110,6 +133,7 @@ function saveProfile() {
                 theme: currentTheme,
                 markMyTasks: markMyTasks,
                 myTaskKeywords: myTaskKeywords,
+                notifyOnlyMine: notifyOnlyMine,
             }
         })
     }).catch(() => {});

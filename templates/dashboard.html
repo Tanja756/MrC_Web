@@ -577,6 +577,32 @@
         </div>
     </div>
 </div>
+
+<!-- M15 Equipment Modal -->
+<div class="modal fade" id="m15EquipmentModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h6 class="modal-title"><i class="bi bi-check-circle me-2"></i>Документы сформированы</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2 fw-semibold">Оборудование, добавленное в М15:</p>
+                <textarea class="form-control" id="m15EquipmentText" rows="6" readonly
+                    style="font-size:0.875rem;resize:none;font-family:monospace;"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary" id="m15CopyBtn" onclick="copyM15Equipment()">
+                    <i class="bi bi-clipboard me-1"></i>Копировать
+                </button>
+                <button class="btn btn-outline-primary d-none" id="m15ShareBtn" onclick="shareM15Equipment()">
+                    <i class="bi bi-share me-1"></i>Поделиться
+                </button>
+                <button class="btn btn-primary" data-bs-dismiss="modal">OK</button>
+            </div>
+        </div>
+    </div>
+</div>
 <button id="scrollTopBtn" class="scroll-top-btn" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Наверх"><i class="bi bi-arrow-up"></i></button>
 
 <!-- Transfer Detail Modal -->
@@ -682,6 +708,6 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='dashboard.js') }}?v=22"></script>
-<script src="{{ url_for('static', filename='tasks.js') }}?v=4"></script>
+<script src="{{ url_for('static', filename='tasks.js') }}?v=5"></script>
 <script src="{{ url_for('static', filename='ppr.js') }}?v=3"></script>
 {% endblock %}

@@ -55,6 +55,13 @@ def api_profile_post():
     if not client or not username:
         return jsonify({'error': 'No connection'}), 400
     profile = request.json.get('profile', {})
+    try:
+        from db import save_user_settings
+        notify_only_mine = 1 if profile.get('notifyOnlyMine') == 'true' else 0
+        my_task_keywords = profile.get('myTaskKeywords', '')
+        save_user_settings(username, notify_only_mine, my_task_keywords)
+    except Exception as e:
+        logger.warning(f"Failed to save user settings locally: {e}")
     return jsonify(client.save_profile(username, profile) or {})
 
 

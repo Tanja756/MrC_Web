@@ -5,7 +5,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, session
 from api_client import OneSApiClient
 
-from db import set_task_closed, update_task_closed_date, save_task_m15_items
+from db import set_task_closed, update_task_closed_date, save_task_m15_items, save_task_m15_text
 from .helpers import (
     api_login_required, get_api_client,
     project_tasks, attach_tracking, filter_tasks,
@@ -133,9 +133,10 @@ def api_task_close():
     longitude = data.get('longitude', 0.0)
     attachments = compress_attachments(data.get('attachments', []))
     result = client.task_close(guid, guid_doc, comment, latitude, longitude, attachments)
-    if not result or result.get('_error'):
-        error = (result or {}).get('_error', 'Empty response from 1C')
-        return jsonify({'success': False, 'error': error, 'detail': result}), 400
+    if result is None:
+        return jsonify({'success': False, 'error': 'Empty response from 1C'}), 400
+    if isinstance(result, dict) and result.get('_error'):
+        return jsonify({'success': False, 'error': result['_error'], 'detail': result}), 400
     set_task_closed(session.get('username', ''), guid)
     return jsonify({'success': True})
 
@@ -240,8 +241,11 @@ def api_task_documents_post():
                                   field_overrides=fields)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-    if include_m15 and fields and fields.get('items'):
-        save_task_m15_items(guid, fields['items'])
+    if fields and fields.get('items'):
+        if include_m15:
+            save_task_m15_items(guid, fields['items'])
+        text = '\n'.join(f"{item['name']} ({item['series']})" for item in fields['items'])
+        save_task_m15_text(guid, text)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         for path in pdfs:
@@ -292,8 +296,11 @@ def _make_doc_endpoint(include_act, include_fn, include_m15, suffix):
                                   profile_name=profile_name)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-    if include_m15 and fields and fields.get('items'):
-        save_task_m15_items(guid, fields['items'])
+    if fields and fields.get('items'):
+        if include_m15:
+            save_task_m15_items(guid, fields['items'])
+        text = '\n'.join(f"{item['name']} ({item['series']})" for item in fields['items'])
+        save_task_m15_text(guid, text)
     pdf_path = pdfs[0]
     with open(pdf_path, 'rb') as f:
         data = f.read()
@@ -324,3 +331,11 @@ def api_task_documents_m15():
 def api_task_m15_items(guid):
     from db import get_task_m15_items
     return jsonify(get_task_m15_items(guid))
+
+
+@tasks_bp.route('/<guid>/m15-text', methods=['GET'])
+@api_login_required
+def api_task_m15_text(guid):
+    from db import get_task_m15_text
+    text = get_task_m15_text(guid)
+    return jsonify({'text': text})

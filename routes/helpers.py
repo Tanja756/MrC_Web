@@ -425,8 +425,22 @@ def copy_seed_notifications(username):
         send_push_notification(username, s['title'], s['description'])
 
 
-def check_deadlines(tasks, username, now):
+def _task_matches_keywords(task, keywords_str):
+    if not keywords_str:
+        return True
+    keywords = [k.strip().lower() for k in keywords_str.split(',') if k.strip()]
+    if not keywords:
+        return True
+    text = f"{task.get('name', '')} {task.get('number', '')}".lower()
+    return any(k in text for k in keywords)
+
+
+def check_deadlines(tasks, username, now, notify_only_mine=False, my_task_keywords=''):
     for task in tasks:
+        if task.get('priority') == 700:
+            continue
+        if notify_only_mine and not _task_matches_keywords(task, my_task_keywords):
+            continue
         period_str = task.get('period') or task.get('date')
         if not period_str:
             continue
@@ -456,7 +470,7 @@ def check_deadlines(tasks, username, now):
             continue
 
 
-def check_new_free_tasks(username, free_tasks, old_data):
+def check_new_free_tasks(username, free_tasks, old_data, notify_only_mine=False, my_task_keywords=''):
     current_free_guids = {t.get('guid', '') for t in free_tasks if t.get('guid')}
     if old_data is None:
         save_task_snapshot(username, list(current_free_guids))
@@ -466,6 +480,8 @@ def check_new_free_tasks(username, free_tasks, old_data):
     new_guids = current_free_guids - old_free_guids
     for task in free_tasks:
         if task.get('guid') in new_guids:
+            if notify_only_mine and not _task_matches_keywords(task, my_task_keywords):
+                continue
             desc = f'Заявка {task.get("number", "")} "{task.get("name", "")}"'
             if not notification_exists(username, 'new_task', desc, None):
                 create_notification(username, 'new_task', 'Новая свободная заявка', desc, task.get('guid'))
@@ -525,8 +541,18 @@ def check_tasks(username):
     except Exception as e:
         logger.error(f"check_tasks: get_tasks_unallocated failed — {e}")
         free_tasks = []
-    check_deadlines(user_tasks + free_tasks, username, now)
-    check_new_free_tasks(username, free_tasks, old_data)
+
+    try:
+        from db import get_user_settings
+        settings = get_user_settings(username)
+        notify_only_mine = bool(settings and settings.get('notify_only_mine'))
+        my_task_keywords = (settings or {}).get('my_task_keywords', '')
+    except Exception:
+        notify_only_mine = False
+        my_task_keywords = ''
+
+    check_deadlines(user_tasks + free_tasks, username, now, notify_only_mine, my_task_keywords)
+    check_new_free_tasks(username, free_tasks, old_data, notify_only_mine, my_task_keywords)
 
 
 # --- BACKGROUND WORKER ---
@@ -614,9 +640,18 @@ def background_check_user(username, force=False):
         logger.warning(f"Background: failed to fetch closed tasks for {username}: {e}")
         closed_data = {}
         closed_tasks = []
-    check_deadlines(user_tasks + free_tasks, username, now)
+    try:
+        from db import get_user_settings
+        settings = get_user_settings(username)
+        notify_only_mine = bool(settings and settings.get('notify_only_mine'))
+        my_task_keywords = (settings or {}).get('my_task_keywords', '')
+    except Exception:
+        notify_only_mine = False
+        my_task_keywords = ''
+
+    check_deadlines(user_tasks + free_tasks, username, now, notify_only_mine, my_task_keywords)
     _track_task_transitions(username, user_tasks, free_tasks, closed_tasks, old_data)
-    check_new_free_tasks(username, free_tasks, old_data)
+    check_new_free_tasks(username, free_tasks, old_data, notify_only_mine, my_task_keywords)
     background_check_balances(client, username)
 
     process_actions(username, client)

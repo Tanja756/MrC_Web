@@ -296,11 +296,11 @@ function renderTasks(containerId, tasks, query, mode) {
         const typeBadge = typeName ? `<span class="task-type-badge ms-auto">${esc(typeName)}</span>` : '';
         let actionHtml = '';
         if (mode === 'my' && !isClosed) {
-            actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action" onclick="openDocForm('${t.guid}')" title="Документы"><i class="bi bi-file-earmark-text"></i><span class="btn-label"> Документы</span></button><button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','user')" title="Завершить"><i class="bi bi-check-lg"></i><span class="btn-label"> Завершить</span></button>`;
+            actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action" onclick="openDocForm('${t.guid}')" title="Документы"><i class="bi bi-file-earmark-text"></i><span class="btn-label"> Документы</span></button><button class="btn btn-outline-secondary btn-action" onclick="viewM15Equipment('${t.guid}')" title="Просмотреть сохранённое оборудование"><i class="bi bi-clipboard-data"></i></button><button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','user')" title="Завершить"><i class="bi bi-check-lg"></i><span class="btn-label"> Завершить</span></button>`;
         } else if (mode === 'free' && !multiSelectMode) {
-            actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action" onclick="openDocForm('${t.guid}')" title="Документы"><i class="bi bi-file-earmark-text"></i><span class="btn-label"> Документы</span></button><button class="btn btn-outline-secondary btn-action" onclick="takeTask('${t.guid}')" title="Взять"><i class="bi bi-hand-index-thumb"></i><span class="btn-label"> Взять</span></button>`;
+            actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action" onclick="openDocForm('${t.guid}')" title="Документы"><i class="bi bi-file-earmark-text"></i><span class="btn-label"> Документы</span></button><button class="btn btn-outline-secondary btn-action" onclick="viewM15Equipment('${t.guid}')" title="Просмотреть сохранённое оборудование"><i class="bi bi-clipboard-data"></i></button><button class="btn btn-outline-secondary btn-action" onclick="takeTask('${t.guid}')" title="Взять"><i class="bi bi-hand-index-thumb"></i><span class="btn-label"> Взять</span></button>`;
         } else if (mode === 'closed') {
-            actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button>`;
+            actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action" onclick="viewM15Equipment('${t.guid}')" title="Просмотреть сохранённое оборудование"><i class="bi bi-clipboard-data"></i></button>`;
         }
 
         // Deadline label
@@ -376,7 +376,7 @@ function showTaskDetail(task, mode, guid) {
 
         let body = `
             <div class="row g-3">
-                <div class="col-12 d-none d-md-block">
+                <div class="col-12">
                     <div class="p-3 bg-light rounded-3">
                         <small class="text-muted d-block mb-1">Описание</small>
                         <p class="mb-0 task-description">${task.description || '—'}</p>
@@ -658,7 +658,14 @@ function closeTask(guid, guidDoc) {
                 headers: {'Content-Type': 'application/json'},
                 body: body,
             }).then(checkAuth).then(r => {
-                if (!r.ok) throw new Error('HTTP ' + r.status);
+                if (!r.ok) {
+                    return r.text().then(text => {
+                        let detail;
+                        try { detail = JSON.parse(text); } catch(e) { detail = {}; }
+                        const msg = detail.error || detail.detail?._error || detail.detail?._raw || text || 'HTTP ' + r.status;
+                        throw new Error(msg);
+                    });
+                }
                 return r.json();
             }).then(data => {
                 btn.disabled = false;
@@ -668,8 +675,10 @@ function closeTask(guid, guidDoc) {
                         taskLocations[guid] = { lat, lng, ts: Date.now() };
                         lsSet('taskLocations', JSON.stringify(taskLocations));
                     }
-                    showAlert('Заявка закрыта! После проверки менеджером статус будет обновлён.', 'success');
                     bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
+                    setTimeout(() => {
+                        showAlert('Заявка закрыта! После проверки менеджером статус будет обновлён.', 'success');
+                    }, 300);
                     tasksMy = tasksMy.filter(t => t.guid !== guid);
                     reqCache.delete('/api/tasks/my');
                     for (const key of reqCache.keys()) {
@@ -680,10 +689,25 @@ function closeTask(guid, guidDoc) {
                     const msg = data.error || data.detail?._error || data.detail?._raw || 'Ошибка при закрытии заявки';
                     showAlert('Ошибка: ' + msg, 'danger');
                 }
-            }).catch(() => {
+            }).catch(err => {
                 btn.disabled = false;
                 btn.innerHTML = origHtml;
-                showAlert('Ошибка сети', 'danger');
+                const msg = err && err.message;
+                if (msg && msg !== 'Failed to fetch') {
+                    showAlert('Ошибка: ' + msg, 'danger');
+                } else {
+                    // Network error — request may have reached 1C
+                    bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
+                    tasksMy = tasksMy.filter(t => t.guid !== guid);
+                    reqCache.delete('/api/tasks/my');
+                    for (const key of reqCache.keys()) {
+                        if (key.startsWith('/api/tasks/closed')) reqCache.delete(key);
+                    }
+                    filterTasks();
+                    setTimeout(() => {
+                        showAlert('Заявка отправлена, проверьте статус после обновления.', 'warning');
+                    }, 300);
+                }
             });
         } catch (e) {
             btn.disabled = false;
@@ -753,8 +777,10 @@ function rejectTask(guid) {
                 btn.disabled = false;
                 btn.innerHTML = origHtml;
                 if (data.success) {
-                    showAlert('Заявка отменена', 'success');
                     bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
+                    setTimeout(() => {
+                        showAlert('Заявка отменена', 'success');
+                    }, 300);
                     ['my', 'free', 'closed'].forEach(t => {
                         reqCache.delete('/api/tasks/' + t);
                     });
@@ -924,6 +950,52 @@ function removeDocItem(idx) {
     renderDocSelected();
 }
 
+// ============ M15 EQUIPMENT MODAL ============
+function showM15EquipmentModal(text) {
+    document.getElementById('m15EquipmentText').value = text || '';
+    const shareBtn = document.getElementById('m15ShareBtn');
+    if (navigator.share) {
+        shareBtn.classList.remove('d-none');
+    } else {
+        shareBtn.classList.add('d-none');
+    }
+    const modal = new bootstrap.Modal(document.getElementById('m15EquipmentModal'));
+    modal.show();
+}
+
+function copyM15Equipment() {
+    const textarea = document.getElementById('m15EquipmentText');
+    navigator.clipboard.writeText(textarea.value).then(() => {
+        const btn = document.getElementById('m15CopyBtn');
+        btn.innerHTML = '<i class="bi bi-check me-1"></i>Скопировано';
+        setTimeout(() => {
+            btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Копировать';
+        }, 2000);
+    }).catch(() => {
+        textarea.select();
+        document.execCommand('copy');
+    });
+}
+
+function shareM15Equipment() {
+    const textarea = document.getElementById('m15EquipmentText');
+    navigator.share({ text: textarea.value }).catch(() => {});
+}
+
+function viewM15Equipment(guid) {
+    fetch('/api/tasks/' + guid + '/m15-text')
+        .then(checkAuth)
+        .then(r => r.json())
+        .then(data => {
+            if (data.text) {
+                showM15EquipmentModal(data.text);
+            } else {
+                showAlert('Нет сохранённого оборудования для этой заявки', 'info');
+            }
+        })
+        .catch(() => showAlert('Ошибка загрузки данных', 'danger'));
+}
+
 function openDocForm(guid) {
     const modalEl = document.getElementById('docFormModal');
     if (modalEl.classList.contains('show')) return;
@@ -1070,6 +1142,10 @@ function generateDocForm() {
         loading.classList.add('d-none');
         footer.querySelectorAll('button').forEach(b => b.disabled = false);
         bootstrap.Modal.getInstance(document.getElementById('docFormModal'))?.hide();
+        if (docSelectedItems.length > 0) {
+            const text = docSelectedItems.map(i => i.name + ' (' + i.series + ')').join('\n');
+            setTimeout(() => showM15EquipmentModal(text), 300);
+        }
     }).catch(e => {
         loading.classList.add('d-none');
         footer.querySelectorAll('button').forEach(b => b.disabled = false);

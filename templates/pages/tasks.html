@@ -84,6 +84,6 @@
 <div class="modal fade" id="docFormModal" tabindex="-1">{% include "modals/doc-form.html" %}</div>
 {% include "modals/confirm-take.html" %}
 <button id="scrollTopBtn" class="scroll-top-btn" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Наверх"><i class="bi bi-arrow-up"></i></button>
-<script src="{{ url_for('static', filename='js/tasks.js') }}?v=5"></script>
+<script src="{{ url_for('static', filename='js/tasks.js') }}?v=6"></script>
 <script>document.addEventListener('DOMContentLoaded',()=>{loadClients();loadTabIntoUI(currentTab);loadTasks('',['my','free']);fetchPriorities();initSwipeTabs();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&isWorkingHours()){loadTasks('',['my','free']);}});document.querySelectorAll('#taskTabs .nav-link').forEach(p=>{p.addEventListener('shown.bs.tab',()=>{const id=p.getAttribute('data-bs-target');const tab=id==='#tasks-my'?'my':id==='#tasks-free'?'free':'closed';switchTab(tab);});});document.getElementById('tasksFreeList')?.addEventListener('contextmenu',(e)=>{e.preventDefault();multiSelectMode=!multiSelectMode;if(!multiSelectMode)cancelMultiSelect();else{selectedGuids.clear();filterTasks();}});const tab=localStorage.getItem('taskTab')||'my';if(tab!=='my'){const target='#tasks-'+tab;const pill=document.querySelector('#taskTabs .nav-link[data-bs-target="'+target+'"]');if(pill)pill.click();}});</script>
 {% endblock %}

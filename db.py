@@ -882,6 +882,38 @@ def save_yandex_upload_status(username, tasks_hash=None, warehouse_hash=None, re
     _retry_on_locked(_write)
 
 
+# --- TASK M15 TEXT ---
+
+def init_task_m15_text_table():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS task_m15_text (
+            task_guid TEXT PRIMARY KEY,
+            equipment_text TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def save_task_m15_text(task_guid, text):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute(
+        "INSERT OR REPLACE INTO task_m15_text (task_guid, equipment_text) VALUES (?, ?)",
+        (task_guid, text)
+    )
+    conn.commit()
+    conn.close()
+
+def get_task_m15_text(task_guid):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT equipment_text FROM task_m15_text WHERE task_guid = ?", (task_guid,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
 # --- TASK M15 ITEMS ---
 
 def init_task_m15_items_table():
@@ -921,6 +953,46 @@ def get_task_m15_items(task_guid):
     conn.close()
     return [{'name': r[0], 'series': r[1]} for r in rows]
 
+# --- USER SETTINGS ---
+
+def init_user_settings_table():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS user_settings (
+            username TEXT PRIMARY KEY,
+            notify_only_mine INTEGER NOT NULL DEFAULT 0,
+            my_task_keywords TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def save_user_settings(username, notify_only_mine, my_task_keywords):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO user_settings (username, notify_only_mine, my_task_keywords, updated_at)
+        VALUES (?, ?, ?, datetime('now', 'localtime'))
+        ON CONFLICT(username) DO UPDATE SET
+            notify_only_mine = excluded.notify_only_mine,
+            my_task_keywords = excluded.my_task_keywords,
+            updated_at = datetime('now', 'localtime')
+    """, (username, notify_only_mine, my_task_keywords))
+    conn.commit()
+    conn.close()
+
+def get_user_settings(username):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT notify_only_mine, my_task_keywords FROM user_settings WHERE username = ?", (username,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {'notify_only_mine': bool(row[0]), 'my_task_keywords': row[1]}
+    return None
+
 # Инициализация БД при импорте модуля
 try:
     init_db()
@@ -935,5 +1007,7 @@ try:
     init_user_credentials_table()
     init_yandex_uploads_table()
     init_task_m15_items_table()
+    init_task_m15_text_table()
+    init_user_settings_table()
 except Exception as e:
     logger.warning(f"init_db failed (readonly?): {e}")

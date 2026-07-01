@@ -29,6 +29,7 @@ function fetchDeduped(url, options, ttl) {
 
 const currentStorage = () => document.getElementById('storageSelect')?.value || '';
 
+let _alertModalInstance = null;
 function showAlert(message, type) {
     type = type || 'info';
     const modalEl = document.getElementById('alertModal');
@@ -51,8 +52,10 @@ function showAlert(message, type) {
     }
 
     body.textContent = message;
-    const modal = new bootstrap.Modal(modalEl);
-    modal.show();
+    if (!_alertModalInstance) {
+        _alertModalInstance = new bootstrap.Modal(modalEl, {});
+    }
+    _alertModalInstance.show();
 }
 
 function showConfirm(message) {
