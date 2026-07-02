@@ -223,6 +223,8 @@ out_doc/
 *.xlsx
 *.xlsx#
 shops.db
+shops.db-shm
+shops.db-wal
 mrcheck-web.service
 deploy.sh
 info.md

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 import requests
 
-from db import get_yandex_upload_status, save_yandex_upload_status
+from db import get_yandex_upload_status, save_yandex_upload_status, set_task_taken, set_task_closed
 
 logger = logging.getLogger(__name__)
 
@@ -274,7 +274,7 @@ def _rename_to_error(yandex, file_path, name):
         logger.error("Yandex Action: failed to rename %s: %s", name, e)
 
 
-def _handle_close_task(yandex, client, file_path, name, data) -> bool:
+def _handle_close_task(yandex, client, username, file_path, name, data) -> bool:
     """Process a single close_task action file. Returns True on success."""
     if data.get("action") != "close_task":
         logger.warning("Yandex Action: unknown action in %s", name)
@@ -325,8 +325,59 @@ def _handle_close_task(yandex, client, file_path, name, data) -> bool:
         return False
 
     try:
+        set_task_closed(username, guid)
+    except Exception as e:
+        logger.warning("Yandex Action: failed to set_task_closed locally for %s: %s", guid, e)
+
+    try:
         yandex.delete_file(processing_path)
         logger.info("Yandex Action: task %s closed from %s, file deleted", guid, name)
+        return True
+    except Exception as e:
+        logger.error("Yandex Action: failed to delete %s after success: %s", name, e)
+        return False
+
+
+def _handle_take_task(yandex, client, username, file_path, name, data) -> bool:
+    """Process a single take_task action file. Returns True on success."""
+    if data.get("action") != "take_task":
+        logger.warning("Yandex Action: unknown action in %s", name)
+        _rename_to_error(yandex, file_path, name)
+        return False
+
+    guid = data.get("guid")
+    if not guid:
+        logger.error("Yandex Action: missing guid in %s", name)
+        _rename_to_error(yandex, file_path, name)
+        return False
+
+    processing_path = file_path.rsplit(".", 1)[0] + ".processing"
+    try:
+        yandex.move_file(file_path, processing_path)
+    except Exception as e:
+        logger.error("Yandex Action: failed to rename %s: %s", name, e)
+        return False
+
+    try:
+        result = client.task_take(guid)
+    except Exception as e:
+        logger.error("Yandex Action: 1C take failed for %s (guid=%s): %s", name, guid, e)
+        _rename_to_error(yandex, processing_path, name)
+        return False
+
+    if result and result.get("_error"):
+        logger.error("Yandex Action: 1C returned error for %s (guid=%s): %s", name, guid, result["_error"])
+        _rename_to_error(yandex, processing_path, name)
+        return False
+
+    try:
+        set_task_taken(username, guid)
+    except Exception as e:
+        logger.warning("Yandex Action: failed to set_task_taken locally for %s: %s", guid, e)
+
+    try:
+        yandex.delete_file(processing_path)
+        logger.info("Yandex Action: task %s taken from %s, file deleted", guid, name)
         return True
     except Exception as e:
         logger.error("Yandex Action: failed to delete %s after success: %s", name, e)
@@ -498,9 +549,11 @@ def process_actions(username, client, yandex=None) -> bool:
 
         handled = False
         if f["name"].startswith("close_task_"):
-            handled = _handle_close_task(yandex, client, file_path, f["name"], data)
+            handled = _handle_close_task(yandex, client, username, file_path, f["name"], data)
         elif f["name"].startswith("generate_docs_"):
             handled = _handle_generate_docs(yandex, client, username, file_path, f["name"], data)
+        elif f["name"].startswith("take_task_"):
+            handled = _handle_take_task(yandex, client, username, file_path, f["name"], data)
 
         if handled:
             any_handled = True
