@@ -57,6 +57,15 @@ def api_balances():
         key = f"{item.get('product_name','')}|{item.get('series_name','') or ''}|{item.get('inventory_number','') or ''}"
         if key in overrides:
             item['date_arrival'] = short_date(overrides[key])
+    def _sort_date(item):
+        d = item.get('date_arrival')
+        if not d or d == '—':
+            return datetime.min
+        try:
+            return datetime.strptime(d, '%d.%m.%Y')
+        except ValueError:
+            return datetime.min
+    data.sort(key=_sort_date, reverse=True)
     return jsonify(data)
 
 

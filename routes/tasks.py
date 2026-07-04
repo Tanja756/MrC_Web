@@ -238,6 +238,7 @@ def api_task_documents_post():
     sap = parsed.get('sap', 'unknown')
     shop = parsed.get('shop', '')
     code = parsed.get('code', '')
+    hk = parsed.get('zd', '')
     ts = datetime.now().strftime('%Y.%m.%d_%H.%M')
     try:
         pdfs = generate_documents(task, profile_name=profile_name,
@@ -250,7 +251,7 @@ def api_task_documents_post():
         if include_m15:
             save_task_m15_items(guid, fields['items'])
         text = '\n'.join(f"{item['name']} ({item['series']})" for item in fields['items'])
-        save_task_m15_text(guid, text, code)
+        save_task_m15_text(guid, text, code, hk_code=hk)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         for path in pdfs:
@@ -296,6 +297,7 @@ def _make_doc_endpoint(include_act, include_fn, include_m15, suffix):
     sap = parsed.get('sap', 'unknown')
     shop = parsed.get('shop', '')
     code = parsed.get('code', '')
+    hk = parsed.get('zd', '')
     ts = datetime.now().strftime('%Y.%m.%d_%H.%M')
     try:
         pdfs = generate_documents(task, include_act=include_act, include_fn=include_fn,
@@ -307,7 +309,7 @@ def _make_doc_endpoint(include_act, include_fn, include_m15, suffix):
         if include_m15:
             save_task_m15_items(guid, fields['items'])
         text = '\n'.join(f"{item['name']} ({item['series']})" for item in fields['items'])
-        save_task_m15_text(guid, text, code)
+        save_task_m15_text(guid, text, code, hk_code=hk)
     pdf_path = pdfs[0]
     with open(pdf_path, 'rb') as f:
         data = f.read()
@@ -344,7 +346,12 @@ def api_task_m15_items(guid):
 @api_login_required
 def api_task_m15_text(guid):
     from db import get_task_m15_text
-    data = get_task_m15_text(guid)
+    data = get_task_m15_text(task_guid=guid)
     if data:
         return jsonify(data)
+    hk = request.args.get('hk', '')
+    if hk:
+        data = get_task_m15_text(hk_code=hk)
+        if data:
+            return jsonify(data)
     return jsonify({'text': None, 'code': ''})

@@ -815,7 +815,9 @@ def set_task_closed(username, guid, task_name=''):
         c.execute("""
             INSERT INTO task_tracking (guid, username, closed_at, task_name)
             VALUES (?, ?, datetime('now', 'localtime'), ?)
-            ON CONFLICT(guid, username) DO UPDATE SET closed_at = datetime('now', 'localtime'), task_name = ?
+            ON CONFLICT(guid, username) DO UPDATE SET
+                closed_at = datetime('now', 'localtime'),
+                task_name = COALESCE(NULLIF(?, ''), task_tracking.task_name)
         """, (guid, username, task_name, task_name))
         conn.commit()
         conn.close()
@@ -828,7 +830,9 @@ def update_task_closed_date(username, guid, closed_at, task_name=''):
         c.execute("""
             INSERT INTO task_tracking (guid, username, closed_at, task_name)
             VALUES (?, ?, ?, ?)
-            ON CONFLICT(guid, username) DO UPDATE SET closed_at = ?, task_name = ?
+            ON CONFLICT(guid, username) DO UPDATE SET
+                closed_at = ?,
+                task_name = COALESCE(NULLIF(?, ''), task_tracking.task_name)
         """, (guid, username, closed_at, task_name, closed_at, task_name))
         conn.commit()
         conn.close()
@@ -923,23 +927,28 @@ def init_task_m15_text_table():
     cols = [row[1] for row in c.fetchall()]
     if 'request_code' not in cols:
         c.execute("ALTER TABLE task_m15_text ADD COLUMN request_code TEXT DEFAULT ''")
+    if 'hk_code' not in cols:
+        c.execute("ALTER TABLE task_m15_text ADD COLUMN hk_code TEXT DEFAULT ''")
     conn.commit()
     conn.close()
 
-def save_task_m15_text(task_guid, text, code=''):
+def save_task_m15_text(task_guid, text, code='', hk_code=''):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute(
-        "INSERT OR REPLACE INTO task_m15_text (task_guid, equipment_text, request_code) VALUES (?, ?, ?)",
-        (task_guid, text, code)
+        "INSERT OR REPLACE INTO task_m15_text (task_guid, equipment_text, request_code, hk_code) VALUES (?, ?, ?, ?)",
+        (task_guid, text, code, hk_code)
     )
     conn.commit()
     conn.close()
 
-def get_task_m15_text(task_guid):
+def get_task_m15_text(task_guid=None, hk_code=None):
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT equipment_text, request_code FROM task_m15_text WHERE task_guid = ?", (task_guid,))
+    if hk_code:
+        c.execute("SELECT equipment_text, request_code FROM task_m15_text WHERE hk_code = ?", (hk_code,))
+    else:
+        c.execute("SELECT equipment_text, request_code FROM task_m15_text WHERE task_guid = ?", (task_guid,))
     row = c.fetchone()
     conn.close()
     if row:

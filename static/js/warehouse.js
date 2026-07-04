@@ -87,6 +87,11 @@ function filterBalances() {
                 if (field === 'balance') {
                     return (Number(va) || 0) - (Number(vb) || 0);
                 }
+                if (field === 'date_arrival' || field === 'date_writeoff') {
+                    const da = va ? va.split('.').reverse().join('') : '';
+                    const db = vb ? vb.split('.').reverse().join('') : '';
+                    return da.localeCompare(db);
+                }
                 return String(va).localeCompare(String(vb), 'ru');
             };
             let cmp = compare(balanceSortField, balanceSortDir);

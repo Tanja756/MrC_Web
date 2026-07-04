@@ -58,6 +58,23 @@ function showAlert(message, type) {
     _alertModalInstance.show();
 }
 
+function showToast(message, type, duration) {
+    type = type || 'info';
+    duration = duration || 5000;
+    var container = document.getElementById('toastContainer');
+    if (!container) return;
+    var toast = document.createElement('div');
+    toast.className = 'toast-item toast-' + type;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(function () { toast.classList.add('toast-show'); }, 10);
+    setTimeout(function () {
+        toast.classList.remove('toast-show');
+        toast.classList.add('toast-hide');
+        setTimeout(function () { toast.remove(); }, 300);
+    }, duration);
+}
+
 function showConfirm(message) {
     return new Promise(resolve => {
         const modalEl = document.getElementById('confirmModal');

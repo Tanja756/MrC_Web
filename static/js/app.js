@@ -370,6 +370,33 @@ window.addEventListener('popstate', () => {
     if (modal) bootstrap.Modal.getInstance(modal)?.hide();
 });
 
+// ============ PERMISSIONS ============
+function requestPermissions() {
+    if (document.body.classList.contains('login-page')) return;
+
+    // Notifications
+    if ('Notification' in window) {
+        if (Notification.permission === 'default') {
+            showToast('Для получения уведомлений о новых задачах разрешите показ уведомлений', 'info', 4000);
+            Notification.requestPermission();
+        } else if (Notification.permission === 'denied') {
+            showToast('Уведомления отключены. Включите их в настройках браузера.', 'warning', 5000);
+        }
+    }
+
+    // Geolocation
+    if ('geolocation' in navigator && 'permissions' in navigator) {
+        navigator.permissions.query({ name: 'geolocation' }).then(function (result) {
+            if (result.state === 'prompt') {
+                showToast('Для автоматической фиксации местоположения при закрытии задач разрешите геолокацию', 'info', 4000);
+                navigator.geolocation.getCurrentPosition(function () {}, function () {}, { timeout: 3000 });
+            } else if (result.state === 'denied') {
+                showToast('Геолокация отключена. Включите её в настройках браузера.', 'warning', 5000);
+            }
+        }).catch(function () {});
+    }
+}
+
 // ============ STARTUP ============
 function runStartup() {
     const ov = document.getElementById('startupOverlay');
@@ -392,6 +419,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (document.body.classList.contains('login-page')) return;
 
     runStartup();
+    requestPermissions();
     initPushNotifications();
     applyTheme(currentTheme);
     updateProfileAvatar();

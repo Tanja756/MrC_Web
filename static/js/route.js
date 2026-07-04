@@ -24,13 +24,21 @@ function loadRouteSheet() {
         }
         for (const row of data.rows) {
             const tr = document.createElement('tr');
-            if (row.content === 'Дом') {
+            if (row.type === 'home') {
                 tr.className = 'table-secondary';
                 tr.innerHTML = `
                     <td class="text-center fw-semibold">${row.num}</td>
                     <td class="fw-semibold">${row.login_1c}</td>
                     <td class="fw-semibold">${row.date}</td>
                     <td class="fw-semibold"><i class="bi bi-house-door me-1"></i>${row.content}</td>
+                `;
+            } else if (row.type === 'trip') {
+                tr.className = 'table-info';
+                tr.innerHTML = `
+                    <td class="text-center fw-semibold">${row.num}</td>
+                    <td class="fw-semibold">${row.login_1c}</td>
+                    <td class="fw-semibold">${row.date}</td>
+                    <td class="fw-semibold"><i class="bi bi-truck me-1"></i>${row.content}</td>
                 `;
             } else {
                 tr.innerHTML = `

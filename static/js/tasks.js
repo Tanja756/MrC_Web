@@ -296,11 +296,13 @@ function renderTasks(containerId, tasks, query, mode) {
         const typeBadge = typeName ? `<span class="task-type-badge ms-auto">${esc(typeName)}</span>` : '';
         let actionHtml = '';
         if (mode === 'my' && !isClosed) {
-            actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action" onclick="openDocForm('${t.guid}')" title="Документы"><i class="bi bi-file-earmark-text"></i><span class="btn-label"> Документы</span></button><button class="btn btn-outline-secondary btn-action" onclick="viewM15Equipment('${t.guid}')" title="Просмотреть сохранённое оборудование"><i class="bi bi-clipboard-data"></i></button><button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','user')" title="Завершить"><i class="bi bi-check-lg"></i><span class="btn-label"> Завершить</span></button>`;
+            const hkCode = (t.name || '').match(/[А-ЯЁ]{2}-\d{6}(?=[:;| ]|$)/);
+            const hk = hkCode ? esc(hkCode[0]) : '';
+            actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action" onclick="openDocForm('${t.guid}')" title="Документы"><i class="bi bi-file-earmark-text"></i><span class="btn-label"> Документы</span></button><button class="btn btn-outline-secondary btn-action" onclick="viewM15Equipment('${t.guid}','${hk}')" title="Просмотреть сохранённое оборудование"><i class="bi bi-clipboard-data"></i></button><button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','user')" title="Завершить"><i class="bi bi-check-lg"></i><span class="btn-label"> Завершить</span></button>`;
         } else if (mode === 'free' && !multiSelectMode) {
-            actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action" onclick="openDocForm('${t.guid}')" title="Документы"><i class="bi bi-file-earmark-text"></i><span class="btn-label"> Документы</span></button><button class="btn btn-outline-secondary btn-action" onclick="viewM15Equipment('${t.guid}')" title="Просмотреть сохранённое оборудование"><i class="bi bi-clipboard-data"></i></button><button class="btn btn-outline-secondary btn-action" onclick="takeTask('${t.guid}')" title="Взять"><i class="bi bi-hand-index-thumb"></i><span class="btn-label"> Взять</span></button>`;
+            actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action" onclick="openDocForm('${t.guid}')" title="Документы"><i class="bi bi-file-earmark-text"></i><span class="btn-label"> Документы</span></button><button class="btn btn-outline-secondary btn-action" onclick="viewM15Equipment('${t.guid}','${hk}')" title="Просмотреть сохранённое оборудование"><i class="bi bi-clipboard-data"></i></button><button class="btn btn-outline-secondary btn-action" onclick="takeTask('${t.guid}')" title="Взять"><i class="bi bi-hand-index-thumb"></i><span class="btn-label"> Взять</span></button>`;
         } else if (mode === 'closed') {
-            actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action" onclick="viewM15Equipment('${t.guid}')" title="Просмотреть сохранённое оборудование"><i class="bi bi-clipboard-data"></i></button>`;
+            actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action" onclick="viewM15Equipment('${t.guid}','${hk}')" title="Просмотреть сохранённое оборудование"><i class="bi bi-clipboard-data"></i></button>`;
         }
 
         // Deadline label
@@ -747,7 +749,9 @@ function takeTask(guid) {
             body: JSON.stringify({guid})
         }).then(checkAuth).then(r => r.json()).then(data => {
             if (data.status === 'Выполнить' || data.status === 'OK') {
-                ['my', 'free', 'closed'].forEach(t => { reqCache.delete('/api/tasks/' + t); });
+                for (const key of reqCache.keys()) {
+                    if (key.startsWith('/api/tasks/')) reqCache.delete(key);
+                }
                 loadTasks();
             } else {
                 showAlert(data.error || 'Не удалось взять заявку', 'danger');
@@ -783,9 +787,9 @@ function rejectTask(guid) {
                     setTimeout(() => {
                         showAlert('Заявка отменена', 'success');
                     }, 300);
-                    ['my', 'free', 'closed'].forEach(t => {
-                        reqCache.delete('/api/tasks/' + t);
-                    });
+                    for (const key of reqCache.keys()) {
+                        if (key.startsWith('/api/tasks/')) reqCache.delete(key);
+                    }
                     loadTasks();
                 } else {
                     const msg = data.error || data.detail?._error || 'Ошибка при отмене';
@@ -830,9 +834,9 @@ function bulkTakeTasks() {
                 const taken = data.taken || 0;
                 showAlert(`Взято: ${taken} из ${guids.length}`, 'success');
                 cancelMultiSelect();
-                ['my', 'free', 'closed'].forEach(t => {
-                  reqCache.delete('/api/tasks/' + t);
-                });
+                for (const key of reqCache.keys()) {
+                    if (key.startsWith('/api/tasks/')) reqCache.delete(key);
+                }
                 loadTasks();
             }).catch(() => showAlert('Ошибка сети', 'danger'));
         });
@@ -984,8 +988,10 @@ function shareM15Equipment() {
     navigator.share({ text: textarea.value }).catch(() => {});
 }
 
-function viewM15Equipment(guid) {
-    fetch('/api/tasks/' + guid + '/m15-text')
+function viewM15Equipment(guid, hk) {
+    let url = '/api/tasks/' + guid + '/m15-text';
+    if (hk) url += '?hk=' + encodeURIComponent(hk);
+    fetch(url)
         .then(checkAuth)
         .then(r => r.json())
         .then(data => {

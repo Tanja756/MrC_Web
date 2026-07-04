@@ -1,7 +1,8 @@
+import re
 from datetime import datetime
 from flask import Blueprint, request, jsonify, session
 from .helpers import api_login_required, get_api_client
-from db import get_db_connection
+from db import get_db_connection, get_tasks_tracking
 
 route_bp = Blueprint('route', __name__, url_prefix='/api/route')
 
@@ -17,18 +18,20 @@ def _parse_dt(s):
     return datetime.min
 
 
-def _task_name_by_guid(client, username):
-    names = {}
-    for method in ('get_closed_tasks_user', 'get_tasks_user', 'get_tasks_unallocated'):
-        data = getattr(client, method)(limit=500)
-        for t in (data.get('tasks') if isinstance(data, dict) else data or []):
-            g = t.get('guid')
-            if g and g not in names:
-                number = t.get('number', '') or ''
-                name = t.get('name', '') or ''
-                label = f"Заявка {number} — {name}" if number else name
-                names[g] = label
-    return names
+def _local_closed_by_task(t, username):
+    name = t.get('name', '') or ''
+    m = re.search(r'[А-ЯЁ]{2}-\d{6}(?=[:;| ]|$)', name)
+    if not m:
+        return None
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""SELECT closed_at FROM task_tracking
+                 WHERE username = ? AND task_name LIKE ?
+                 ORDER BY closed_at DESC LIMIT 1""",
+              (username, f"%{m.group()}%"))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row and row[0] else None
 
 
 @route_bp.route('/sheet', methods=['POST'])
@@ -40,42 +43,47 @@ def api_route_sheet():
         return jsonify({'error': 'month required (YYYY-MM)'}), 400
 
     username = session.get('username', '')
-
-    # ── Tasks: closed in month ──
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("""
-        SELECT guid, closed_at, task_name FROM task_tracking
-        WHERE username = ? AND closed_at LIKE ?
-    """, (username, f"{month}-%"))
-    task_rows = c.fetchall()
-    conn.close()
-
-    # fallback name map from 1C for entries with empty task_name
     client = get_api_client()
-    guid_to_fetch = [r[0] for r in task_rows if not r[2]]
-    name_map = {}
-    if guid_to_fetch and client:
-        name_map = _task_name_by_guid(client, username)
+    if not client:
+        return jsonify({'error': 'no api client'}), 400
+
+    # ── Tasks: from 1C closed tasks, dates from local DB (priority) / 1C closed_at / 1C date ──
+    closed_data = client.get_closed_tasks_user(limit=1000)
+    closed_tasks = closed_data.get('tasks', []) if isinstance(closed_data, dict) else closed_data or []
+
+    guids = [t.get('guid') for t in closed_tasks if t.get('guid')]
+    tracking = get_tasks_tracking(guids, username) if guids else {}
 
     entries = []
-    for guid, closed_at, task_name in task_rows:
+    for t in closed_tasks:
+        guid = t.get('guid')
+        if not guid:
+            continue
+        local = tracking.get(guid, {})
+        closed_at = local.get('closed_at') or _local_closed_by_task(t, username) or t.get('closed_at') or t.get('date')
+        if not closed_at:
+            continue
         dt = _parse_dt(closed_at)
-        label = task_name or name_map.get(guid, guid[:18])
+        if dt.strftime('%Y-%m') != month:
+            continue
+        number = t.get('number', '') or ''
+        name = t.get('name', '') or ''
+        content = name or guid[:18]
         entries.append({
             'type': 'task',
             'dt': dt,
             'date': dt.strftime('%d.%m.%Y'),
             'time': dt.strftime('%H:%M'),
-            'content': label,
+            'content': content,
         })
 
-    # ── Transfers: from stock transfers history cache ──
+    # ── Transfers: group by day into trips ──
     from routes.warehouse import _stock_transfers_history_cache
     cached = _stock_transfers_history_cache.get("data")
-    if cached is None and client:
+    if cached is None:
         cached = client.get_stock_transfers_history()
     if cached:
+        day_transfers = {}
         for doc in cached:
             doc_date = doc.get('date', '') or ''
             if not doc_date:
@@ -83,18 +91,20 @@ def api_route_sheet():
             dt = _parse_dt(doc_date)
             if dt.strftime('%Y-%m') != month:
                 continue
-            src = doc.get('warehouse_source_name', '') or ''
-            dst = doc.get('warehouse_dest_name', '') or ''
-            if src or dst:
-                content = f"Перемещение: {src} → {dst}"
-            else:
-                content = "Перемещение"
+            day_key = dt.strftime('%Y-%m-%d')
+            if day_key not in day_transfers:
+                day_transfers[day_key] = {'dts': [], 'count': 0}
+            day_transfers[day_key]['dts'].append(dt)
+            day_transfers[day_key]['count'] += 1
+
+        for day_key, info in day_transfers.items():
+            first_dt = min(info['dts'])
             entries.append({
-                'type': 'transfer',
-                'dt': dt,
-                'date': dt.strftime('%d.%m.%Y'),
-                'time': dt.strftime('%H:%M'),
-                'content': content,
+                'type': 'trip',
+                'dt': first_dt,
+                'date': first_dt.strftime('%d.%m.%Y'),
+                'time': first_dt.strftime('%H:%M'),
+                'content': f"Поездка ({info['count']} перемещений)",
             })
 
     if not entries:
@@ -110,14 +120,14 @@ def api_route_sheet():
         day = e['date']
         if day != current_day:
             if current_day is not None and day_entries:
-                rows.append({'num': len(rows) + 1, 'login_1c': username, 'date': current_day, 'content': 'Дом'})
+                rows.append({'num': len(rows) + 1, 'login_1c': username, 'date': current_day, 'content': 'Дом', 'type': 'home'})
             day_entries = []
             current_day = day
-            rows.append({'num': len(rows) + 1, 'login_1c': username, 'date': day, 'content': 'Дом'})
-        rows.append({'num': len(rows) + 1, 'login_1c': username, 'date': day, 'content': e['content']})
+            rows.append({'num': len(rows) + 1, 'login_1c': username, 'date': day, 'content': 'Дом', 'type': 'home'})
+        rows.append({'num': len(rows) + 1, 'login_1c': username, 'date': day, 'content': e['content'], 'type': e['type']})
         day_entries.append(e)
 
     if current_day is not None and day_entries:
-        rows.append({'num': len(rows) + 1, 'login_1c': username, 'date': current_day, 'content': 'Дом'})
+        rows.append({'num': len(rows) + 1, 'login_1c': username, 'date': current_day, 'content': 'Дом', 'type': 'home'})
 
     return jsonify({'rows': rows, 'count': len(rows)})

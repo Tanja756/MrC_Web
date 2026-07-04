@@ -312,6 +312,19 @@ def _handle_close_task(yandex, client, username, file_path, name, data) -> bool:
             logger.error("Yandex Action: failed to delete %s: %s", name, e)
         return True
 
+    # Fetch task details before close to store ХК-код locally
+    task_name = ''
+    try:
+        tasks_data = client.get_tasks_user(limit=200)
+        if isinstance(tasks_data, dict):
+            task = next((t for t in tasks_data.get('tasks', []) if t.get('guid') == guid), None)
+            if task:
+                tn = (task.get('number', '') or '').strip()
+                nm = (task.get('name', '') or '').strip()
+                task_name = f"Заявка {tn} — {nm}" if tn else nm
+    except Exception:
+        pass
+
     try:
         result = client.task_close(guid, guid_doc, comment, latitude, longitude, attachments)
     except Exception as e:
@@ -325,7 +338,7 @@ def _handle_close_task(yandex, client, username, file_path, name, data) -> bool:
         return False
 
     try:
-        set_task_closed(username, guid)
+        set_task_closed(username, guid, task_name)
     except Exception as e:
         logger.warning("Yandex Action: failed to set_task_closed locally for %s: %s", guid, e)
 
