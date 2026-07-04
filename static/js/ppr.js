@@ -537,3 +537,5 @@ function submitPprBatch() {
         btn.innerHTML = '<i class="bi bi-send me-1"></i>Создать записи';
     });
 }
+
+document.getElementById('upload-tab')?.addEventListener('shown.bs.tab', () => initUploadTab());

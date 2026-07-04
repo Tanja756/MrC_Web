@@ -34,6 +34,12 @@ def route_page():
     return render_template('pages/route.html', title='Маршрутный лист')
 
 
+@pages_bp.route('/upload')
+@login_required
+def upload_page():
+    return render_template('pages/upload.html', title='Загрузка')
+
+
 @pages_bp.route('/settings')
 @login_required
 def settings_page():

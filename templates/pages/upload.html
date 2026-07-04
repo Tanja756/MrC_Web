@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+<ul class="nav nav-pills mb-3" id="uploadTabs">
+    <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#upload-ppr">График ППР</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#upload-fn">График ФН</button></li>
+</ul>
+
+<div class="tab-content">
+    <div class="tab-pane fade show active" id="upload-ppr" role="tabpanel">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-upload me-2"></i>Загрузка графика ППР</h5>
+                <div class="filter-bar mt-2 px-0">
+                    <div class="filter-header d-md-none" onclick="toggleFilter(this)"><i class="bi bi-funnel"></i> Параметры загрузки</div>
+                    <div class="filter-body">
+                    <div class="row g-2 align-items-center">
+                        <div class="col-md-2">
+                            <select class="form-select" id="uploadQuarter"></select>
+                        </div>
+                        <div class="col-md-2">
+                            <select class="form-select" id="uploadRegion">
+                                <option value="">Все регионы</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <select class="form-select" id="uploadSort">
+                                <option value="region-date">Регион + Срок</option>
+                                <option value="date-region">Срок + Регион</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="upload-dropzone" id="uploadDropzone">
+                                <input type="file" id="uploadFile" accept=".xlsx" hidden>
+                                <i class="bi bi-file-earmark-arrow-up"></i>
+                                <span class="upload-dropzone-text">Выберите файл или перетащите сюда</span>
+                            </div>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+                <div id="uploadPreview"></div>
+                <div id="uploadActions" class="d-none mt-3 d-flex align-items-center gap-3">
+                    <button class="btn btn-primary" onclick="submitPprBatch()" id="uploadSubmitBtn">
+                        <i class="bi bi-send me-1"></i>Создать записи
+                    </button>
+                    <button class="btn btn-outline-danger" onclick="deleteSelectedUploadRows()" id="uploadDeleteBtn">
+                        <i class="bi bi-trash me-1"></i>Удалить выбранные
+                    </button>
+                    <span class="text-muted small" id="uploadStats"></span>
+                </div>
+                <div id="uploadResult" class="mt-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="tab-pane fade" id="upload-fn" role="tabpanel">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-calendar-range me-2"></i>График ФН</h5>
+                <div class="empty-state"><i class="bi bi-calendar-range"></i><p>Раздел в разработке</p></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/ppr.js') }}?v=3"></script>
+<script>document.addEventListener('DOMContentLoaded', () => initUploadTab());</script>
+{% endblock %}

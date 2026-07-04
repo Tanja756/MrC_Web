@@ -311,11 +311,37 @@ a:hover { color: var(--primary-hover); }
     }
 }
 
+/* Upload */
+.upload-dropzone {
+    border: 2px dashed var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    padding: 18px 16px;
+    cursor: pointer;
+    text-align: center;
+    transition: border-color 0.2s, background-color 0.2s;
+    color: var(--text-muted);
+}
+.upload-dropzone i {
+    font-size: 1.5rem;
+    display: block;
+    margin-bottom: 4px;
+}
+.upload-dropzone:hover {
+    border-color: var(--bs-primary);
+    background-color: rgba(var(--bs-primary-rgb), 0.04);
+}
+.upload-dropzone.dragover {
+    border-color: var(--bs-primary);
+    background-color: rgba(var(--bs-primary-rgb), 0.1);
+}
+.upload-closed {
+    opacity: 0.5;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     body { font-size: 0.88rem; }
     .right-sidebar { display: none !important; }
-    #upload-tab { display: none !important; }
     .filter-header {
         display: flex;
         align-items: center;
