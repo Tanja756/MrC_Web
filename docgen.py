@@ -245,6 +245,22 @@ def build_replacements(parsed: dict, profile_name: str = '') -> dict:
         '{DS3}': (parsed.get('tv3', '') + ' ' + parsed.get('sn3', '')).strip(),
         '{DS4}': (parsed.get('tv4', '') + ' ' + parsed.get('sn4', '')).strip(),
         '{DS5}': (parsed.get('tv5', '') + ' ' + parsed.get('sn5', '')).strip(),
+        '{TV6}': parsed.get('tv6', ''),
+        '{SN6}': parsed.get('sn6', ''),
+        '{TV7}': parsed.get('tv7', ''),
+        '{SN7}': parsed.get('sn7', ''),
+        '{TV8}': parsed.get('tv8', ''),
+        '{SN8}': parsed.get('sn8', ''),
+        '{TV9}': parsed.get('tv9', ''),
+        '{SN9}': parsed.get('sn9', ''),
+        '{TV10}': parsed.get('tv10', ''),
+        '{SN10}': parsed.get('sn10', ''),
+        '{DS6}': (parsed.get('tv6', '') + ' ' + parsed.get('sn6', '')).strip(),
+        '{DS7}': (parsed.get('tv7', '') + ' ' + parsed.get('sn7', '')).strip(),
+        '{DS8}': (parsed.get('tv8', '') + ' ' + parsed.get('sn8', '')).strip(),
+        '{DS9}': (parsed.get('tv9', '') + ' ' + parsed.get('sn9', '')).strip(),
+        '{DS10}': (parsed.get('tv10', '') + ' ' + parsed.get('sn10', '')).strip(),
+        '{DN6}': (parsed.get('tv6', '') + ' ' + parsed.get('sn6', '')).strip(),
     }
     shop = parsed.get('shop', '')
     sap = parsed.get('sap', '')
@@ -264,8 +280,15 @@ def build_replacements(parsed: dict, profile_name: str = '') -> dict:
     return repl
 
 
-def generate_act(repl: dict, out_dir: str = None, lo_dir: str = None) -> str:
+def generate_act(repl: dict, out_dir: str = None, lo_dir: str = None,
+                 items_count: int = 0) -> str:
     out_dir = out_dir or OUT_DIR
+    repl = repl.copy()
+    if items_count > 7:
+        for key in list(repl.keys()):
+            if key.startswith('{DS') or key.startswith('{DN'):
+                repl[key] = ''
+        repl['{DS1}'] = 'Оборудование согласно форме документа М15'
     with tempfile.NamedTemporaryFile(suffix=".ods", delete=False) as tmp:
         ods_path = tmp.name
     pdf_path = os.path.join(out_dir, f"{repl['{NUM}']}-{repl['{SAP}']}-ACT-{uuid.uuid4().hex[:8]}.pdf")
@@ -375,11 +398,11 @@ def generate_documents(task: dict, profile_name: str = '',
         add_shop_if_not_exists(shop, sap, addr)
 
     # Apply field overrides from the form (override extracted/DB values)
+    items = field_overrides.get('items') if field_overrides else None
     if field_overrides:
         # Product items for TV/SN placeholders
-        items = field_overrides.get('items')
         if items:
-            for i, item in enumerate(items[:5], 1):
+            for i, item in enumerate(items[:20], 1):
                 parsed[f'tv{i}'] = item.get('name', '')
                 parsed[f'sn{i}'] = item.get('series', '')
 
@@ -404,7 +427,8 @@ def generate_documents(task: dict, profile_name: str = '',
 
     try:
         if include_act:
-            act_pdf = generate_act(repl, out_dir, lo_dir)
+            items_count = len(items) if items else 0
+            act_pdf = generate_act(repl, out_dir, lo_dir, items_count)
             temp_files.append(act_pdf)
             attachments.append(act_pdf)
 
@@ -414,12 +438,57 @@ def generate_documents(task: dict, profile_name: str = '',
             attachments.append(fn_pdf)
 
         if include_m15:
-            if is_p:
-                repl['{MVZ}'] = 'X0UGSMW6'
-            m15_pdfs = generate_m15(repl, is_p, out_dir=out_dir, lo_dir=lo_dir)
-            temp_files.extend(m15_pdfs)
+            items_count = len(items) if items else 0
+            needs_chunking = items_count > 10
+            all_m15_pdfs = []
+            if needs_chunking:
+                for chunk_start in range(0, items_count, 10):
+                    chunk_repl = repl.copy()
+                    if is_p:
+                        chunk_repl['{MVZ}'] = 'X0UGSMW6'
+                    for j in range(1, 11):
+                        idx = chunk_start + j - 1
+                        if idx < items_count:
+                            chunk_repl[f'{{TV{j}}}'] = items[idx].get('name', '')
+                            chunk_repl[f'{{SN{j}}}'] = items[idx].get('series', '')
+                        else:
+                            chunk_repl[f'{{TV{j}}}'] = ''
+                            chunk_repl[f'{{SN{j}}}'] = ''
+                    with tempfile.NamedTemporaryFile(suffix=".ods", delete=False) as tmp:
+                        ods_path = tmp.name
+                    pdf_path = os.path.join(out_dir, f"{chunk_repl['{NUM}']}-{chunk_repl['{SAP}']}-FWD-{uuid.uuid4().hex[:8]}.pdf")
+                    try:
+                        filler = ODSFiller()
+                        filler.fill_and_save(TEMPLATE_M15_OUT, ods_path, chunk_repl)
+                        filler.export_to_pdf(ods_path, pdf_path, lo_dir)
+                        temp_files.append(pdf_path)
+                        all_m15_pdfs.append(pdf_path)
+                    finally:
+                        if os.path.exists(ods_path):
+                            os.unlink(ods_path)
+                rev_repl = repl.copy()
+                if is_p:
+                    rev_repl['{MVZ}'] = 'X0UGSMW6'
+                with tempfile.NamedTemporaryFile(suffix=".ods", delete=False) as tmp:
+                    ods_path = tmp.name
+                pdf_path = os.path.join(out_dir, f"{rev_repl['{NUM}']}-{rev_repl['{SAP}']}-REV-{uuid.uuid4().hex[:8]}.pdf")
+                try:
+                    filler = ODSFiller()
+                    filler.fill_and_save(TEMPLATE_M15_IN, ods_path, rev_repl)
+                    filler.export_to_pdf(ods_path, pdf_path, lo_dir)
+                    temp_files.append(pdf_path)
+                    all_m15_pdfs.append(pdf_path)
+                finally:
+                    if os.path.exists(ods_path):
+                        os.unlink(ods_path)
+            else:
+                if is_p:
+                    repl['{MVZ}'] = 'X0UGSMW6'
+                m15_pdfs = generate_m15(repl, is_p, out_dir=out_dir, lo_dir=lo_dir)
+                all_m15_pdfs.extend(m15_pdfs)
+                temp_files.extend(m15_pdfs)
             m15_combined = os.path.join(out_dir, f"{repl['{NUM}']}-{repl['{SAP}']}-M15-{uuid.uuid4().hex[:8]}.pdf")
-            merge_pdfs_with_rotation(m15_pdfs, m15_combined)
+            merge_pdfs_with_rotation(all_m15_pdfs, m15_combined)
             temp_files.append(m15_combined)
             attachments.append(m15_combined)
 

@@ -181,6 +181,25 @@ def api_task_reject():
     return jsonify({'success': True})
 
 
+@tasks_bp.route('/redirect', methods=['POST'])
+@api_login_required
+def api_task_redirect():
+    client = get_api_client()
+    if not client:
+        return jsonify({'error': 'No connection'}), 400
+    data = request.json
+    guid = data.get('guid')
+    comment = data.get('comment', '').strip()
+    if not guid:
+        return jsonify({'error': 'GUID required'}), 400
+    if not comment:
+        return jsonify({'error': 'Укажите причину возврата'}), 400
+    result = client.task_redirect(guid, comment)
+    if result and result.get('_error'):
+        return jsonify({'success': False, 'error': result['_error'], 'detail': result}), 400
+    return jsonify({'success': True})
+
+
 @tasks_bp.route('/<guid>/attachments')
 @api_login_required
 def api_task_attachments(guid):

@@ -179,6 +179,9 @@ class OneSApiClient:
     def task_reject(self, guid: str, comment: str):
         return self._post("task-reject", {"guid": guid, "comment": comment})
 
+    def task_redirect(self, guid: str, comment: str):
+        return self._post("task-redirect", {"guid": guid, "comment": comment})
+
     def get_profile(self, username: str):
         return self._get("profile", {"username": username}) or {}
 

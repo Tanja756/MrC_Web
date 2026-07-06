@@ -294,10 +294,10 @@ function renderTasks(containerId, tasks, query, mode) {
 
         const typeName = taskPriorityMap[t.priority] || '';
         const typeBadge = typeName ? `<span class="task-type-badge ms-auto">${esc(typeName)}</span>` : '';
+        const hkCode = (t.name || '').match(/[А-ЯЁ]{2}-\d{6}(?=[:;| ]|$)/);
+        const hk = hkCode ? esc(hkCode[0]) : '';
         let actionHtml = '';
         if (mode === 'my' && !isClosed) {
-            const hkCode = (t.name || '').match(/[А-ЯЁ]{2}-\d{6}(?=[:;| ]|$)/);
-            const hk = hkCode ? esc(hkCode[0]) : '';
             actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action" onclick="openDocForm('${t.guid}')" title="Документы"><i class="bi bi-file-earmark-text"></i><span class="btn-label"> Документы</span></button><button class="btn btn-outline-secondary btn-action" onclick="viewM15Equipment('${t.guid}','${hk}')" title="Просмотреть сохранённое оборудование"><i class="bi bi-clipboard-data"></i></button><button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','user')" title="Завершить"><i class="bi bi-check-lg"></i><span class="btn-label"> Завершить</span></button>`;
         } else if (mode === 'free' && !multiSelectMode) {
             actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action" onclick="openDocForm('${t.guid}')" title="Документы"><i class="bi bi-file-earmark-text"></i><span class="btn-label"> Документы</span></button><button class="btn btn-outline-secondary btn-action" onclick="viewM15Equipment('${t.guid}','${hk}')" title="Просмотреть сохранённое оборудование"><i class="bi bi-clipboard-data"></i></button><button class="btn btn-outline-secondary btn-action" onclick="takeTask('${t.guid}')" title="Взять"><i class="bi bi-hand-index-thumb"></i><span class="btn-label"> Взять</span></button>`;
@@ -435,6 +435,7 @@ function showTaskDetail(task, mode, guid) {
                 <button class="btn btn-success" onclick="closeTask('${guid}','${task.guid_client || ''}')"><i class="bi bi-check-lg me-1"></i>Завершить заявку</button>`;
         } else if (mode === 'my') {
             footer = `
+                <button class="btn btn-outline-secondary me-auto" onclick="showRedirectForm('${guid}','${mode}')" title="Вернуть в свободные"><i class="bi bi-arrow-return-left"></i></button>
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
         } else if (mode === 'free') {
             footer = `
@@ -456,7 +457,8 @@ function showTaskDetail(task, mode, guid) {
             if (task.hasAttachments) {
                 body += `<hr class="my-3"><div><small class="text-muted d-block mb-1">Вложения</small><div id="closedAttachments"><button class="btn btn-outline-secondary btn-sm" onclick="loadClosedAttachments('${guid}')"><i class="bi bi-download me-1"></i>Загрузить вложения</button></div></div>`;
             }
-            footer = `<button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
+            const showRedirect = task.status && (task.status.includes('Подтвердить') || task.status.includes('подтвердить'));
+            footer = `${showRedirect ? `<button class="btn btn-outline-secondary me-auto" onclick="showRedirectForm('${guid}','${mode}')" title="Вернуть в свободные"><i class="bi bi-arrow-return-left"></i></button>` : ''}<button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
         }
 
     document.getElementById('taskDetailBody').innerHTML = body;
@@ -803,6 +805,79 @@ function rejectTask(guid) {
         });
 }
 
+// ============ REDIRECT (RETURN TO FREE) ============
+function openTaskRedirect(guid, mode) {
+    const modalEl = document.getElementById('taskDetailModal');
+    if (modalEl.classList.contains('show')) {
+        showRedirectForm(guid, mode);
+        return;
+    }
+    const lists = {user: tasksMy, my: tasksMy, free: tasksFree, closed: tasksClosed};
+    const task = (lists[mode] || []).find(t => t.guid === guid);
+    if (!task) return;
+    _taskCtx = { task, mode, guid };
+    showRedirectForm(guid, mode);
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
+}
+
+function showRedirectForm(guid, mode) {
+    const ctx = _taskCtx;
+    if (!ctx && !guid) return;
+    const g = guid || ctx.guid;
+    const m = mode || ctx.mode;
+    document.getElementById('taskDetailTitle').innerHTML = `<i class="bi bi-arrow-return-left me-2"></i>Возврат заявки`;
+    document.getElementById('taskDetailBody').innerHTML = `
+        <div class="mb-3">
+            <label class="form-label fw-semibold">Причина возврата</label>
+            <textarea class="form-control" id="redirectComment" rows="3" placeholder="Укажите причину возврата..."></textarea>
+        </div>`;
+    document.getElementById('taskDetailFooter').innerHTML = `
+        <button class="btn btn-secondary" onclick="showTaskDetail(_taskCtx.task, '${m}', '${g}')"><i class="bi bi-arrow-left me-1"></i>Назад</button>
+        <button class="btn btn-warning" onclick="redirectTask('${g}')"><i class="bi bi-arrow-return-left me-1"></i>Вернуть в свободные</button>`;
+}
+
+function redirectTask(guid) {
+    const comment = document.getElementById('redirectComment').value.trim();
+    if (!comment) {
+        showAlert('Укажите причину возврата', 'warning');
+        return;
+    }
+    showConfirm('Вернуть заявку в свободные?')
+        .then(ok => {
+            if (!ok) return;
+            const btn = document.querySelector('#taskDetailFooter .btn-warning');
+            const origHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Возврат...';
+            fetch('/api/tasks/redirect', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({guid, comment})
+            }).then(checkAuth).then(r => r.json()).then(data => {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+                if (data.success) {
+                    bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
+                    setTimeout(() => {
+                        showAlert('Заявка возвращена в свободные', 'success');
+                    }, 300);
+                    for (const key of reqCache.keys()) {
+                        if (key.startsWith('/api/tasks/')) reqCache.delete(key);
+                    }
+                    loadTasks();
+                } else {
+                    const msg = data.error || data.detail?._error || 'Ошибка при возврате';
+                    showAlert('Ошибка: ' + msg, 'danger');
+                }
+            }).catch(() => {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+                showAlert('Ошибка сети', 'danger');
+            });
+        });
+}
+
 // ============ MULTI-SELECT ============
 function toggleSelect(guid) {
     if (selectedGuids.has(guid)) selectedGuids.delete(guid);
@@ -903,7 +978,7 @@ function renderDocProducts() {
         return;
     }
 
-    const maxReached = docSelectedItems.length >= 5;
+    const maxReached = docSelectedItems.length >= 20;
     container.innerHTML = filtered.map(p => {
             const key = p.product_name + '|' + p.series_name;
             const checked = docSelectedItems.some(s => s.key === key);
@@ -927,7 +1002,7 @@ document.getElementById('docProductsList')?.addEventListener('click', (e) => {
         const si = docSelectedItems.findIndex(s => s.key === key);
         if (si !== -1) docSelectedItems.splice(si, 1);
     } else {
-        if (docSelectedItems.length >= 5) { renderDocProducts(); return; }
+        if (docSelectedItems.length >= 20) { renderDocProducts(); return; }
         const p = docAllProducts.find(x => (x.product_name || '') + '|' + (x.series_name || '') === key);
         if (!p) return;
         docSelectedItems.push({ key, name: p.product_name || '', series: p.series_name || '' });
