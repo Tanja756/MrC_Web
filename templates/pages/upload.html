@@ -57,7 +57,47 @@
         <div class="card">
             <div class="card-body">
                 <h5 class="card-title"><i class="bi bi-calendar-range me-2"></i>График ФН</h5>
-                <div class="empty-state"><i class="bi bi-calendar-range"></i><p>Раздел в разработке</p></div>
+                <div class="filter-bar mt-2 px-0">
+                    <div class="filter-header d-md-none" onclick="toggleFilter(this)"><i class="bi bi-funnel"></i> Фильтры</div>
+                    <div class="filter-body">
+                    <div class="row g-2 align-items-center">
+                        <div class="col-md-3">
+                            <select class="form-select" id="fnFilterEngineer">
+                                <option value="">Все инженеры</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <select class="form-select" id="fnFilterMonth">
+                                <option value="">Все месяцы</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="upload-dropzone" id="fnDropzone">
+                                <input type="file" id="fnFile" accept=".xlsx" hidden>
+                                <i class="bi bi-file-earmark-arrow-up"></i>
+                                <span class="upload-dropzone-text">Выберите файл или перетащите сюда</span>
+                            </div>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+                <div id="fnPreview"></div>
+                <div id="fnActions" class="d-none mt-3 d-flex align-items-center gap-3 flex-wrap">
+                    <button class="btn btn-primary" onclick="submitFnBatch()" id="fnSubmitBtn">
+                        <i class="bi bi-database-up me-1"></i>Загрузить в БД
+                    </button>
+                    <button class="btn btn-success" onclick="normalizeFnAddresses()">
+                        <i class="bi bi-geo-alt me-1"></i>Нормализовать адреса
+                    </button>
+                    <button class="btn btn-outline-warning" onclick="markFnByKeywords()">
+                        <i class="bi bi-bookmark-check me-1"></i>Отметка по ключевым словам
+                    </button>
+                    <button class="btn btn-outline-danger" onclick="deleteSelectedFnRows()">
+                        <i class="bi bi-trash me-1"></i>Удалить выбранные
+                    </button>
+                    <span class="text-muted small" id="fnStats"></span>
+                </div>
+                <div id="fnResult" class="mt-2"></div>
             </div>
         </div>
     </div>
@@ -66,5 +106,6 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/ppr.js') }}?v=4"></script>
-<script>document.addEventListener('DOMContentLoaded', () => initUploadTab());</script>
+<script src="{{ url_for('static', filename='js/fn.js') }}?v=1"></script>
+<script>document.addEventListener('DOMContentLoaded', () => { initUploadTab(); initFnUploadTab(); });</script>
 {% endblock %}

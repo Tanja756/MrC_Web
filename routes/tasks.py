@@ -176,7 +176,7 @@ def api_task_reject():
     if not comment:
         return jsonify({'error': 'Укажите причину отмены'}), 400
     result = client.task_reject(guid, comment)
-    if result and result.get('_error'):
+    if isinstance(result, dict) and result.get('_error'):
         return jsonify({'success': False, 'error': result['_error'], 'detail': result}), 400
     return jsonify({'success': True})
 
@@ -195,7 +195,7 @@ def api_task_redirect():
     if not comment:
         return jsonify({'error': 'Укажите причину возврата'}), 400
     result = client.task_redirect(guid, comment)
-    if result and result.get('_error'):
+    if isinstance(result, dict) and result.get('_error'):
         return jsonify({'success': False, 'error': result['_error'], 'detail': result}), 400
     return jsonify({'success': True})
 

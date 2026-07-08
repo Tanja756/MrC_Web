@@ -125,6 +125,18 @@ def api_shop_by_sap():
         return jsonify({'shop': row[0], 'sap': row[1], 'addr': row[2]})
     return jsonify({})
 
+@misc_bp.route('/api/shop/by-sap-list', methods=['POST'])
+@api_login_required
+def api_shop_by_sap_list():
+    data = request.json or {}
+    saps = data.get('saps', [])
+    if not saps:
+        return jsonify({})
+    from db import find_shops_by_sap_list
+    rows = find_shops_by_sap_list(saps)
+    result = {r[1]: {'shop': r[0], 'sap': r[1], 'addr': r[2]} for r in rows}
+    return jsonify(result)
+
 
 # --- Priorities ---
 @misc_bp.route('/api/priorities')

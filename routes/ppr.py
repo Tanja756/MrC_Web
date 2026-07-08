@@ -41,7 +41,7 @@ def api_ppr_close():
     if 'attachments' in data:
         data['attachments'] = compress_attachments(data['attachments'])
     result = client.ppr_close(**data)
-    if result and result.get('_error'):
+    if isinstance(result, dict) and result.get('_error'):
         return jsonify({'success': False, 'error': result['_error']}), 400
     return jsonify({'success': True})
 

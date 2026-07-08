@@ -41,6 +41,7 @@ def api_route_sheet():
     month = body.get('month', '')
     if not month or len(month) != 7:
         return jsonify({'error': 'month required (YYYY-MM)'}), 400
+    sort_dir = body.get('sort', 'desc')
 
     username = session.get('username', '')
     client = get_api_client()
@@ -110,7 +111,7 @@ def api_route_sheet():
     if not entries:
         return jsonify({'rows': [], 'count': 0})
 
-    entries.sort(key=lambda e: e['dt'])
+    entries.sort(key=lambda e: e['dt'], reverse=(sort_dir == 'desc'))
 
     # ── Group by date, wrap with Дом ──
     rows = []

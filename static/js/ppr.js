@@ -44,6 +44,28 @@ function fmtPprDate(str) {
     return formatDateShort(str);
 }
 
+function savePprYear() {
+    const el = document.getElementById('pprYear');
+    if (el) lsSet('pprYear', el.value);
+}
+function savePprQuarter() {
+    const el = document.getElementById('pprQuarter');
+    if (el) lsSet('pprQuarter', el.value);
+}
+
+function restorePprFilters() {
+    const y = lsGet('pprYear', '');
+    if (y) {
+        const el = document.getElementById('pprYear');
+        if (el) el.value = y;
+    }
+    const q = lsGet('pprQuarter', '');
+    if (q) {
+        const el = document.getElementById('pprQuarter');
+        if (el) el.value = q;
+    }
+}
+
 function loadPprDepartments() {
     const year = document.getElementById('pprYear').value || new Date().getFullYear();
     const quarter = document.getElementById('pprQuarter').value;

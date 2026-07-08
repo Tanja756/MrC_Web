@@ -181,9 +181,9 @@ def api_stock_transfers():
         if 'attachments' in body:
             body['attachments'] = compress_attachments(body['attachments'])
         result = client.create_stock_transfer(body)
-        if result and result.get('_error'):
-            return jsonify({'success': False, 'error': result['_error']}), 400
-        return jsonify({'success': True, 'data': result})
+    if isinstance(result, dict) and result.get('_error'):
+        return jsonify({'success': False, 'error': result['_error']}), 400
+    return jsonify({'success': True, 'data': result})
 
 
 @warehouse_bp.route('/balances-pick')
@@ -212,7 +212,7 @@ def api_stock_transfer_add_comment():
     if not task_guid or not comment:
         return jsonify({'error': 'task_guid and comment required'}), 400
     result = client.add_transfer_comment(task_guid, comment)
-    if result and result.get('_error'):
+    if isinstance(result, dict) and result.get('_error'):
         return jsonify({'success': False, 'error': result['_error']}), 400
     return jsonify({'success': True, 'data': result})
 
@@ -232,7 +232,7 @@ def api_stock_transfer_change_amount():
     if not doc_item_guid or not task_guid or amount is None:
         return jsonify({'error': 'guid, task_guid and amount required'}), 400
     result = client.change_transfer_amount(doc_item_guid, task_guid, int(amount))
-    if result and result.get('_error'):
+    if isinstance(result, dict) and result.get('_error'):
         return jsonify({'success': False, 'error': result['_error']}), 400
     return jsonify({'success': True, 'data': result})
 
@@ -276,7 +276,7 @@ def api_stock_transfer_add_attachments():
     if not task_guid or not attachments:
         return jsonify({'error': 'task_guid and attachments required'}), 400
     result = client.add_transfer_attachments(task_guid, attachments)
-    if result and result.get('_error'):
+    if isinstance(result, dict) and result.get('_error'):
         return jsonify({'success': False, 'error': result['_error']}), 400
     return jsonify({'success': True, 'data': result})
 
@@ -295,7 +295,7 @@ def api_stock_transfer_delete_attachment():
     if not task_guid or not attachment_guid:
         return jsonify({'error': 'task_guid and attachment_guid required'}), 400
     result = client.delete_transfer_attachment(task_guid, attachment_guid)
-    if result and result.get('_error'):
+    if isinstance(result, dict) and result.get('_error'):
         return jsonify({'success': False, 'error': result['_error']}), 400
     return jsonify({'success': True})
 

@@ -3,14 +3,18 @@
 <div class="card">
     <div class="card-body">
         <h5 class="card-title"><i class="bi bi-signpost-2 me-2"></i>Маршрутный лист</h5>
-        <div class="row g-2 align-items-end mb-3">
-            <div class="col-md-3">
+        <div class="d-flex align-items-end gap-2 mb-3 flex-wrap">
+            <div style="min-width:210px">
                 <label class="form-label small">Месяц</label>
-                <input type="month" class="form-control" id="routeMonth" value="{{ now().strftime('%Y-%m') }}">
+                <div class="input-group input-group-sm">
+                    <button class="btn btn-outline-secondary" onclick="changeRouteMonth(-1)"><i class="bi bi-chevron-left"></i></button>
+                    <span class="form-control text-center fw-semibold" id="routeMonthLabel"></span>
+                    <button class="btn btn-outline-secondary" onclick="changeRouteMonth(1)"><i class="bi bi-chevron-right"></i></button>
+                </div>
             </div>
-            <div class="col-md-3">
-                <button class="btn btn-primary w-100" onclick="loadRouteSheet()">
-                    <i class="bi bi-search me-1"></i>Сформировать
+            <div>
+                <button class="btn btn-outline-secondary btn-sm" onclick="toggleRouteSort()" id="routeSortBtn" title="Новые сверху">
+                    <i class="bi bi-sort-down-alt"></i> <span id="routeSortLabel">Новые сверху</span>
                 </button>
             </div>
         </div>
@@ -34,6 +38,6 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/route.js') }}?v=3"></script>
+<script src="{{ url_for('static', filename='js/route.js') }}?v=4"></script>
 <script>document.addEventListener('DOMContentLoaded',()=>{loadRouteSheet();});</script>
 {% endblock %}

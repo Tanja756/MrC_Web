@@ -476,6 +476,37 @@ function showTaskDetail(task, mode, guid) {
             })
             .catch(() => {});
     }
+
+    fetchAndAppendFnData(task);
+}
+
+function fetchAndAppendFnData(task) {
+    if (task.priority != 300) return;
+    const text = (task.name || '') + '\n' + (task.description || '');
+    const m = text.match(/(\d+)-Пятерочка/);
+    if (!m) return;
+    const shopNumber = m[1];
+    fetch('/api/fn/shop/' + encodeURIComponent(shopNumber))
+        .then(checkAuth)
+        .then(r => r.json())
+        .then(data => {
+            const rows = data.rows || [];
+            if (rows.length === 0) return;
+            const bodyEl = document.getElementById('taskDetailBody');
+            if (!bodyEl) return;
+            let fnHtml = '<hr class="my-3"><div class="p-3 bg-light rounded-3"><small class="text-muted d-block mb-2"><i class="bi bi-cpu me-1"></i>Замена ФН</small>';
+            rows.forEach(r => {
+                fnHtml += '<div class="row g-2 small">';
+                fnHtml += '<div class="col-6"><strong>Касса:</strong> ' + esc(r.cashreg_number || '—') + '</div>';
+                fnHtml += '<div class="col-6"><strong>Зав.№ ККТ:</strong> ' + esc(r.kkt_serial || '—') + '</div>';
+                fnHtml += '<div class="col-6"><strong>Модель ККТ:</strong> ' + esc(r.kkt_model || '—') + '</div>';
+                fnHtml += '<div class="col-6"><strong>Дата оконч. ФН:</strong> ' + formatDateShort(r.fn_expiry) + '</div>';
+                fnHtml += '</div>';
+            });
+            fnHtml += '</div>';
+            bodyEl.insertAdjacentHTML('beforeend', fnHtml);
+        })
+        .catch(() => {});
 }
 
 // ============ EDIT CLOSED AT ============

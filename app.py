@@ -26,6 +26,7 @@ def create_app():
     from routes.tasks import tasks_bp
     from routes.warehouse import warehouse_bp
     from routes.ppr import ppr_bp
+    from routes.fn import fn_bp
     from routes.notifications import notif_bp
     from routes.misc import misc_bp
     from routes.route import route_bp
@@ -35,6 +36,7 @@ def create_app():
     app.register_blueprint(tasks_bp)
     app.register_blueprint(warehouse_bp)
     app.register_blueprint(ppr_bp)
+    app.register_blueprint(fn_bp)
     app.register_blueprint(notif_bp)
     app.register_blueprint(misc_bp)
     app.register_blueprint(route_bp)
