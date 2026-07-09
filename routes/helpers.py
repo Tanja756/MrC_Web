@@ -15,7 +15,7 @@ from functools import wraps
 from flask import session, request, jsonify, redirect, url_for, Response, send_file
 
 from api_client import OneSApiClient
-from yandex_disk import YandexDiskClient, sync_tasks_to_yandex, sync_warehouse_to_yandex, sync_references_to_yandex, sync_hashes_to_yandex, process_actions
+from yandex_disk import YandexDiskClient, sync_tasks_to_yandex, sync_warehouse_to_yandex, sync_references_to_yandex, sync_hashes_to_yandex, sync_fn_schedule_to_yandex, sync_ppr_to_yandex, process_actions
 from db import (
     create_notification, get_active_notifications, dismiss_notification, dismiss_all_notifications,
     get_snapshot, save_snapshot, get_snapshot_updated_at,
@@ -670,6 +670,8 @@ def background_check_user(username, force=False):
     yandex = YandexDiskClient()
     sync_tasks_to_yandex(username, user_data, free_data, closed_data, yandex=yandex)
     sync_references_to_yandex(username, client, yandex=yandex)
+    sync_fn_schedule_to_yandex(username, yandex=yandex)
+    sync_ppr_to_yandex(username, yandex=yandex)
 
     try:
         products = client.get_products()

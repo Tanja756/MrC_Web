@@ -265,6 +265,52 @@ def sync_hashes_to_yandex(username, yandex=None):
         logger.error("Yandex sync: failed to upload hashes for %s: %s", username, e)
 
 
+def sync_fn_schedule_to_yandex(username, yandex=None):
+    if yandex is None:
+        yandex = YandexDiskClient()
+    if not yandex.is_authenticated():
+        return
+    try:
+        from db import get_db_connection
+        conn = get_db_connection()
+        rows = conn.execute("SELECT * FROM fn_schedule ORDER BY id").fetchall()
+        cols = [d[0] for d in conn.description]
+        data = [dict(zip(cols, r)) for r in rows]
+        conn.close()
+    except Exception as e:
+        logger.error("Failed to read fn_schedule: %s", e)
+        return
+    try:
+        yandex.ensure_folder(f"/{username}")
+        yandex.upload_json(f"/{username}", "fn_schedule.json", data)
+        logger.info("Yandex sync: fn_schedule updated for %s", username)
+    except Exception as e:
+        logger.error("Yandex sync: failed to upload fn_schedule for %s: %s", username, e)
+
+
+def sync_ppr_to_yandex(username, yandex=None):
+    if yandex is None:
+        yandex = YandexDiskClient()
+    if not yandex.is_authenticated():
+        return
+    try:
+        from db import get_db_connection
+        conn = get_db_connection()
+        rows = conn.execute("SELECT * FROM ppr_tasks ORDER BY id").fetchall()
+        cols = [d[0] for d in conn.description]
+        data = [dict(zip(cols, r)) for r in rows]
+        conn.close()
+    except Exception as e:
+        logger.error("Failed to read ppr_tasks: %s", e)
+        return
+    try:
+        yandex.ensure_folder(f"/{username}")
+        yandex.upload_json(f"/{username}", "ppr_list.json", data)
+        logger.info("Yandex sync: ppr_list updated for %s", username)
+    except Exception as e:
+        logger.error("Yandex sync: failed to upload ppr_list for %s: %s", username, e)
+
+
 def _rename_to_error(yandex, file_path, name):
     error_path = file_path.rsplit(".", 1)[0] + ".error"
     try:
