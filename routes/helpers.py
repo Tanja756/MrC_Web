@@ -671,7 +671,7 @@ def background_check_user(username, force=False):
     sync_tasks_to_yandex(username, user_data, free_data, closed_data, yandex=yandex)
     sync_references_to_yandex(username, client, yandex=yandex)
     sync_fn_schedule_to_yandex(username, yandex=yandex)
-    sync_ppr_to_yandex(username, yandex=yandex)
+    sync_ppr_to_yandex(username, client=client, yandex=yandex)
 
     try:
         products = client.get_products()

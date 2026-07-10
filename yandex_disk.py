@@ -246,6 +246,7 @@ def sync_hashes_to_yandex(username, yandex=None):
         "tasks_closed.json": saved.get("tasks_closed_hash"),
         "warehouse.json": saved.get("warehouse_hash"),
         "references.json": saved.get("references_hash"),
+        "ppr_list.json": saved.get("ppr_hash"),
     }
     hashes = {k: v for k, v in hashes.items() if v}
 
@@ -273,8 +274,9 @@ def sync_fn_schedule_to_yandex(username, yandex=None):
     try:
         from db import get_db_connection
         conn = get_db_connection()
-        rows = conn.execute("SELECT * FROM fn_schedule ORDER BY id").fetchall()
-        cols = [d[0] for d in conn.description]
+        c = conn.execute("SELECT * FROM fn_schedule ORDER BY id")
+        rows = c.fetchall()
+        cols = [d[0] for d in c.description]
         data = [dict(zip(cols, r)) for r in rows]
         conn.close()
     except Exception as e:
@@ -288,24 +290,32 @@ def sync_fn_schedule_to_yandex(username, yandex=None):
         logger.error("Yandex sync: failed to upload fn_schedule for %s: %s", username, e)
 
 
-def sync_ppr_to_yandex(username, yandex=None):
+def sync_ppr_to_yandex(username, client=None, yandex=None):
     if yandex is None:
         yandex = YandexDiskClient()
     if not yandex.is_authenticated():
         return
-    try:
-        from db import get_db_connection
-        conn = get_db_connection()
-        rows = conn.execute("SELECT * FROM ppr_tasks ORDER BY id").fetchall()
-        cols = [d[0] for d in conn.description]
-        data = [dict(zip(cols, r)) for r in rows]
-        conn.close()
-    except Exception as e:
-        logger.error("Failed to read ppr_tasks: %s", e)
+    if client is None:
         return
+
+    try:
+        from datetime import datetime
+        year = datetime.now().year
+        quarter = (datetime.now().month - 1) // 3 + 1
+        data = client.get_ppr_list(year, quarter) or {"tasks": []}
+    except Exception as e:
+        logger.error("Failed to fetch ppr_list from 1C: %s", e)
+        return
+
+    h = compute_hash(data)
+    saved = get_yandex_upload_status(username)
+    if saved and saved.get("ppr_hash") == h:
+        return
+
     try:
         yandex.ensure_folder(f"/{username}")
         yandex.upload_json(f"/{username}", "ppr_list.json", data)
+        save_yandex_upload_status(username, ppr_hash=h)
         logger.info("Yandex sync: ppr_list updated for %s", username)
     except Exception as e:
         logger.error("Yandex sync: failed to upload ppr_list for %s: %s", username, e)
