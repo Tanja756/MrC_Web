@@ -209,18 +209,23 @@ def init_notifications_table():
         c.execute("ALTER TABLE notifications ADD COLUMN items_json TEXT DEFAULT NULL")
     except Exception:
         pass
+    # migration: add external_id column if not exists
+    try:
+        c.execute("ALTER TABLE notifications ADD COLUMN external_id TEXT DEFAULT NULL")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
-def create_notification(username, type_, title, description, storage_guid=None, items=None):
+def create_notification(username, type_, title, description, storage_guid=None, items=None, external_id=None):
     def _write():
         conn = get_db_connection()
         c = conn.cursor()
         items_json = json.dumps(items) if items else None
         c.execute("""
-            INSERT INTO notifications (username, type, title, description, storage_guid, items_json)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (username, type_, title, description, storage_guid, items_json))
+            INSERT INTO notifications (username, type, title, description, storage_guid, items_json, external_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (username, type_, title, description, storage_guid, items_json, external_id))
         conn.commit()
         conn.close()
     _retry_on_locked(_write)
@@ -654,6 +659,19 @@ def notification_exists(username, type_, desc_substring, minutes=60):
     conn.close()
     return count > 0
 
+def notification_exists_by_external_id(username, external_id):
+    if not external_id:
+        return False
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT COUNT(*) FROM notifications
+        WHERE username = ? AND external_id = ?
+    """, (username, external_id))
+    count = c.fetchone()[0]
+    conn.close()
+    return count > 0
+
 
 # --- PUSH SUBSCRIPTIONS ---
 
@@ -911,7 +929,7 @@ def init_yandex_uploads_table():
             hashes_hash TEXT
         )
     """)
-    for col in ('references_hash', 'hashes_hash', 'tasks_user_hash', 'tasks_free_hash', 'tasks_closed_hash', 'ppr_hash'):
+    for col in ('references_hash', 'hashes_hash', 'tasks_user_hash', 'tasks_free_hash', 'tasks_closed_hash', 'ppr_hash', 'fn_schedule_hash'):
         try:
             c.execute(f"ALTER TABLE yandex_uploads ADD COLUMN {col} TEXT")
         except Exception:
@@ -922,24 +940,27 @@ def init_yandex_uploads_table():
 def get_yandex_upload_status(username):
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT tasks_hash, warehouse_hash, references_hash, hashes_hash, tasks_user_hash, tasks_free_hash, tasks_closed_hash, ppr_hash FROM yandex_uploads WHERE username=?", (username,))
+    c.execute("SELECT tasks_hash, warehouse_hash, references_hash, hashes_hash, tasks_user_hash, tasks_free_hash, tasks_closed_hash, ppr_hash, fn_schedule_hash FROM yandex_uploads WHERE username=?", (username,))
     row = c.fetchone()
     conn.close()
     if row:
         return {"tasks_hash": row[0], "warehouse_hash": row[1], "references_hash": row[2], "hashes_hash": row[3],
-                "tasks_user_hash": row[4], "tasks_free_hash": row[5], "tasks_closed_hash": row[6], "ppr_hash": row[7]}
+                "tasks_user_hash": row[4], "tasks_free_hash": row[5], "tasks_closed_hash": row[6], "ppr_hash": row[7],
+                "fn_schedule_hash": row[8]}
     return None
 
 def save_yandex_upload_status(username, tasks_hash=None, warehouse_hash=None, references_hash=None, hashes_hash=None,
-                                tasks_user_hash=None, tasks_free_hash=None, tasks_closed_hash=None, ppr_hash=None):
+                                tasks_user_hash=None, tasks_free_hash=None, tasks_closed_hash=None, ppr_hash=None,
+                                fn_schedule_hash=None):
     def _write():
         conn = get_db_connection()
         c = conn.cursor()
         existing = get_yandex_upload_status(username) or {}
         c.execute("""
             INSERT OR REPLACE INTO yandex_uploads (username, tasks_hash, warehouse_hash, references_hash, hashes_hash,
-                                                   tasks_user_hash, tasks_free_hash, tasks_closed_hash, ppr_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                                   tasks_user_hash, tasks_free_hash, tasks_closed_hash, ppr_hash,
+                                                   fn_schedule_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             username,
             tasks_hash if tasks_hash is not None else existing.get("tasks_hash"),
@@ -950,6 +971,7 @@ def save_yandex_upload_status(username, tasks_hash=None, warehouse_hash=None, re
             tasks_free_hash if tasks_free_hash is not None else existing.get("tasks_free_hash"),
             tasks_closed_hash if tasks_closed_hash is not None else existing.get("tasks_closed_hash"),
             ppr_hash if ppr_hash is not None else existing.get("ppr_hash"),
+            fn_schedule_hash if fn_schedule_hash is not None else existing.get("fn_schedule_hash"),
         ))
         conn.commit()
         conn.close()

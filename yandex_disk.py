@@ -16,7 +16,18 @@ TOKEN_URL = "https://oauth.yandex.ru/token"
 
 
 class YandexDiskClient:
+    _instance = None
+    _initialized = False
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
+        if YandexDiskClient._initialized:
+            return
+        YandexDiskClient._initialized = True
         self._client_id = os.environ.get("YANDEX_CLIENT_ID", "")
         self._client_secret = os.environ.get("YANDEX_CLIENT_SECRET", "")
         self._refresh_token = os.environ.get("YANDEX_REFRESH_TOKEN", "")
@@ -59,6 +70,7 @@ class YandexDiskClient:
             dotenv_path = find_dotenv()
             if dotenv_path:
                 set_key(dotenv_path, "YANDEX_REFRESH_TOKEN", token)
+                os.environ["YANDEX_REFRESH_TOKEN"] = token
                 logger.info("Yandex refresh token updated in .env")
         except Exception as e:
             logger.warning("Failed to update YANDEX_REFRESH_TOKEN in .env: %s", e)
@@ -247,6 +259,7 @@ def sync_hashes_to_yandex(username, yandex=None):
         "warehouse.json": saved.get("warehouse_hash"),
         "references.json": saved.get("references_hash"),
         "ppr_list.json": saved.get("ppr_hash"),
+        "fn_schedule.json": saved.get("fn_schedule_hash"),
     }
     hashes = {k: v for k, v in hashes.items() if v}
 
@@ -282,9 +295,16 @@ def sync_fn_schedule_to_yandex(username, yandex=None):
     except Exception as e:
         logger.error("Failed to read fn_schedule: %s", e)
         return
+
+    h = compute_hash(data)
+    saved = get_yandex_upload_status(username)
+    if saved and saved.get("fn_schedule_hash") == h:
+        return
+
     try:
         yandex.ensure_folder(f"/{username}")
         yandex.upload_json(f"/{username}", "fn_schedule.json", data)
+        save_yandex_upload_status(username, fn_schedule_hash=h)
         logger.info("Yandex sync: fn_schedule updated for %s", username)
     except Exception as e:
         logger.error("Yandex sync: failed to upload fn_schedule for %s: %s", username, e)

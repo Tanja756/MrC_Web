@@ -434,6 +434,9 @@ function showTaskDetail(task, mode, guid) {
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
                 <button class="btn btn-success" onclick="closeTask('${guid}','${task.guid_client || ''}')"><i class="bi bi-check-lg me-1"></i>Завершить заявку</button>`;
         } else if (mode === 'my') {
+            if (task.hasAttachments) {
+                body += `<hr class="my-3"><div><small class="text-muted d-block mb-1">Вложения</small><div id="closedAttachments"><button class="btn btn-outline-secondary btn-sm" onclick="loadClosedAttachments('${guid}')"><i class="bi bi-download me-1"></i>Загрузить вложения</button></div></div>`;
+            }
             footer = `
                 <button class="btn btn-outline-secondary me-auto" onclick="showRedirectForm('${guid}','${mode}')" title="Вернуть в свободные"><i class="bi bi-arrow-return-left"></i></button>
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
@@ -463,6 +466,26 @@ function showTaskDetail(task, mode, guid) {
 
     document.getElementById('taskDetailBody').innerHTML = body;
     document.getElementById('taskDetailFooter').innerHTML = footer;
+
+    (function() {
+        const el = document.getElementById('taskDetailSapCount');
+        const text = (task.name || '') + '\n' + (task.description || '');
+        const m = text.match(/SAP-(\w{4})/i);
+        const sap = m ? m[1].toUpperCase() : '';
+        if (!sap) { el.classList.add('d-none'); return; }
+        const pattern = new RegExp('SAP-' + sap.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+        const count = [...tasksMy, ...tasksFree].filter(t => t.guid !== guid && pattern.test((t.name || '') + '\n' + (t.description || ''))).length;
+        if (count > 0) {
+            let word;
+            if (count % 10 === 1 && count % 100 !== 11) word = 'заявка';
+            else if (count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 10 || count % 100 >= 20)) word = 'заявки';
+            else word = 'заявок';
+            el.textContent = 'Ещё ' + count + ' активн' + (count % 10 === 1 && count % 100 !== 11 ? 'ая ' : 'ых ') + word;
+            el.classList.remove('d-none');
+        } else {
+            el.classList.add('d-none');
+        }
+    })();
 
     if (mode === 'user' && guid) {
         fetch('/api/tasks/' + guid + '/m15-items')
@@ -1009,6 +1032,13 @@ function renderDocProducts() {
         return;
     }
 
+    filtered.sort((a, b) => {
+        const parseDate = s => { if (!s || s === '\u2014') return 0; const [d, m, y] = s.split('.'); return new Date(y, m - 1, d); };
+        const cmp = parseDate(b.date_arrival) - parseDate(a.date_arrival);
+        if (cmp !== 0) return cmp;
+        return (a.product_name || '').localeCompare(b.product_name || '', 'ru');
+    });
+
     const maxReached = docSelectedItems.length >= 20;
     container.innerHTML = filtered.map(p => {
             const key = p.product_name + '|' + p.series_name;
@@ -1125,7 +1155,7 @@ function openDocForm(guid) {
 
         document.getElementById('docFormGuid').value = guid;
         document.getElementById('docShop').value = rx(/(\d+)-Пятерочка/);
-        const sap = rx(/SAP-(\w+)/).toUpperCase();
+        const sap = rx(/SAP-(\w{4})/).toUpperCase();
         document.getElementById('docSap').value = sap;
         document.getElementById('docCode').value = rx(/Код заявки:\s*(\S+)/);
         document.getElementById('docZd').value = rx(/Номер:\s*(\S+)/);

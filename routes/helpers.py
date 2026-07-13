@@ -20,7 +20,7 @@ from db import (
     create_notification, get_active_notifications, dismiss_notification, dismiss_all_notifications,
     get_snapshot, save_snapshot, get_snapshot_updated_at,
     get_announcements,
-    get_task_snapshot, save_task_snapshot, notification_exists, get_new_task_guids,
+    get_task_snapshot, save_task_snapshot, notification_exists, notification_exists_by_external_id, get_new_task_guids,
     save_subscription, get_subscriptions, get_all_subscriptions,
     get_all_task_snapshot_users,
     delete_subscription, delete_user_subscriptions,
@@ -492,6 +492,35 @@ def check_new_free_tasks(username, free_tasks, old_data, notify_only_mine=False,
     save_task_snapshot(username, list(current_free_guids))
 
 
+_1C_NOTIFICATION_TITLES = {
+    'new_task': 'Новое уведомление от 1С',
+}
+
+def check_1c_notifications(client, username):
+    if not client or not username:
+        return
+    try:
+        data = client.get_user_notifications()
+        notifications = data.get('notifications', [])
+    except Exception as e:
+        logger.error(f"check_1c_notifications failed for {username}: {e}")
+        return
+    for notif in notifications:
+        if notif.get('type') == 'EXPIRED_TASK':
+            continue
+        ntype = notif.get('type', '').lower()
+        guid = notif.get('guid', '')
+        description = notif.get('description', '')
+        if not guid or not description:
+            continue
+        if notification_exists_by_external_id(username, guid):
+            continue
+        title = _1C_NOTIFICATION_TITLES.get(ntype, 'Уведомление от 1С')
+        local_type = f'1c_{ntype}'
+        create_notification(username, local_type, title, description, external_id=guid)
+        send_push_notification(username, title, description)
+
+
 def _track_task_transitions(username, user_tasks, free_tasks, closed_tasks, old_free_data):
     current_user_guids = {t['guid'] for t in user_tasks if t.get('guid')}
     current_closed_guids = {t['guid'] for t in closed_tasks if t.get('guid')}
@@ -561,6 +590,7 @@ def check_tasks(username):
 
     check_deadlines(user_tasks + free_tasks, username, now, notify_only_mine, my_task_keywords)
     check_new_free_tasks(username, free_tasks, old_data, notify_only_mine, my_task_keywords)
+    check_1c_notifications(client, username)
 
 
 # --- BACKGROUND WORKER ---
@@ -660,9 +690,8 @@ def background_check_user(username, force=False):
     check_deadlines(user_tasks + free_tasks, username, now, notify_only_mine, my_task_keywords)
     _track_task_transitions(username, user_tasks, free_tasks, closed_tasks, old_data)
     check_new_free_tasks(username, free_tasks, old_data, notify_only_mine, my_task_keywords)
+    check_1c_notifications(client, username)
     background_check_balances(client, username)
-
-    process_actions(username, client)
 
     attach_tracking(user_tasks, username)
     attach_tracking(closed_tasks, username)

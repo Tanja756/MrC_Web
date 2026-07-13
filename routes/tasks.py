@@ -18,6 +18,28 @@ from utils import compress_attachments
 tasks_bp = Blueprint('tasks', __name__, url_prefix='/api/tasks')
 
 
+def _resolve_client(login='', password=''):
+    if login and password:
+        return OneSApiClient(
+            host=SERVER_HOST, port=SERVER_PORT, db_name=SERVER_DB,
+            username=login, password=password,
+        )
+    return get_api_client()
+
+
+def _fetch_task(client, guid):
+    task = client.get_task(guid)
+    if task and '_error' not in task:
+        return task
+    for fetcher in ('get_tasks_user', 'get_tasks_unallocated', 'get_closed_tasks_user'):
+        data = getattr(client, fetcher)()
+        if data and 'tasks' in data:
+            for t in data['tasks']:
+                if t.get('guid') == guid:
+                    return t
+    return None
+
+
 @tasks_bp.route('/my')
 @api_login_required
 def api_tasks_my():
@@ -80,6 +102,10 @@ def api_task_detail(guid):
     username = session.get('username', '')
     if not client:
         return jsonify({'error': 'No connection'}), 400
+    task = client.get_task(guid)
+    if task and '_error' not in task:
+        attach_tracking([task], username)
+        return jsonify(task)
     for fetcher in ('get_tasks_user', 'get_tasks_unallocated', 'get_closed_tasks_user'):
         data = getattr(client, fetcher)()
         if data and 'tasks' in data:
@@ -233,26 +259,15 @@ def api_task_documents_post():
     fields = request.json.get('fields') or None
     login = request.json.get('login') or ''
     password = request.json.get('password') or ''
-    if login and password:
-        client = OneSApiClient(
-            host=SERVER_HOST, port=SERVER_PORT, db_name=SERVER_DB,
-            username=login, password=password,
-        )
-    else:
-        client = get_api_client()
-        if not client:
-            return jsonify({'error': 'Authentication required'}), 401
+    client = _resolve_client(login, password)
+    if not client:
+        return jsonify({'error': 'Authentication required'}), 401
+    task = _fetch_task(client, guid)
+    if task is None:
+        return jsonify({'error': 'Task not found'}), 404
     closed = client.task_is_closed(guid)
     if closed and closed.get('closed'):
         return jsonify({'error': 'Задача уже закрыта. Формирование документов невозможно.'}), 400
-    all_tasks = []
-    for fetcher in ('get_tasks_user', 'get_tasks_unallocated', 'get_closed_tasks_user'):
-        data = getattr(client, fetcher)()
-        if data and 'tasks' in data:
-            all_tasks.extend(data['tasks'])
-    task = next((t for t in all_tasks if t.get('guid') == guid), None)
-    if not task:
-        return jsonify({'error': 'Task not found'}), 404
     parsed = extract_task_data(task)
     sap = parsed.get('sap', 'unknown')
     shop = parsed.get('shop', '')
@@ -292,26 +307,15 @@ def _make_doc_endpoint(include_act, include_fn, include_m15, suffix):
     password = request.json.get('password') or ''
     fields = request.json.get('fields') or None
     profile_name = request.json.get('profile_name', '')
-    if login and password:
-        client = OneSApiClient(
-            host=SERVER_HOST, port=SERVER_PORT, db_name=SERVER_DB,
-            username=login, password=password,
-        )
-    else:
-        client = get_api_client()
-        if not client:
-            return jsonify({'error': 'Authentication required'}), 401
+    client = _resolve_client(login, password)
+    if not client:
+        return jsonify({'error': 'Authentication required'}), 401
+    task = _fetch_task(client, guid)
+    if task is None:
+        return jsonify({'error': 'Task not found'}), 404
     closed = client.task_is_closed(guid)
     if closed and closed.get('closed'):
         return jsonify({'error': 'Задача уже закрыта. Формирование документов невозможно.'}), 400
-    all_tasks = []
-    for fetcher in ('get_tasks_user', 'get_tasks_unallocated', 'get_closed_tasks_user'):
-        data = getattr(client, fetcher)()
-        if data and 'tasks' in data:
-            all_tasks.extend(data['tasks'])
-    task = next((t for t in all_tasks if t.get('guid') == guid), None)
-    if not task:
-        return jsonify({'error': 'Task not found'}), 404
     parsed = extract_task_data(task)
     sap = parsed.get('sap', 'unknown')
     shop = parsed.get('shop', '')

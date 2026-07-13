@@ -173,6 +173,12 @@ class OneSApiClient:
             "year": year, "quarter": quarter
         })
 
+    def get_task(self, guid: str, filter_by_current_user: bool = True):
+        params = {"guid": guid}
+        if filter_by_current_user:
+            params["filter_by_current_user"] = "true"
+        return self._get("task", params)
+
     def task_is_closed(self, guid: str):
         return self._get("task-is-closed", {"guid": guid})
 
@@ -257,6 +263,9 @@ class OneSApiClient:
 
     def get_stock_transfers_history(self):
         return self._get("stock-transfers-history") or []
+
+    def get_user_notifications(self):
+        return self._get("user-notifications") or {"notifications": []}
 
     def get_stock_transfers_history_attachment(self, doc_guid: str, attachment_guid: str, date: str):
         return self._get("stock-transfers-history-attachment", {
