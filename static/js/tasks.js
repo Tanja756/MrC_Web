@@ -65,6 +65,20 @@ function loadTasks(search, types) {
     });
 }
 
+function autoRefreshTasks() {
+    const el = document.getElementById('taskCount');
+    refreshCurrentTab()
+        .then(() => { if (el) el.style.color = '#1a7a1a'; })
+        .catch(() => { if (el) el.style.color = '#8b0000'; })
+        .finally(() => { if (el) setTimeout(() => el.style.color = '', 2000); });
+}
+
+if (document.getElementById('tasksMyList')) {
+    setInterval(() => {
+        if (isWorkingHours()) autoRefreshTasks();
+    }, 600000);
+}
+
 function onRefreshClick() {
     const btn = document.getElementById('refreshBtn');
     btn.classList.remove('refreshed');
