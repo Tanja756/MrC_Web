@@ -382,6 +382,7 @@ function showTaskDetail(task, mode, guid) {
                     <div class="p-3 bg-light rounded-3">
                         <small class="text-muted d-block mb-1">Описание</small>
                         <p class="mb-0 task-description">${task.description || '—'}</p>
+                        <span id="taskDetailSapCountDesc" class="d-none badge bg-success text-dark mt-2"></span>
                     </div>
                 </div>
                 <div class="col-6 col-md-4 d-none d-md-block">
@@ -469,10 +470,15 @@ function showTaskDetail(task, mode, guid) {
 
     (function() {
         const el = document.getElementById('taskDetailSapCount');
+        const elDesc = document.getElementById('taskDetailSapCountDesc');
         const text = (task.name || '') + '\n' + (task.description || '');
         const m = text.match(/SAP-(\w{4})/i);
         const sap = m ? m[1].toUpperCase() : '';
-        if (!sap) { el.classList.add('d-none'); return; }
+        if (!sap) {
+            el.classList.add('d-none');
+            if (elDesc) elDesc.classList.add('d-none');
+            return;
+        }
         const pattern = new RegExp('SAP-' + sap.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
         const count = [...tasksMy, ...tasksFree].filter(t => t.guid !== guid && pattern.test((t.name || '') + '\n' + (t.description || ''))).length;
         if (count > 0) {
@@ -480,10 +486,16 @@ function showTaskDetail(task, mode, guid) {
             if (count % 10 === 1 && count % 100 !== 11) word = 'заявка';
             else if (count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 10 || count % 100 >= 20)) word = 'заявки';
             else word = 'заявок';
-            el.textContent = 'Ещё ' + count + ' активн' + (count % 10 === 1 && count % 100 !== 11 ? 'ая ' : 'ых ') + word;
+            const text = 'Ещё ' + count + ' активн' + (count % 10 === 1 && count % 100 !== 11 ? 'ая ' : 'ых ') + word;
+            el.textContent = text;
             el.classList.remove('d-none');
+            if (elDesc) {
+                elDesc.textContent = text;
+                elDesc.classList.remove('d-none');
+            }
         } else {
             el.classList.add('d-none');
+            if (elDesc) elDesc.classList.add('d-none');
         }
     })();
 

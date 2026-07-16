@@ -698,33 +698,35 @@ def background_check_user(username, force=False):
 
     yandex = YandexDiskClient()
     sync_tasks_to_yandex(username, user_data, free_data, closed_data, yandex=yandex)
-    sync_references_to_yandex(username, client, yandex=yandex)
-    sync_fn_schedule_to_yandex(username, yandex=yandex)
-    sync_ppr_to_yandex(username, client=client, yandex=yandex)
 
-    try:
-        products = client.get_products()
-        if products:
-            sync_products(products)
-    except Exception as e:
-        logger.warning("Background: failed to sync products: %s", e)
+    if not force:
+        sync_references_to_yandex(username, client, yandex=yandex)
+        sync_fn_schedule_to_yandex(username, yandex=yandex)
+        sync_ppr_to_yandex(username, client=client, yandex=yandex)
 
-    auto_close_tracked_tasks(closed_tasks, username)
+        try:
+            products = client.get_products()
+            if products:
+                sync_products(products)
+        except Exception as e:
+            logger.warning("Background: failed to sync products: %s", e)
 
-    try:
-        warehouse_data = {}
-        storages = client.get_storages()
-        if storages:
-            for storage in storages:
-                guid = storage.get('guid')
-                snap = get_snapshot(username, guid)
-                if snap is not None:
-                    warehouse_data[guid] = snap
-        sync_warehouse_to_yandex(username, warehouse_data, yandex=yandex)
-    except Exception as e:
-        logger.warning("Background: failed to prepare warehouse data for Yandex sync: %s", e)
+        auto_close_tracked_tasks(closed_tasks, username)
 
-    sync_hashes_to_yandex(username, yandex=yandex)
+        try:
+            warehouse_data = {}
+            storages = client.get_storages()
+            if storages:
+                for storage in storages:
+                    guid = storage.get('guid')
+                    snap = get_snapshot(username, guid)
+                    if snap is not None:
+                        warehouse_data[guid] = snap
+            sync_warehouse_to_yandex(username, warehouse_data, yandex=yandex)
+        except Exception as e:
+            logger.warning("Background: failed to prepare warehouse data for Yandex sync: %s", e)
+
+        sync_hashes_to_yandex(username, yandex=yandex)
 
 
 def background_check_all_users():
