@@ -21,6 +21,11 @@
             </div>
             </div>
         </div>
+        <div class="d-flex justify-content-end mb-2">
+            <button class="btn btn-outline-primary d-none" id="pprExportBtn" onclick="openPprExportModal()">
+                <i class="bi bi-download me-1"></i>Экспорт отмеченные (<span id="pprExportCount">0</span>)
+            </button>
+        </div>
         <div id="pprList"></div>
     </div>
 </div>
@@ -28,6 +33,7 @@
 {% block scripts %}
 <link href="{{ url_for('static', filename='css/tasks.css') }}?v=2" rel="stylesheet">
 {% include "modals/ppr-detail.html" %}
+{% include "modals/ppr-export.html" %}
 <script src="{{ url_for('static', filename='js/ppr.js') }}?v=3"></script>
 <script>document.addEventListener('DOMContentLoaded',()=>{restorePprFilters();loadPprDepartments();loadPpr();});</script>
 {% endblock %}

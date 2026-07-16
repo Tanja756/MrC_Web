@@ -1,4 +1,5 @@
 // ============ PPR ============
+let selectedPpr = []; // {guid, number}
 function getPprStatusClass(t) {
     if (!t || t.status === 'Closed' || t.status === 'Завершена') return 'ppr-closed';
     const deadline = t.period || t.date;
@@ -99,7 +100,10 @@ function loadPpr() {
             const tasks = (data.tasks || []).sort((a, b) => {
                 const aClosed = a.status === 'Closed' || a.status === 'Завершена' ? 1 : 0;
                 const bClosed = b.status === 'Closed' || b.status === 'Завершена' ? 1 : 0;
-                return aClosed - bClosed;
+                if (aClosed !== bClosed) return aClosed - bClosed;
+                const aDate = a.period || a.date || '';
+                const bDate = b.period || b.date || '';
+                return aDate.localeCompare(bDate);
             });
             const container = document.getElementById('pprList');
             if (tasks.length === 0) {
@@ -109,9 +113,13 @@ function loadPpr() {
             // Mobile: cards
             const mobileHtml = tasks.map(t => {
                 const cls = getPprStatusClass(t);
+                const checked = selectedPpr.some(p => p.guid === t.guid) ? 'checked' : '';
                 return `<div class="ppr-card ${cls}">
                     <div class="ppr-card-left">
-                        <div class="ppr-card-number">#${t.number || t.guid?.slice(0,8)}</div>
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="checkbox" class="ppr-cb" data-guid="${t.guid}" data-number="${escHtml(t.number || '')}" ${checked} onchange="onPprCheckChange()">
+                            <div class="ppr-card-number">#${t.number || t.guid?.slice(0,8)}</div>
+                        </div>
                         <div class="ppr-card-name">${escHtml(t.name || '')}</div>
                         <div class="ppr-card-meta">
                             <span>${escHtml(t.name_department || '—')}</span>
@@ -130,10 +138,12 @@ function loadPpr() {
 
             // Desktop: table
             const desktopHtml = `<div class="table-responsive"><table class="table table-hover ppr-table">
-                <thead><tr><th>Номер</th><th>Название</th><th>Регион</th><th>Статус</th><th>Срок</th><th></th></tr></thead>
+                <thead><tr><th style="width:40px"><input type="checkbox" id="pprSelectAll" onchange="toggleAllPpr(this.checked)"></th><th>Номер</th><th>Название</th><th>Регион</th><th>Статус</th><th>Срок</th><th></th></tr></thead>
                 <tbody>${tasks.map(t => {
                     const cls = getPprStatusClass(t);
+                    const checked = selectedPpr.some(p => p.guid === t.guid) ? 'checked' : '';
                     return `<tr class="${cls}">
+                    <td><input type="checkbox" class="ppr-cb" data-guid="${t.guid}" data-number="${escHtml(t.number || '')}" ${checked} onchange="onPprCheckChange()"></td>
                     <td><strong>#${t.number || t.guid?.slice(0,8)}</strong></td>
                     <td>${escHtml(t.name || '')}</td>
                     <td>${escHtml(t.name_department || '—')}</td>
@@ -148,7 +158,74 @@ function loadPpr() {
             </table></div>`;
 
             container.innerHTML = `<div class="d-md-none">${mobileHtml}</div><div class="d-none d-md-block">${desktopHtml}</div>`;
+            onPprCheckChange();
         });
+}
+
+function toggleAllPpr(checked) {
+    document.querySelectorAll('.ppr-cb').forEach(cb => cb.checked = checked);
+    onPprCheckChange();
+}
+
+function onPprCheckChange() {
+    selectedPpr = [];
+    document.querySelectorAll('.ppr-cb:checked').forEach(cb => {
+        selectedPpr.push({ guid: cb.dataset.guid, number: cb.dataset.number });
+    });
+    const btn = document.getElementById('pprExportBtn');
+    const count = document.getElementById('pprExportCount');
+    if (selectedPpr.length > 0) {
+        btn.classList.remove('d-none');
+        count.textContent = selectedPpr.length;
+    } else {
+        btn.classList.add('d-none');
+    }
+}
+
+function openPprExportModal() {
+    const modal = new bootstrap.Modal(document.getElementById('pprExportModal'));
+    const dateInput = document.getElementById('pprExportDate');
+    const today = new Date();
+    dateInput.value = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+    modal.show();
+}
+
+function doExportPpr() {
+    const dateVal = document.getElementById('pprExportDate').value;
+    if (!dateVal) { showAlert('Выберите дату', 'warning'); return; }
+    const parts = dateVal.split('-');
+    const dateStr = parts[2] + '.' + parts[1] + '.' + parts[0];
+    const numbers = selectedPpr.map(p => p.number).filter(Boolean);
+    if (numbers.length === 0) { showAlert('Нет выбранных ППР', 'warning'); return; }
+
+    const btn = document.getElementById('pprExportSubmitBtn');
+    const origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Загрузка...';
+
+    fetch('/api/ppr/export-xlsx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ numbers, date: dateStr })
+    }).then(checkAuth).then(r => {
+        if (!r.ok) throw new Error('Ошибка сервера');
+        return r.blob();
+    }).then(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'ppr_3q.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        bootstrap.Modal.getInstance(document.getElementById('pprExportModal'))?.hide();
+    }).catch(() => {
+        showAlert('Ошибка при скачивании файла', 'danger');
+    }).finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+    });
 }
 
 function openPprDetail(guid) {

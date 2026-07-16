@@ -411,7 +411,7 @@ def send_push_notification(username, title, body):
             )
         except Exception as e:
             err_str = str(e)
-            if '410' in err_str or '404' in err_str or '401' in err_str:
+            if any(code in err_str for code in ('410', '404', '401', '403')):
                 delete_subscription(sub['endpoint'])
             else:
                 logger.warning(f"push failed for {username}: {err_str[:120]}")

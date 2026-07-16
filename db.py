@@ -433,9 +433,15 @@ def init_products_table():
 def sync_products(products_list):
     if not products_list:
         return
+    if isinstance(products_list, dict):
+        products_list = products_list.get('products') or products_list.get('data') or []
+    if not isinstance(products_list, list):
+        return
     conn = get_db_connection()
     c = conn.cursor()
     for p in products_list:
+        if not isinstance(p, dict):
+            continue
         guid = p.get('guid', '')
         if not guid:
             continue

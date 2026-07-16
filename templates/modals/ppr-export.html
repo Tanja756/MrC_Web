@@ -1,0 +1,18 @@
+<div class="modal fade" id="pprExportModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-download me-2"></i>Экспорт ППР</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label fw-semibold">Дата проведения</label>
+                <input type="date" class="form-control" id="pprExportDate">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button class="btn btn-primary" id="pprExportSubmitBtn" onclick="doExportPpr()"><i class="bi bi-download me-1"></i>Скачать</button>
+            </div>
+        </div>
+    </div>
+</div>

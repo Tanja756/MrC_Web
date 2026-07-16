@@ -85,7 +85,15 @@ class OneSApiClient:
         return self._get("balances-report", {"storage": storage_guid}) or []
 
     def get_products(self):
-        return self._get("products") or []
+        data = self._get("products")
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            for key in ('products', 'data', 'items', 'result'):
+                val = data.get(key)
+                if isinstance(val, list):
+                    return val
+        return data or []
 
     def get_tasks_user(self, search=None, limit=None, offset=None):
         params = self._build_task_params(search, limit, offset)
