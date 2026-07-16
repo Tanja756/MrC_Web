@@ -337,7 +337,7 @@ function doPprClose(guid) {
                 const year = document.getElementById('pprYear').value || new Date().getFullYear();
                 const quarter = document.getElementById('pprQuarter').value;
                 const department = document.getElementById('pprDepartment').value;
-                ['departments', 'list'].forEach(p => { reqCache.delete('/api/ppr/' + p); });
+                cacheClearPrefix('/api/ppr/');
                 loadPpr();
             } else {
                 showAlert('Ошибка при закрытии задачи ППР', 'danger');

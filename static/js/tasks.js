@@ -766,10 +766,8 @@ function closeTask(guid, guidDoc) {
                         showAlert('Заявка закрыта! После проверки менеджером статус будет обновлён.', 'success');
                     }, 300);
                     tasksMy = tasksMy.filter(t => t.guid !== guid);
-                    reqCache.delete('/api/tasks/my');
-                    for (const key of reqCache.keys()) {
-                        if (key.startsWith('/api/tasks/closed')) reqCache.delete(key);
-                    }
+                    cacheDel('/api/tasks/my');
+                    cacheClearPrefix('/api/tasks/closed');
                     filterTasks();
                 } else {
                     const msg = data.error || data.detail?._error || data.detail?._raw || 'Ошибка при закрытии заявки';
@@ -785,10 +783,8 @@ function closeTask(guid, guidDoc) {
                     // Network error — request may have reached 1C
                     bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
                     tasksMy = tasksMy.filter(t => t.guid !== guid);
-                    reqCache.delete('/api/tasks/my');
-                    for (const key of reqCache.keys()) {
-                        if (key.startsWith('/api/tasks/closed')) reqCache.delete(key);
-                    }
+                    cacheDel('/api/tasks/my');
+                    cacheClearPrefix('/api/tasks/closed');
                     filterTasks();
                     setTimeout(() => {
                         showAlert('Заявка отправлена, проверьте статус после обновления.', 'warning');
@@ -831,9 +827,7 @@ function takeTask(guid) {
             body: JSON.stringify({guid})
         }).then(checkAuth).then(r => r.json()).then(data => {
             if (data.status === 'Выполнить' || data.status === 'OK') {
-                for (const key of reqCache.keys()) {
-                    if (key.startsWith('/api/tasks/')) reqCache.delete(key);
-                }
+                cacheClearPrefix('/api/tasks/');
                 loadTasks();
             } else {
                 showAlert(data.error || 'Не удалось взять заявку', 'danger');
@@ -869,9 +863,7 @@ function rejectTask(guid) {
                     setTimeout(() => {
                         showAlert('Заявка отменена', 'success');
                     }, 300);
-                    for (const key of reqCache.keys()) {
-                        if (key.startsWith('/api/tasks/')) reqCache.delete(key);
-                    }
+                    cacheClearPrefix('/api/tasks/');
                     loadTasks();
                 } else {
                     const msg = data.error || data.detail?._error || 'Ошибка при отмене';
@@ -942,9 +934,7 @@ function redirectTask(guid) {
                     setTimeout(() => {
                         showAlert('Заявка возвращена в свободные', 'success');
                     }, 300);
-                    for (const key of reqCache.keys()) {
-                        if (key.startsWith('/api/tasks/')) reqCache.delete(key);
-                    }
+                    cacheClearPrefix('/api/tasks/');
                     loadTasks();
                 } else {
                     const msg = data.error || data.detail?._error || 'Ошибка при возврате';
@@ -989,9 +979,7 @@ function bulkTakeTasks() {
                 const taken = data.taken || 0;
                 showAlert(`Взято: ${taken} из ${guids.length}`, 'success');
                 cancelMultiSelect();
-                for (const key of reqCache.keys()) {
-                    if (key.startsWith('/api/tasks/')) reqCache.delete(key);
-                }
+                cacheClearPrefix('/api/tasks/');
                 loadTasks();
             }).catch(() => showAlert('Ошибка сети', 'danger'));
         });

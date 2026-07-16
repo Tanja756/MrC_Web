@@ -3,8 +3,8 @@ import io
 from datetime import datetime
 from flask import Blueprint, request, jsonify, send_file
 from openpyxl import load_workbook
-from .helpers import api_login_required, get_api_client
-from utils import compress_attachments
+from .helpers import api_login_required
+from db import get_ppr_list, get_ppr_departments, add_ppr_task, add_ppr_tasks_batch, close_ppr_task
 
 ppr_bp = Blueprint('ppr', __name__, url_prefix='/api/ppr')
 
@@ -14,51 +14,51 @@ PPR_TEMPLATE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templat
 @ppr_bp.route('/list')
 @api_login_required
 def api_ppr_list():
-    client = get_api_client()
-    if not client:
-        return jsonify({"tasks": []})
     year = request.args.get('year', datetime.now().year, type=int)
     quarter = request.args.get('quarter', 1, type=int)
     department = request.args.get('department')
-    data = client.get_ppr_list(year, quarter, department)
-    return jsonify(data or {"tasks": []})
+    tasks = get_ppr_list(year, quarter, department)
+    return jsonify({"tasks": tasks})
 
 
 @ppr_bp.route('/departments')
 @api_login_required
 def api_ppr_departments():
-    client = get_api_client()
-    if not client:
-        return jsonify({"departments": []})
     year = request.args.get('year', datetime.now().year, type=int)
     quarter = request.args.get('quarter', 1, type=int)
-    data = client.get_ppr_departments(year, quarter)
-    return jsonify(data or {"departments": []})
+    departments = get_ppr_departments(year, quarter)
+    return jsonify({"departments": departments})
 
 
 @ppr_bp.route('/close', methods=['POST'])
 @api_login_required
 def api_ppr_close():
-    client = get_api_client()
-    if not client:
-        return jsonify({'error': 'No connection'}), 400
     data = request.json or {}
-    if 'attachments' in data:
-        data['attachments'] = compress_attachments(data['attachments'])
-    result = client.ppr_close(**data)
-    if isinstance(result, dict) and result.get('_error'):
-        return jsonify({'success': False, 'error': result['_error']}), 400
+    guid = data.get('guid')
+    if not guid:
+        return jsonify({'error': 'guid is required'}), 400
+    comment = data.get('comment', '')
+    latitude = data.get('latitude', 0.0)
+    longitude = data.get('longitude', 0.0)
+    success = close_ppr_task(guid, comment, latitude, longitude)
+    if not success:
+        return jsonify({'error': 'Task not found or already closed'}), 404
     return jsonify({'success': True})
 
 
 @ppr_bp.route('/add', methods=['POST'])
 @api_login_required
 def api_ppr_add():
-    client = get_api_client()
-    if not client:
-        return jsonify({'error': 'No connection'}), 400
-    result = client.ppr_add(**request.json)
-    return jsonify(result or {})
+    data = request.json or {}
+    if "tasks" in data and isinstance(data["tasks"], list):
+        if not data["tasks"]:
+            return jsonify({'error': 'Empty tasks list'}), 400
+        guids = add_ppr_tasks_batch(data["tasks"])
+        return jsonify({"status": "ok", "count": len(guids), "guids": guids})
+    if not data.get("number") or not data.get("name") or not data.get("name_department"):
+        return jsonify({'error': 'number, name and name_department are required'}), 400
+    guid = add_ppr_task(data)
+    return jsonify({"status": "ok", "guid": guid})
 
 
 @ppr_bp.route('/export-xlsx', methods=['POST'])

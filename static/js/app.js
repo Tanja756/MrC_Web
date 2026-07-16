@@ -254,9 +254,8 @@ function dismissAllNotifications() {
     const container = document.getElementById('notificationsList');
     if (container) container.innerHTML = '<div class="text-muted small">\u041E\u0447\u0438\u0441\u0442\u043A\u0430...</div>';
     const storage = document.getElementById('storageSelect')?.value || '';
-    for (const key of reqCache.keys()) {
-        if (key.startsWith('/api/notifications')) reqCache.delete(key);
-    }
+    cacheClearPrefix('/api/notifications');
+
     document.getElementById('notifDropdown')?.classList.remove('show');
     fetch('/api/notifications/dismiss-all', {method: 'POST'})
         .then(checkAuth)
@@ -288,9 +287,7 @@ function dismissNotification(id) {
     fetch(`/api/notifications/${id}/dismiss`, {method: 'POST'})
         .then(checkAuth)
         .then(() => {
-            for (const key of reqCache.keys()) {
-                if (key.startsWith('/api/notifications')) reqCache.delete(key);
-            }
+            cacheClearPrefix('/api/notifications');
             loadNotifications(storage);
         })
         .catch(() => {

@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from dotenv import load_dotenv
 from flask import Flask
+from flask_compress import Compress
 
 from config import config
 
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 def create_app():
     app = Flask(__name__)
+    Compress(app)
     env = os.environ.get('FLASK_ENV', 'development')
     app.config.from_object(config.get(env, config['development']))
     app.config['ENV'] = env

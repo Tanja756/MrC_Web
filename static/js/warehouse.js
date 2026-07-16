@@ -39,9 +39,7 @@ function loadBalances() {
 function refreshBalances() {
     const guid = document.getElementById('storageSelect').value;
     if (guid) {
-        for (const key of reqCache.keys()) {
-            if (key.startsWith('/api/warehouse/balances')) reqCache.delete(key);
-        }
+        cacheClearPrefix('/api/warehouse/balances');
     }
     loadBalances();
 }
@@ -174,9 +172,7 @@ function toggleBroken(checkbox, product_name, series_name, inventory_number, bro
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({storage_guid, product_name, series_name, inventory_number, broken})
     }).then(checkAuth).then(() => {
-        for (const key of reqCache.keys()) {
-            if (key.startsWith('/api/warehouse/balances')) reqCache.delete(key);
-        }
+        cacheClearPrefix('/api/warehouse/balances');
         loadBalances();
     }).catch(() => {});
 }
@@ -321,9 +317,7 @@ function loadStockTransfersHistory(force) {
     container.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-muted"></div></div>';
 
     if (force) {
-        for (const key of reqCache.keys()) {
-            if (key.startsWith('/api/warehouse/stock-transfers-history')) reqCache.delete(key);
-        }
+        cacheClearPrefix('/api/warehouse/stock-transfers-history');
     }
 
     fetchDeduped('/api/warehouse/stock-transfers-history', undefined, 300000)

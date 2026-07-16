@@ -3,6 +3,8 @@ import logging
 import json
 import time
 import re
+import uuid
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -1294,6 +1296,174 @@ def get_fn_months():
     return [r[0] for r in rows]
 
 
+# ── PPR (Planned Preventive Repairs) ────────────────────────────────────────
+
+def init_ppr_tasks_table():
+    conn = get_db_connection()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ppr_tasks (
+            guid TEXT PRIMARY KEY,
+            number TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            status TEXT NOT NULL DEFAULT 'Принять в работу',
+            date TEXT,
+            period TEXT,
+            priority INTEGER DEFAULT 0,
+            name_department TEXT NOT NULL,
+            user_name TEXT,
+            guid_client TEXT,
+            close_comment TEXT,
+            latitude REAL DEFAULT 0.0,
+            longitude REAL DEFAULT 0.0,
+            has_attachments INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ppr_tasks_date ON ppr_tasks(date)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ppr_tasks_dept ON ppr_tasks(name_department)")
+    conn.close()
+
+
+def get_ppr_list(year: int, quarter: int, department: str = None) -> list[dict]:
+    month_start = (quarter - 1) * 3 + 1
+    if quarter < 4:
+        month_end = quarter * 3 + 1
+        year_end = year
+    else:
+        month_end = 1
+        year_end = year + 1
+    date_start = f"{year:04d}-{month_start:02d}-01"
+    date_end = f"{year_end:04d}-{month_end:02d}-01"
+
+    query = "SELECT * FROM ppr_tasks WHERE date >= ? AND date < ?"
+    params: list = [date_start, date_end]
+    if department:
+        query += " AND name_department = ?"
+        params.append(department)
+    query += " ORDER BY date DESC"
+
+    conn = get_db_connection()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.execute(query, params)
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return rows
+
+
+def get_ppr_departments(year: int, quarter: int) -> list[str]:
+    month_start = (quarter - 1) * 3 + 1
+    if quarter < 4:
+        month_end = quarter * 3 + 1
+        year_end = year
+    else:
+        month_end = 1
+        year_end = year + 1
+    date_start = f"{year:04d}-{month_start:02d}-01"
+    date_end = f"{year_end:04d}-{month_end:02d}-01"
+
+    conn = get_db_connection()
+    cursor = conn.execute(
+        "SELECT DISTINCT name_department FROM ppr_tasks WHERE date >= ? AND date < ? ORDER BY name_department",
+        (date_start, date_end)
+    )
+    rows = [r[0] for r in cursor.fetchall()]
+    conn.close()
+    return rows
+
+
+def add_ppr_task(data: dict) -> str:
+    task_guid = data.get("guid", str(uuid.uuid4()))
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db_connection()
+    conn.execute("""
+        INSERT INTO ppr_tasks (
+            guid, number, name, description, status, date, period,
+            priority, name_department, user_name, guid_client,
+            close_comment, latitude, longitude, has_attachments,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        task_guid,
+        data.get("number"),
+        data.get("name"),
+        data.get("description"),
+        data.get("status", "open"),
+        data.get("date", now[:10]),
+        data.get("period"),
+        data.get("priority", 0),
+        data.get("name_department"),
+        data.get("user_name"),
+        data.get("guid_client"),
+        data.get("close_comment"),
+        data.get("latitude", 0.0),
+        data.get("longitude", 0.0),
+        1 if data.get("has_attachments") else 0,
+        now,
+        now
+    ))
+    conn.commit()
+    conn.close()
+    return task_guid
+
+
+def add_ppr_tasks_batch(tasks_list: list[dict]) -> list[str]:
+    guids = []
+    conn = get_db_connection()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for data in tasks_list:
+        task_guid = data.get("guid", str(uuid.uuid4()))
+        guids.append(task_guid)
+        conn.execute("""
+            INSERT INTO ppr_tasks (
+                guid, number, name, description, status, date, period,
+                priority, name_department, user_name, guid_client,
+                close_comment, latitude, longitude, has_attachments,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            task_guid,
+            data.get("number"),
+            data.get("name"),
+            data.get("description"),
+            data.get("status", "open"),
+            data.get("date", now[:10]),
+            data.get("period"),
+            data.get("priority", 0),
+            data.get("name_department"),
+            data.get("user_name"),
+            data.get("guid_client"),
+            data.get("close_comment"),
+            data.get("latitude", 0.0),
+            data.get("longitude", 0.0),
+            1 if data.get("has_attachments") else 0,
+            now,
+            now
+        ))
+    conn.commit()
+    conn.close()
+    return guids
+
+
+def close_ppr_task(guid: str, comment: str, latitude: float = 0.0, longitude: float = 0.0) -> bool:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db_connection()
+    cursor = conn.execute("""
+        UPDATE ppr_tasks
+        SET status = 'Завершена',
+            close_comment = ?,
+            latitude = CASE WHEN ? != 0.0 THEN ? ELSE latitude END,
+            longitude = CASE WHEN ? != 0.0 THEN ? ELSE longitude END,
+            updated_at = ?
+        WHERE guid = ? AND status != 'Завершена'
+    """, (comment, latitude, latitude, longitude, longitude, now, guid))
+    conn.commit()
+    updated = cursor.rowcount > 0
+    conn.close()
+    return updated
+
+
 # Инициализация БД при импорте модуля
 try:
     init_db()
@@ -1311,5 +1481,6 @@ try:
     init_task_m15_text_table()
     init_user_settings_table()
     init_fn_schedule_table()
+    init_ppr_tasks_table()
 except Exception as e:
     logger.warning(f"init_db failed (readonly?): {e}")

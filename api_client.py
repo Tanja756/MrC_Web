@@ -22,13 +22,36 @@ class OneSApiClient:
             "Content-Type": "application/json",
         })
 
+    @staticmethod
+    def _clean_response(data, endpoint: str):
+        """Strip heavy fields from 1C responses (same as mrc_proxy did)."""
+        CLEAN_DOCS_SERVICES = ("tasks-user", "tasks-unallocated", "closed-tasks-user")
+        CLEAN_ATTACHMENTS = ("stock-transfers",)
+
+        if isinstance(data, dict):
+            if any(endpoint.endswith(s) for s in CLEAN_DOCS_SERVICES):
+                data.pop("docs", None)
+                data.pop("services", None)
+                for task in data.get("tasks", []):
+                    for att in task.get("attachments", []):
+                        att.pop("content", None)
+                return data
+        if isinstance(data, list):
+            if any(endpoint.endswith(s) for s in CLEAN_ATTACHMENTS):
+                for item in data:
+                    for att in item.get("attachments", []):
+                        att.pop("content", None)
+                return data
+        return data
+
     def _get(self, endpoint: str, params: dict = None):
         url = f"{self.base_url}/{endpoint}"
         try:
             r = self.session.get(url, params=params, timeout=30)
             logger.info(f"_get {r.status_code} {url}")
             r.raise_for_status()
-            return r.json()
+            data = r.json()
+            return self._clean_response(data, endpoint)
         except requests.exceptions.Timeout:
             logger.error(f"_get timeout: {url}")
             return None
@@ -154,33 +177,6 @@ class OneSApiClient:
             "end_date": end_date,
         }) or []
 
-    def get_ppr_list(self, year: int, quarter: int, department: str = None):
-        params = {"year": year, "quarter": quarter}
-        if department:
-            params["name_department"] = department
-        return self._get("ppr_list", params)
-
-    def ppr_close(self, guid: str, comment: str,
-                  latitude: float, longitude: float,
-                  attachments: list = None):
-        if attachments is None:
-            attachments = []
-        return self._post("ppr_close", {
-            "guid": guid,
-            "comment": comment,
-            "latitude": latitude,
-            "longitude": longitude,
-            "attachments": attachments,
-        })
-
-    def ppr_add(self, **kwargs):
-        return self._post("ppr_add", kwargs)
-
-    def get_ppr_departments(self, year: int, quarter: int):
-        return self._get("ppr_departments", {
-            "year": year, "quarter": quarter
-        })
-
     def get_task(self, guid: str, filter_by_current_user: bool = True):
         params = {"guid": guid}
         if filter_by_current_user:
@@ -195,12 +191,6 @@ class OneSApiClient:
 
     def task_redirect(self, guid: str, comment: str):
         return self._post("task-redirect", {"guid": guid, "comment": comment})
-
-    def get_profile(self, username: str):
-        return self._get("profile", {"username": username}) or {}
-
-    def save_profile(self, username: str, profile: dict):
-        return self._post("profile", {"username": username, "profile": profile})
 
     def get_stock_transfers(self):
         return self._get("stock-transfers") or []

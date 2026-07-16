@@ -315,16 +315,16 @@ def sync_ppr_to_yandex(username, client=None, yandex=None):
         yandex = YandexDiskClient()
     if not yandex.is_authenticated():
         return
-    if client is None:
-        return
 
     try:
         from datetime import datetime
+        from db import get_ppr_list
         year = datetime.now().year
         quarter = (datetime.now().month - 1) // 3 + 1
-        data = client.get_ppr_list(year, quarter) or {"tasks": []}
+        tasks = get_ppr_list(year, quarter)
+        data = {"tasks": tasks}
     except Exception as e:
-        logger.error("Failed to fetch ppr_list from 1C: %s", e)
+        logger.error("Failed to fetch ppr_list from local DB: %s", e)
         return
 
     h = compute_hash(data)

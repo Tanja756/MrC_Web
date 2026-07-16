@@ -22,15 +22,23 @@ def api_salary():
     return jsonify(client.get_salary(start_date, end_date))
 
 
-# --- Profile ---
+# --- Profile (local only — 1C не имеет profile endpoint) ---
 @misc_bp.route('/api/profile')
 @api_login_required
 def api_profile_get():
-    client = get_api_client()
     username = session.get('username', '')
-    if not client or not username:
+    if not username:
         return jsonify({"profile": {}})
-    return jsonify(client.get_profile(username))
+    try:
+        from db import get_user_settings
+        settings = get_user_settings(username) or {}
+        return jsonify({"profile": {
+            "notifyOnlyMine": str(settings.get("notify_only_mine", 0)),
+            "myTaskKeywords": settings.get("my_task_keywords", ""),
+        }})
+    except Exception as e:
+        logger.warning(f"Failed to fetch profile: {e}")
+        return jsonify({"profile": {}})
 
 
 @misc_bp.route('/api/profile/clear-cache', methods=['POST'])
@@ -50,19 +58,19 @@ def api_profile_clear_cache():
 @misc_bp.route('/api/profile', methods=['POST'])
 @api_login_required
 def api_profile_post():
-    client = get_api_client()
     username = session.get('username', '')
-    if not client or not username:
-        return jsonify({'error': 'No connection'}), 400
+    if not username:
+        return jsonify({'error': 'Not authenticated'}), 401
     profile = request.json.get('profile', {})
     try:
         from db import save_user_settings
         notify_only_mine = 1 if profile.get('notifyOnlyMine') == 'true' else 0
         my_task_keywords = profile.get('myTaskKeywords', '')
         save_user_settings(username, notify_only_mine, my_task_keywords)
+        return jsonify({"status": "ok"})
     except Exception as e:
-        logger.warning(f"Failed to save user settings locally: {e}")
-    return jsonify(client.save_profile(username, profile) or {})
+        logger.warning(f"Failed to save profile: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500
 
 
 # --- Announcements ---

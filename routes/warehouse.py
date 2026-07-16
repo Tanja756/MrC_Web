@@ -15,7 +15,7 @@ from .helpers import (
     get_arrival_overrides, set_arrival_override,
     sync_and_enrich_products, enrich_products_to_dict,
 )
-from utils import compress_attachments
+from utils import compress_attachments, compress_image_bytes
 
 warehouse_bp = Blueprint('warehouse', __name__, url_prefix='/api/warehouse')
 
@@ -251,6 +251,7 @@ def api_stock_transfer_attachment(task_guid, attachment_guid):
     except Exception:
         return jsonify({'error': 'Invalid attachment content'}), 500
     filename = data.get('filename', 'file')
+    content = compress_image_bytes(content, filename)
     ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
     mime_map = {'jpg':'image/jpeg','jpeg':'image/jpeg','png':'image/png','gif':'image/gif','webp':'image/webp','bmp':'image/bmp','pdf':'application/pdf','zip':'application/zip','doc':'application/msword','docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','xls':'application/vnd.ms-excel','xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}
     mime = mime_map.get(ext, 'application/octet-stream')
@@ -479,6 +480,7 @@ def _send_attachment(att):
     except Exception:
         return jsonify({'error': 'Invalid attachment content'}), 500
     filename = att.get('filename', 'file')
+    content = compress_image_bytes(content, filename)
     ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
     mime_map = {'jpg':'image/jpeg','jpeg':'image/jpeg','png':'image/png','gif':'image/gif','webp':'image/webp','bmp':'image/bmp','pdf':'application/pdf','zip':'application/zip','doc':'application/msword','docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','xls':'application/vnd.ms-excel','xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}
     mime = mime_map.get(ext, 'application/octet-stream')

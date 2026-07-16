@@ -3,6 +3,7 @@ import re
 import json
 import uuid
 import base64
+import hashlib
 import secrets
 import subprocess
 import tempfile
@@ -807,6 +808,16 @@ def background_check_loop():
 
         sleep_interval = min(ACTION_CHECK_INTERVAL, BACKGROUND_CHECK_INTERVAL)
         _background_stop.wait(sleep_interval)
+
+
+def make_etag_response(data):
+    json_str = json.dumps(data, ensure_ascii=False, default=str, separators=(',', ':'))
+    etag = hashlib.md5(json_str.encode('utf-8')).hexdigest()
+    if request.if_none_match and etag in request.if_none_match:
+        return ("", 304)
+    resp = Response(json_str, mimetype='application/json')
+    resp.set_etag(etag)
+    return resp
 
 
 def start_background_worker():

@@ -1,20 +1,63 @@
 const inflight = new Map();
 const reqCache = new Map();
+
+// localStorage cache helpers (persistent across page reloads)
+const _LC_PREFIX = 'fc:';
+function _lsHash(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) { h = ((h << 5) - h) + str.charCodeAt(i); h |= 0; }
+  return (h >>> 0).toString(36);
+}
+function _lsKey(raw) { return _LC_PREFIX + _lsHash(raw); }
+function _lsCGet(key) {
+  try { const v = localStorage.getItem(_lsKey(key)); return v ? JSON.parse(v) : null; } catch { return null; }
+}
+function _lsCSet(key, data, ts) {
+  try { localStorage.setItem(_lsKey(key), JSON.stringify({data, ts, _k: key})); } catch {}
+}
+function _lsCDel(key) {
+  try { localStorage.removeItem(_lsKey(key)); } catch {}
+}
+function _lsCClearPrefix(prefix) {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(_LC_PREFIX)) {
+        try {
+          const v = JSON.parse(localStorage.getItem(k));
+          if (v && v._k && v._k.startsWith(prefix)) localStorage.removeItem(k);
+        } catch { localStorage.removeItem(k); }
+      }
+    }
+  } catch {}
+}
+
 function fetchDeduped(url, options, ttl) {
   const key = url + (options ? JSON.stringify(options) : '');
   if (inflight.has(key)) return inflight.get(key);
-  if (ttl && reqCache.has(key)) {
-    const cached = reqCache.get(key);
-    if (Date.now() - cached.ts < ttl) return Promise.resolve(cached.data);
+
+  if (ttl) {
+    const mem = reqCache.get(key);
+    if (mem && Date.now() - mem.ts < ttl) return Promise.resolve(mem.data);
     reqCache.delete(key);
+
+    const ls = _lsCGet(key);
+    if (ls && Date.now() - ls.ts < ttl) {
+      reqCache.set(key, {data: ls.data, ts: ls.ts});
+      return Promise.resolve(ls.data);
+    }
+    _lsCDel(key);
   }
+
   const p = fetch(url, options).then(r => {
     inflight.delete(key);
     if (r.status === 401) { window.location.href = '/login'; throw new Error('Session expired'); }
     const ct = r.headers.get('content-type') || '';
     if (r.ok && ct.includes('json') && ttl) {
       return r.clone().json().then(data => {
-        reqCache.set(key, { data, ts: Date.now() });
+        const ts = Date.now();
+        reqCache.set(key, {data, ts});
+        _lsCSet(key, data, ts);
         return data;
       });
     }
@@ -25,6 +68,16 @@ function fetchDeduped(url, options, ttl) {
   });
   inflight.set(key, p);
   return p;
+}
+
+function cacheDel(key) {
+  reqCache.delete(key);
+  _lsCDel(key);
+}
+
+function cacheClearPrefix(prefix) {
+  for (const k of reqCache.keys()) { if (k.startsWith(prefix)) reqCache.delete(k); }
+  _lsCClearPrefix(prefix);
 }
 
 const currentStorage = () => document.getElementById('storageSelect')?.value || '';

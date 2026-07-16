@@ -12,8 +12,9 @@ from .helpers import (
     project_tasks, attach_tracking, filter_tasks,
     auto_close_tracked_tasks, get_new_task_guids,
     SERVER_HOST, SERVER_PORT, SERVER_DB,
+    make_etag_response,
 )
-from utils import compress_attachments
+from utils import compress_attachments, compress_image
 
 tasks_bp = Blueprint('tasks', __name__, url_prefix='/api/tasks')
 
@@ -54,7 +55,7 @@ def api_tasks_my():
     tasks = project_tasks(data.get('tasks', []))
     attach_tracking(tasks, username)
     tasks = filter_tasks(tasks, search, sort, dir)
-    return jsonify({"tasks": tasks})
+    return make_etag_response({"tasks": tasks})
 
 
 @tasks_bp.route('/free')
@@ -74,7 +75,7 @@ def api_tasks_free():
         if t.get('guid') in new_guids:
             t['is_new'] = True
     tasks = filter_tasks(tasks, search, sort, dir)
-    return jsonify({"tasks": tasks})
+    return make_etag_response({"tasks": tasks})
 
 
 @tasks_bp.route('/closed')
@@ -92,7 +93,7 @@ def api_tasks_closed():
     attach_tracking(tasks, username)
     auto_close_tracked_tasks(tasks, username)
     tasks = filter_tasks(tasks, search, sort, dir)
-    return jsonify({"tasks": tasks})
+    return make_etag_response({"tasks": tasks})
 
 
 @tasks_bp.route('/<guid>')
@@ -104,6 +105,10 @@ def api_task_detail(guid):
         return jsonify({'error': 'No connection'}), 400
     task = client.get_task(guid)
     if task and '_error' not in task:
+        task.pop('docs', None)
+        task.pop('services', None)
+        for att in task.get('attachments', []):
+            att.pop('content', None)
         attach_tracking([task], username)
         return jsonify(task)
     for fetcher in ('get_tasks_user', 'get_tasks_unallocated', 'get_closed_tasks_user'):
@@ -235,6 +240,10 @@ def api_task_attachments(guid):
     data = client.get_task_attachments(guid)
     if data is None:
         return jsonify({'attachments': []})
+    for att in data.get('attachments', []):
+        content = att.get('content')
+        if content:
+            att['content'] = compress_image(content, att.get('filename', ''))
     return jsonify(data)
 
 
