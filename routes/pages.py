@@ -40,6 +40,11 @@ def upload_page():
     return render_template('pages/upload.html', title='Загрузка')
 
 
+@pages_bp.route('/references')
+@login_required
+def references_page():
+    return render_template('pages/references.html', title='Справочники')
+
 @pages_bp.route('/settings')
 @login_required
 def settings_page():

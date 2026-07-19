@@ -1,8 +1,8 @@
-from flask import Blueprint, request, jsonify
 import re
-import requests
 import time
+from flask import Blueprint, request, jsonify
 from .helpers import api_login_required
+from .fias import fetch_fias_hints
 from db import (
     upsert_fn_schedule, get_fn_schedule_list, get_fn_schedule_by_shop,
     delete_fn_schedule, get_fn_engineers, get_fn_months,
@@ -10,17 +10,6 @@ from db import (
 )
 
 fn_bp = Blueprint('fn', __name__, url_prefix='/api/fn')
-
-FIAS_API_URL = "https://fias-public-service.nalog.ru/api/spas/v2.0/GetAddressHint"
-MASTER_TOKEN = "bfa2407b-1dc4-4714-9346-b678408eb099"
-
-FIAS_HEADERS = {
-    "Content-Type": "application/json",
-    "master-token": MASTER_TOKEN,
-    "Origin": "https://fias.nalog.ru",
-    "Referer": "https://fias.nalog.ru/",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-}
 
 
 def _build_search_string(raw: str) -> str:
@@ -30,21 +19,6 @@ def _build_search_string(raw: str) -> str:
             parts = parts[i:]
             break
     return ', '.join(p for p in parts if p)
-
-
-def _fetch_hints(search_string: str) -> list:
-    payload = {
-        "searchString": search_string,
-        "addressType": 2,
-        "searchNonActive": False
-    }
-    try:
-        resp = requests.post(FIAS_API_URL, json=payload, headers=FIAS_HEADERS, timeout=15)
-        if resp.status_code == 200:
-            return resp.json().get("hints", [])
-    except Exception:
-        pass
-    return []
 
 
 def _select_best_hint(hints: list) -> str:
@@ -61,26 +35,26 @@ def _select_best_hint(hints: list) -> str:
 
 
 def _normalize_with_fallbacks(search_string: str) -> str:
-    hints = _fetch_hints(search_string)
+    hints = fetch_fias_hints(search_string)
     if hints:
         return _select_best_hint(hints)
 
     clean1 = search_string.replace(" УЛ", "").replace("_УЛ", "")
     clean1 = ", ".join(p for p in (x.strip() for x in clean1.split(",")) if p)
-    hints = _fetch_hints(clean1)
+    hints = fetch_fias_hints(clean1)
     if hints:
         return _select_best_hint(hints)
 
     clean2 = re.sub(r'\bУЛ\b', '', search_string)
     clean2 = ", ".join(p for p in (x.strip() for x in clean2.split(",")) if p)
-    hints = _fetch_hints(clean2)
+    hints = fetch_fias_hints(clean2)
     if hints:
         return _select_best_hint(hints)
 
     clean3 = re.sub(r'([А-Яа-яЁё_])УЛ', r'\1 УЛ', search_string)
     clean3 = clean3.replace('_УЛ', ' УЛ')
     clean3 = ", ".join(p for p in (x.strip() for x in clean3.split(",")) if p)
-    hints = _fetch_hints(clean3)
+    hints = fetch_fias_hints(clean3)
     if hints:
         return _select_best_hint(hints)
 

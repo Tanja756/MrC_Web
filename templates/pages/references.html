@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<ul class="nav nav-pills mb-3" id="referencesTabs">
+    <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#ref-shops">Магазины</button></li>
+</ul>
+<div class="tab-content">
+    <div class="tab-pane fade show active" id="ref-shops">
+        <div class="d-flex align-items-center gap-2 mb-3">
+            <button class="btn btn-primary btn-sm" onclick="openShopModal()"><i class="bi bi-plus-lg me-1"></i>Добавить магазин</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="loadShops()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle" id="shopsTable">
+                <thead class="table-dark">
+                    <tr>
+                        <th>#</th>
+                        <th>Номер магазина</th>
+                        <th>SAP-код</th>
+                        <th>Адрес</th>
+                        <th style="width:100px">Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="shopsTableBody">
+                    <tr><td colspan="5" class="text-center text-muted py-4">Загрузка...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/references.js') }}?v=1"></script>
+{% include "modals/shop-form.html" %}
+{% endblock %}

@@ -427,10 +427,22 @@ def api_stock_transfers_history_attachment():
     if not doc_guid or not attachment_guid:
         return jsonify({'error': 'doc_guid and attachment_guid are required'}), 400
 
-    # Find document date from cache
+    client = get_api_client()
+    if not client:
+        return jsonify({'error': 'No connection'}), 502
+
+    # Load history from cache or 1C
+    global _stock_transfers_history_cache
     cached = _stock_transfers_history_cache.get("data")
     if not cached:
-        return jsonify({'error': 'Document not found in cache'}), 404
+        data = client.get_stock_transfers_history()
+        if data:
+            _stock_transfers_history_cache["data"] = data
+            _stock_transfers_history_cache["updated_at"] = datetime.now()
+            cached = data
+
+    if not cached:
+        return jsonify({'error': 'Failed to load stock transfers history'}), 502
 
     found_doc = None
     for doc in cached:
@@ -439,16 +451,11 @@ def api_stock_transfers_history_attachment():
             break
 
     if not found_doc:
-        return jsonify({'error': 'Document not found in cache'}), 404
+        return jsonify({'error': 'Document not found'}), 404
 
     doc_date = found_doc.get('date')
     if not doc_date:
-        return jsonify({'error': 'Document date not available in cache'}), 404
-
-    # Request 1C with date filter
-    client = get_api_client()
-    if not client:
-        return jsonify({'error': 'No connection'}), 502
+        return jsonify({'error': 'Document date not available'}), 404
 
     # Extract date portion (e.g. "10.06.2026 12:25:33" -> "10.06.2026")
     short_date_str = doc_date[:10] if len(doc_date) >= 10 else doc_date

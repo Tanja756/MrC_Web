@@ -274,9 +274,6 @@ def api_task_documents_post():
     task = _fetch_task(client, guid)
     if task is None:
         return jsonify({'error': 'Task not found'}), 404
-    closed = client.task_is_closed(guid)
-    if closed and closed.get('closed'):
-        return jsonify({'error': 'Задача уже закрыта. Формирование документов невозможно.'}), 400
     parsed = extract_task_data(task)
     sap = parsed.get('sap', 'unknown')
     shop = parsed.get('shop', '')
@@ -322,9 +319,6 @@ def _make_doc_endpoint(include_act, include_fn, include_m15, suffix):
     task = _fetch_task(client, guid)
     if task is None:
         return jsonify({'error': 'Task not found'}), 404
-    closed = client.task_is_closed(guid)
-    if closed and closed.get('closed'):
-        return jsonify({'error': 'Задача уже закрыта. Формирование документов невозможно.'}), 400
     parsed = extract_task_data(task)
     sap = parsed.get('sap', 'unknown')
     shop = parsed.get('shop', '')

@@ -476,7 +476,7 @@ function showTaskDetail(task, mode, guid) {
                 body += `<hr class="my-3"><div><small class="text-muted d-block mb-1">Вложения</small><div id="closedAttachments"><button class="btn btn-outline-secondary btn-sm" onclick="loadClosedAttachments('${guid}')"><i class="bi bi-download me-1"></i>Загрузить вложения</button></div></div>`;
             }
             const showRedirect = task.status && (task.status.includes('Подтвердить') || task.status.includes('подтвердить'));
-            footer = `${showRedirect ? `<button class="btn btn-outline-secondary me-auto" onclick="showRedirectForm('${guid}','${mode}')" title="Вернуть в свободные"><i class="bi bi-arrow-return-left"></i></button>` : ''}<button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
+            footer = `${showRedirect ? `<button class="btn btn-outline-secondary me-auto" onclick="showRedirectForm('${guid}','${mode}')" title="Вернуть в свободные"><i class="bi bi-arrow-return-left"></i></button>` : ''}<button class="btn btn-outline-secondary" onclick="openDocForm('${guid}')"><i class="bi bi-file-earmark-text me-1"></i>Документы</button><button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
         }
 
     document.getElementById('taskDetailBody').innerHTML = body;

@@ -1,5 +1,6 @@
 import os
 import json
+import gzip
 import hashlib
 import logging
 import re
@@ -105,11 +106,9 @@ class YandexDiskClient:
 
     def upload_json(self, folder_path, filename, data):
         folder_path = folder_path.strip("/")
+        if not filename.endswith('.gz'):
+            filename += '.gz'
         file_path = f"{folder_path}/{filename}"
-
-        delete_r = self._request("DELETE", DISK_API, params={"path": file_path})
-        if delete_r.status_code not in (200, 202, 204, 404):
-            delete_r.raise_for_status()
 
         upload_r = self._request("GET", DISK_API + "/upload", params={
             "path": file_path,
@@ -119,17 +118,14 @@ class YandexDiskClient:
         upload_url = upload_r.json()["href"]
 
         body = json.dumps(data, ensure_ascii=False, default=str, sort_keys=True).encode("utf-8")
-        put_r = requests.put(upload_url, data=body, timeout=30)
+        compressed = gzip.compress(body)
+        put_r = requests.put(upload_url, data=compressed, timeout=30)
         put_r.raise_for_status()
-        logger.info("Uploaded Yandex.Disk: %s (%d bytes)", file_path, len(body))
+        logger.info("Uploaded Yandex.Disk: %s (%d -> %d bytes)", file_path, len(body), len(compressed))
 
     def upload_file(self, folder_path, filename, data: bytes):
         folder_path = folder_path.strip("/")
         file_path = f"{folder_path}/{filename}"
-
-        delete_r = self._request("DELETE", DISK_API, params={"path": file_path})
-        if delete_r.status_code not in (200, 202, 204, 404):
-            delete_r.raise_for_status()
 
         upload_r = self._request("GET", DISK_API + "/upload", params={
             "path": file_path,
@@ -156,9 +152,12 @@ class YandexDiskClient:
         r = self._request("GET", DISK_API + "/download", params={"path": file_path})
         r.raise_for_status()
         href = r.json()["href"]
-        body = requests.get(href, timeout=30)
-        body.raise_for_status()
-        return body.text
+        resp = requests.get(href, timeout=30)
+        resp.raise_for_status()
+        raw = resp.content
+        if file_path.endswith('.gz'):
+            raw = gzip.decompress(raw)
+        return raw.decode('utf-8')
 
     def delete_file(self, file_path):
         file_path = file_path.strip("/")
@@ -253,13 +252,13 @@ def sync_hashes_to_yandex(username, yandex=None):
         return
 
     hashes = {
-        "tasks_user.json": saved.get("tasks_user_hash"),
-        "tasks_free.json": saved.get("tasks_free_hash"),
-        "tasks_closed.json": saved.get("tasks_closed_hash"),
-        "warehouse.json": saved.get("warehouse_hash"),
-        "references.json": saved.get("references_hash"),
-        "ppr_list.json": saved.get("ppr_hash"),
-        "fn_schedule.json": saved.get("fn_schedule_hash"),
+        "tasks_user.json.gz": saved.get("tasks_user_hash"),
+        "tasks_free.json.gz": saved.get("tasks_free_hash"),
+        "tasks_closed.json.gz": saved.get("tasks_closed_hash"),
+        "warehouse.json.gz": saved.get("warehouse_hash"),
+        "references.json.gz": saved.get("references_hash"),
+        "ppr_list.json.gz": saved.get("ppr_hash"),
+        "fn_schedule.json.gz": saved.get("fn_schedule_hash"),
     }
     hashes = {k: v for k, v in hashes.items() if v}
 
@@ -650,11 +649,93 @@ def process_actions(username, client, yandex=None) -> bool:
     return any_handled
 
 
+def _get_item_key(item):
+    if isinstance(item, dict):
+        return item.get('guid') or item.get('id') or json.dumps(item, sort_keys=True)
+    return str(item)
+
+
+def _compare_ref_lists(label, old_list, new_list):
+    if not old_list and not new_list:
+        return
+    if not old_list:
+        sample = new_list[0]
+        if isinstance(sample, dict):
+            logger.warning("  [ref] %s: NEW (count=%d), first keys: %s", label, len(new_list), list(sample.keys()))
+        else:
+            logger.warning("  [ref] %s: NEW (count=%d), first item type=%s", label, len(new_list), type(sample).__name__)
+        return
+    if not new_list:
+        logger.warning("  [ref] %s: DELETED (was %d items)", label, len(old_list))
+        return
+    logger.warning("  [ref] %s: %d -> %d items", label, len(old_list), len(new_list))
+
+    # If items are not dicts, just log types
+    if not isinstance(old_list[0], dict) or not isinstance(new_list[0], dict):
+        logger.warning("  [ref] %s: old type=%s, new type=%s — skip detailed diff",
+                       label, type(old_list[0]).__name__, type(new_list[0]).__name__)
+        return
+
+    old_by_guid = {}
+    for item in old_list:
+        g = _get_item_key(item)
+        old_by_guid[g] = item
+
+    samples = 0
+    for new_item in new_list:
+        if samples >= 3:
+            break
+        g = _get_item_key(new_item)
+        old_item = old_by_guid.pop(g, None)
+        if old_item is None:
+            logger.warning("  [ref] %s: NEW item key=%s", label, g)
+            samples += 1
+        elif old_item != new_item:
+            old_keys = set(old_item.keys())
+            new_keys = set(new_item.keys())
+            added_keys = new_keys - old_keys
+            removed_keys = old_keys - new_keys
+            changed_keys = {k for k in old_keys & new_keys if old_item[k] != new_item[k]}
+            logger.warning(
+                "  [ref] %s: CHANGED key=%s added=%s removed=%s changed=%s",
+                label, g, added_keys, removed_keys, list(changed_keys)[:5]
+            )
+            for k in list(changed_keys)[:2]:
+                oval, nval = old_item.get(k), new_item.get(k)
+                logger.warning("    [ref]   %s: %r -> %r", k, oval, nval)
+            samples += 1
+
+    if old_by_guid and samples < 3:
+        logger.warning("  [ref] %s: REMOVED (sample): %s", label, list(old_by_guid.keys())[:3])
+
+
+REFERENCES_COOLDOWN = 3600  # не чаще 1 часа
+
+
 def sync_references_to_yandex(username, client, yandex=None):
     if yandex is None:
         yandex = YandexDiskClient()
     if not yandex.is_authenticated():
         return
+
+    saved = get_yandex_upload_status(username)
+
+    # Проверяем, существует ли файл .json.gz на диске
+    gz_path = f"{username}/references.json.gz"
+    gz_exists = False
+    try:
+        meta_r = yandex._request("GET", DISK_API, params={"path": gz_path})
+        gz_exists = meta_r.status_code == 200
+    except Exception:
+        pass
+
+    if saved and saved.get("references_synced_at") and saved.get("references_hash") and gz_exists:
+        try:
+            last = datetime.fromisoformat(saved["references_synced_at"])
+            if (datetime.now() - last).total_seconds() < REFERENCES_COOLDOWN:
+                return
+        except (ValueError, TypeError):
+            pass
 
     try:
         products = client.get_products()
@@ -664,6 +745,14 @@ def sync_references_to_yandex(username, client, yandex=None):
         logger.error("Yandex sync: failed to fetch references for %s: %s", username, e)
         return
 
+    # Стабилизация хэша: исключаем поля, которые 1C меняет при каждом запросе
+    _NOISE_KEYS = {'for_selection'}
+    if clients:
+        for c in clients:
+            if isinstance(c, dict):
+                for k in _NOISE_KEYS & c.keys():
+                    del c[k]
+
     data = {
         "products": products,
         "clients": clients,
@@ -672,13 +761,34 @@ def sync_references_to_yandex(username, client, yandex=None):
     h = compute_hash(data)
 
     saved = get_yandex_upload_status(username)
-    if saved and saved.get("references_hash") == h:
+    if saved and saved.get("references_hash") == h and gz_exists:
         return
+
+    # Диагностика: что именно изменилось
+    logger.warning("[ref] references hash changed for %s — fetching old to diff", username)
+    old_data = None
+    try:
+        old_text = yandex.download_file(f"/{username}/references.json.gz")
+        old_data = json.loads(old_text)
+    except Exception as e:
+        logger.warning("[ref] could not fetch old references.json for %s: %s", username, e)
+    if old_data and isinstance(old_data, dict):
+        sections = {"products": products, "clients": clients, "storages": storages}
+        for section, new_val in sections.items():
+            try:
+                _compare_ref_lists(section, old_data.get(section), new_val)
+            except Exception as e:
+                logger.warning("[ref] diff failed for %s/%s: %s", username, section, e)
+    else:
+        logger.warning("[ref] old data unavailable or not a dict; new sizes: products=%d, clients=%d, storages=%d",
+                       len(products) if products else 0,
+                       len(clients) if clients else 0,
+                       len(storages) if storages else 0)
 
     try:
         yandex.ensure_folder(f"/{username}")
         yandex.upload_json(f"/{username}", "references.json", data)
-        save_yandex_upload_status(username, references_hash=h)
+        save_yandex_upload_status(username, references_hash=h, references_synced_at=datetime.now().isoformat())
         logger.info("Yandex sync: references updated for %s", username)
     except Exception as e:
         logger.error("Yandex sync: failed to upload references for %s: %s", username, e)

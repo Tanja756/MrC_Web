@@ -70,6 +70,49 @@ def add_shop_if_not_exists(shop_number, sap_code, address):
     except Exception as e:
         logger.warning(f"add_shop_if_not_exists failed (readonly?): {e}")
 
+def get_all_shops():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT rowid, shop_number, sap_code, address FROM shops ORDER BY shop_number")
+    rows = c.fetchall()
+    conn.close()
+    return [{'id': r[0], 'shop_number': r[1], 'sap_code': r[2], 'address': r[3]} for r in rows]
+
+def add_shop(shop_number, sap_code, address):
+    if not all([shop_number, sap_code, address]):
+        return None
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO shops (shop_number, sap_code, address) VALUES (?, ?, ?)",
+        (shop_number, sap_code, address)
+    )
+    rowid = c.lastrowid
+    conn.commit()
+    conn.close()
+    return rowid
+
+def update_shop(rowid, shop_number, sap_code, address):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute(
+        "UPDATE shops SET shop_number = ?, sap_code = ?, address = ? WHERE rowid = ?",
+        (shop_number, sap_code, address, rowid)
+    )
+    affected = c.rowcount
+    conn.commit()
+    conn.close()
+    return affected > 0
+
+def delete_shop(rowid):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM shops WHERE rowid = ?", (rowid,))
+    affected = c.rowcount
+    conn.commit()
+    conn.close()
+    return affected > 0
+
 def find_shop_by_number(number):
     if not number:
         return None
@@ -937,7 +980,7 @@ def init_yandex_uploads_table():
             hashes_hash TEXT
         )
     """)
-    for col in ('references_hash', 'hashes_hash', 'tasks_user_hash', 'tasks_free_hash', 'tasks_closed_hash', 'ppr_hash', 'fn_schedule_hash'):
+    for col in ('references_hash', 'hashes_hash', 'tasks_user_hash', 'tasks_free_hash', 'tasks_closed_hash', 'ppr_hash', 'fn_schedule_hash', 'references_synced_at'):
         try:
             c.execute(f"ALTER TABLE yandex_uploads ADD COLUMN {col} TEXT")
         except Exception:
@@ -948,18 +991,18 @@ def init_yandex_uploads_table():
 def get_yandex_upload_status(username):
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT tasks_hash, warehouse_hash, references_hash, hashes_hash, tasks_user_hash, tasks_free_hash, tasks_closed_hash, ppr_hash, fn_schedule_hash FROM yandex_uploads WHERE username=?", (username,))
+    c.execute("SELECT tasks_hash, warehouse_hash, references_hash, hashes_hash, tasks_user_hash, tasks_free_hash, tasks_closed_hash, ppr_hash, fn_schedule_hash, references_synced_at FROM yandex_uploads WHERE username=?", (username,))
     row = c.fetchone()
     conn.close()
     if row:
         return {"tasks_hash": row[0], "warehouse_hash": row[1], "references_hash": row[2], "hashes_hash": row[3],
                 "tasks_user_hash": row[4], "tasks_free_hash": row[5], "tasks_closed_hash": row[6], "ppr_hash": row[7],
-                "fn_schedule_hash": row[8]}
+                "fn_schedule_hash": row[8], "references_synced_at": row[9]}
     return None
 
 def save_yandex_upload_status(username, tasks_hash=None, warehouse_hash=None, references_hash=None, hashes_hash=None,
                                 tasks_user_hash=None, tasks_free_hash=None, tasks_closed_hash=None, ppr_hash=None,
-                                fn_schedule_hash=None):
+                                fn_schedule_hash=None, references_synced_at=None):
     def _write():
         conn = get_db_connection()
         c = conn.cursor()
@@ -967,8 +1010,8 @@ def save_yandex_upload_status(username, tasks_hash=None, warehouse_hash=None, re
         c.execute("""
             INSERT OR REPLACE INTO yandex_uploads (username, tasks_hash, warehouse_hash, references_hash, hashes_hash,
                                                    tasks_user_hash, tasks_free_hash, tasks_closed_hash, ppr_hash,
-                                                   fn_schedule_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                                   fn_schedule_hash, references_synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             username,
             tasks_hash if tasks_hash is not None else existing.get("tasks_hash"),
@@ -980,6 +1023,7 @@ def save_yandex_upload_status(username, tasks_hash=None, warehouse_hash=None, re
             tasks_closed_hash if tasks_closed_hash is not None else existing.get("tasks_closed_hash"),
             ppr_hash if ppr_hash is not None else existing.get("ppr_hash"),
             fn_schedule_hash if fn_schedule_hash is not None else existing.get("fn_schedule_hash"),
+            references_synced_at if references_synced_at is not None else existing.get("references_synced_at"),
         ))
         conn.commit()
         conn.close()
