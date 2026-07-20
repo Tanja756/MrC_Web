@@ -61,27 +61,31 @@ function toggleNotifyAllWarehouses() {
     saveProfile();
 }
 
+function openProfileModal() {
+    const modal = new bootstrap.Modal(document.getElementById('profileModal'));
+    document.getElementById('profileName').value = savedProfileName;
+    const avatar = document.getElementById('profileAvatarPreview');
+    const avatarUrl = lsGet('avatarUrl', '');
+    const avatarImg = avatar.querySelector('img');
+    if (avatarUrl && avatarImg) {
+        avatarImg.src = avatarUrl;
+        avatarImg.style.display = '';
+        avatar.textContent = '';
+    } else {
+        const name = savedProfileName || '?';
+        avatar.textContent = name.charAt(0).toUpperCase();
+    }
+    document.getElementById('removeAvatarBtn').style.display = avatarUrl ? '' : 'none';
+    modal.show();
+}
+
 function openSettings(firstLogin) {
     const modal = new bootstrap.Modal(document.getElementById('settingsModal'));
-    const titleEl = document.querySelector('#settingsModal .modal-title');
     if (firstLogin) {
-        titleEl.innerHTML = '<i class="bi bi-person-check me-2"></i>\u0414\u043E\u0431\u0440\u043E \u043F\u043E\u0436\u0430\u043B\u043E\u0432\u0430\u0442\u044C! \u0417\u0430\u043F\u043E\u043B\u043D\u0438\u0442\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438';
-    } else {
-        titleEl.innerHTML = '<i class="bi bi-gear me-2"></i>\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438';
+        document.querySelector('#settingsModal .modal-title').innerHTML = '<i class="bi bi-person-check me-2"></i>\u0414\u043E\u0431\u0440\u043E \u043F\u043E\u0436\u0430\u043B\u043E\u0432\u0430\u0442\u044C! \u0417\u0430\u043F\u043E\u043B\u043D\u0438\u0442\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438';
     }
-    document.getElementById('profileName').value = savedProfileName;
-    const markOn = lsGet('markMyTasks', '') === 'true';
-    document.getElementById('markMyTasksToggle').classList.toggle('active', markOn);
-    document.getElementById('markMyTasksToggle').setAttribute('aria-checked', markOn);
-    document.getElementById('myTaskKeywords').value = lsGet('myTaskKeywords', '');
-    const notifyOn = lsGet('notifyOnlyMine', '') === 'true';
-    document.getElementById('notifyOnlyMineToggle').classList.toggle('active', notifyOn);
-    document.getElementById('notifyOnlyMineToggle').setAttribute('aria-checked', notifyOn);
     document.getElementById('themeToggle').classList.toggle('active', currentTheme === 'light');
     document.getElementById('themeToggle').setAttribute('aria-checked', currentTheme === 'light');
-    const notifyAll = lsGet('notifyAllWarehouses', '') !== 'false';
-    document.getElementById('notifyAllWarehousesToggle').classList.toggle('active', notifyAll);
-    document.getElementById('notifyAllWarehousesToggle').setAttribute('aria-checked', notifyAll);
 
     const ws = document.getElementById('settingsWarehouse');
     const saved = lsGet('defaultWarehouse', '');
@@ -92,6 +96,21 @@ function openSettings(firstLogin) {
                 data.map(s => `<option value="${s.guid}" ${s.guid === saved ? 'selected' : ''}>${s.name}</option>`).join('');
         });
 
+    modal.show();
+}
+
+function openNotificationsModal() {
+    const modal = new bootstrap.Modal(document.getElementById('notificationsModal'));
+    const markOn = lsGet('markMyTasks', '') === 'true';
+    document.getElementById('markMyTasksToggle').classList.toggle('active', markOn);
+    document.getElementById('markMyTasksToggle').setAttribute('aria-checked', markOn);
+    document.getElementById('myTaskKeywords').value = lsGet('myTaskKeywords', '');
+    const notifyOn = lsGet('notifyOnlyMine', '') === 'true';
+    document.getElementById('notifyOnlyMineToggle').classList.toggle('active', notifyOn);
+    document.getElementById('notifyOnlyMineToggle').setAttribute('aria-checked', notifyOn);
+    const notifyAll = lsGet('notifyAllWarehouses', '') !== 'false';
+    document.getElementById('notifyAllWarehousesToggle').classList.toggle('active', notifyAll);
+    document.getElementById('notifyAllWarehousesToggle').setAttribute('aria-checked', notifyAll);
     modal.show();
 }
 
@@ -107,34 +126,32 @@ function loadProfile() {
             if (p.profileName && p.profileName !== savedProfileName) {
                 savedProfileName = p.profileName;
             }
-            if (p.defaultWarehouse) {
-                lsSet('defaultWarehouse', p.defaultWarehouse);
-            }
             if (p.theme && p.theme !== currentTheme) {
                 applyTheme(p.theme);
             }
             updateProfileAvatar();
-            const profileNameInput = document.getElementById('profileName');
-            if (profileNameInput && !profileNameInput.value && savedProfileName) {
-                profileNameInput.value = savedProfileName;
-            }
+            const menuName = document.getElementById('menuProfileName');
+            if (menuName && savedProfileName) menuName.textContent = savedProfileName;
         })
         .catch(() => {});
 }
 
 function saveProfile() {
-    savedProfileName = document.getElementById('profileName').value.trim();
-    lsSet('profileName', savedProfileName);
-    const warehouseGuid = document.getElementById('settingsWarehouse').value;
-    lsSet('defaultWarehouse', warehouseGuid);
-    const markMyTasks = document.getElementById('markMyTasksToggle').classList.contains('active') ? 'true' : '';
-    lsSet('markMyTasks', markMyTasks);
-    const myTaskKeywords = document.getElementById('myTaskKeywords').value.trim();
-    lsSet('myTaskKeywords', myTaskKeywords);
-    const notifyOnlyMine = document.getElementById('notifyOnlyMineToggle').classList.contains('active') ? 'true' : '';
-    lsSet('notifyOnlyMine', notifyOnlyMine);
-    const notifyAllWarehouses = document.getElementById('notifyAllWarehousesToggle').classList.contains('active') ? 'true' : '';
-    lsSet('notifyAllWarehouses', notifyAllWarehouses);
+    const pNameEl = document.getElementById('profileName');
+    if (pNameEl) {
+        savedProfileName = pNameEl.value.trim();
+        lsSet('profileName', savedProfileName);
+    }
+    const warehouseEl = document.getElementById('settingsWarehouse');
+    if (warehouseEl) lsSet('defaultWarehouse', warehouseEl.value);
+    const mmtEl = document.getElementById('markMyTasksToggle');
+    if (mmtEl) lsSet('markMyTasks', mmtEl.classList.contains('active') ? 'true' : '');
+    const kwEl = document.getElementById('myTaskKeywords');
+    if (kwEl) lsSet('myTaskKeywords', kwEl.value.trim());
+    const nomEl = document.getElementById('notifyOnlyMineToggle');
+    if (nomEl) lsSet('notifyOnlyMine', nomEl.classList.contains('active') ? 'true' : '');
+    const nawEl = document.getElementById('notifyAllWarehousesToggle');
+    if (nawEl) lsSet('notifyAllWarehouses', nawEl.classList.contains('active') ? 'true' : '');
     updateProfileAvatar();
 
     fetch('/api/profile', {
@@ -143,12 +160,12 @@ function saveProfile() {
         body: JSON.stringify({
             profile: {
                 profileName: savedProfileName,
-                defaultWarehouse: warehouseGuid,
+                defaultWarehouse: lsGet('defaultWarehouse', ''),
                 theme: currentTheme,
-                markMyTasks: markMyTasks,
-                myTaskKeywords: myTaskKeywords,
-                notifyOnlyMine: notifyOnlyMine,
-                notifyAllWarehouses: notifyAllWarehouses,
+                markMyTasks: lsGet('markMyTasks', ''),
+                myTaskKeywords: lsGet('myTaskKeywords', ''),
+                notifyOnlyMine: lsGet('notifyOnlyMine', ''),
+                notifyAllWarehouses: lsGet('notifyAllWarehouses', ''),
             }
         })
     }).catch(() => {});
@@ -183,15 +200,57 @@ function clearUserCache() {
 function updateProfileAvatar() {
     const avatar = document.getElementById('profileAvatar');
     if (!avatar) return;
-    const name = savedProfileName || '?';
-    avatar.textContent = name.charAt(0).toUpperCase();
+    const avatarUrl = lsGet('avatarUrl', '');
+    if (avatarUrl) {
+        avatar.innerHTML = '<img src="' + avatarUrl + '" class="profile-avatar-img">';
+        avatar.title = savedProfileName || '';
+    } else {
+        const name = savedProfileName || '?';
+        avatar.textContent = name.charAt(0).toUpperCase();
+        avatar.title = savedProfileName || '\u041F\u0440\u043E\u0444\u0438\u043B\u044C';
+    }
     if (savedProfileName) {
         avatar.classList.add('has-name');
-        avatar.title = savedProfileName;
     } else {
         avatar.classList.remove('has-name');
-        avatar.title = '\u041F\u0440\u043E\u0444\u0438\u043B\u044C';
     }
+}
+
+function uploadAvatar(input) {
+    const file = input.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+        showAlert('Файл слишком большой. Максимум 2 МБ.', 'danger');
+        return;
+    }
+    const formData = new FormData();
+    formData.append('avatar', file);
+    fetch('/api/profile/avatar', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            if (data.avatarUrl) {
+                lsSet('avatarUrl', data.avatarUrl);
+                updateProfileAvatar();
+                const preview = document.getElementById('profileAvatarPreview');
+                preview.innerHTML = '<img src="' + data.avatarUrl + '" class="profile-avatar-img">';
+                document.getElementById('removeAvatarBtn').style.display = '';
+            }
+        })
+        .catch(() => showAlert('Ошибка загрузки аватара', 'danger'));
+}
+
+function removeAvatar() {
+    fetch('/api/profile/avatar', { method: 'DELETE' })
+        .then(r => r.json())
+        .then(() => {
+            lsSet('avatarUrl', '');
+            updateProfileAvatar();
+            const preview = document.getElementById('profileAvatarPreview');
+            const name = savedProfileName || '?';
+            preview.textContent = name.charAt(0).toUpperCase();
+            document.getElementById('removeAvatarBtn').style.display = 'none';
+        })
+        .catch(() => showAlert('Ошибка удаления аватара', 'danger'));
 }
 
 // ============ NOTIFICATIONS ============

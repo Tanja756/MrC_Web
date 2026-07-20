@@ -1,0 +1,52 @@
+<div class="modal fade" id="notificationsModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-primary">
+                <h5 class="modal-title"><i class="bi bi-bell me-2"></i>Уведомления</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-section">
+                    <p class="small text-muted mb-2">Настройте, по каким заявкам и событиям вы хотите получать уведомления.</p>
+                </div>
+                <hr>
+                <div class="settings-section">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <label class="mb-0"><i class="bi bi-bookmark-star me-1"></i>Выделять мои заявки</label>
+                            <div class="form-text small text-muted mt-0">Заявки, содержащие ключевые слова, будут выделены цветом</div>
+                        </div>
+                        <button class="theme-toggle" id="markMyTasksToggle" onclick="toggleMarkMyTasks()" role="switch" aria-checked="false"></button>
+                    </div>
+                    <div class="mt-2">
+                        <label for="myTaskKeywords"><small>Ключевые слова</small></label>
+                        <input type="text" class="form-control form-control-sm" id="myTaskKeywords" placeholder="Слова через запятую..." onchange="saveProfile()">
+                    </div>
+                </div>
+                <hr>
+                <div class="settings-section">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <label class="mb-0"><i class="bi bi-bell-fill me-1"></i>Уведомления только по моим заявкам</label>
+                            <div class="form-text small text-muted mt-0">При включении уведомления приходят только по заявкам, содержащим ключевые слова или SAP-код магазина из «В работе»</div>
+                        </div>
+                        <button class="theme-toggle" id="notifyOnlyMineToggle" onclick="toggleNotifyOnlyMine()" role="switch" aria-checked="false"></button>
+                    </div>
+                </div>
+                <hr>
+                <div class="settings-section">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <label class="mb-0"><i class="bi bi-shop me-1"></i>Уведомления по всем складам</label>
+                            <div class="form-text small text-muted mt-0">При выключении уведомления об остатках приходят только по основному складу</div>
+                        </div>
+                        <button class="theme-toggle" id="notifyAllWarehousesToggle" onclick="toggleNotifyAllWarehouses()" role="switch" aria-checked="true"></button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+            </div>
+        </div>
+    </div>
+</div>

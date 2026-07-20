@@ -446,6 +446,17 @@ td.fn-status-other {
 .profile-avatar:hover {
     opacity: 0.85;
 }
+.profile-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+}
+.profile-avatar-lg {
+    width: 64px;
+    height: 64px;
+    font-size: 1.4rem;
+}
 
 /* Settings */
 .settings-section {

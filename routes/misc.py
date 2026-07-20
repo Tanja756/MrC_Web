@@ -32,6 +32,7 @@ def api_profile_get():
     try:
         from db import get_user_settings
         settings = get_user_settings(username) or {}
+        avatar_url = settings.get("avatar_url", "")
         return jsonify({"profile": {
             "notifyOnlyMine": "true" if settings.get("notify_only_mine") else "",
             "myTaskKeywords": settings.get("my_task_keywords", ""),
@@ -40,6 +41,7 @@ def api_profile_get():
             "theme": settings.get("theme", "dark"),
             "markMyTasks": "true" if settings.get("mark_my_tasks") else "",
             "notifyAllWarehouses": "true" if settings.get("notify_all_warehouses", True) else "",
+            "avatarUrl": avatar_url,
         }})
     except Exception as e:
         logger.warning(f"Failed to fetch profile: {e}")
@@ -68,7 +70,7 @@ def api_profile_post():
         return jsonify({'error': 'Not authenticated'}), 401
     profile = request.json.get('profile', {})
     try:
-        from db import save_user_settings
+        from db import get_user_settings, save_user_settings
         notify_only_mine = 1 if profile.get('notifyOnlyMine') == 'true' else 0
         my_task_keywords = profile.get('myTaskKeywords', '')
         profile_name = profile.get('profileName', '')
@@ -76,16 +78,53 @@ def api_profile_post():
         theme = profile.get('theme', 'dark')
         mark_my_tasks = profile.get('markMyTasks') == 'true'
         notify_all_warehouses = profile.get('notifyAllWarehouses') == 'true'
+        existing = get_user_settings(username) or {}
+        avatar_url = existing.get('avatar_url', '')
         save_user_settings(username, notify_only_mine, my_task_keywords,
                            profile_name=profile_name,
                            default_warehouse=default_warehouse,
                            theme=theme,
                            mark_my_tasks=mark_my_tasks,
-                           notify_all_warehouses=notify_all_warehouses)
+                           notify_all_warehouses=notify_all_warehouses,
+                           avatar_url=avatar_url)
         return jsonify({"status": "ok"})
     except Exception as e:
         logger.warning(f"Failed to save profile: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@misc_bp.route('/api/profile/avatar', methods=['POST', 'DELETE'])
+@api_login_required
+def api_profile_avatar():
+    username = session.get('username', '')
+    if not username:
+        return jsonify({'error': 'Not authenticated'}), 401
+    if request.method == 'DELETE':
+        from db import save_user_settings
+        save_user_settings(username, 0, '', avatar_url='')
+        return jsonify({'ok': True})
+    if 'avatar' not in request.files:
+        return jsonify({'error': 'No file'}), 400
+    file = request.files['avatar']
+    if not file.filename:
+        return jsonify({'error': 'No file'}), 400
+    import os, hashlib
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ('.png', '.jpg', '.jpeg', '.webp'):
+        return jsonify({'error': 'Invalid format'}), 400
+    raw = file.read()
+    if len(raw) > 2 * 1024 * 1024:
+        return jsonify({'error': 'File too large'}), 400
+    digest = hashlib.md5(raw).hexdigest()
+    name = f"{username}_{digest}{ext}"
+    path = os.path.join('static', 'avatars', name)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'wb') as f:
+        f.write(raw)
+    avatar_url = f"/static/avatars/{name}"
+    from db import save_user_settings
+    save_user_settings(username, 0, '', avatar_url=avatar_url)
+    return jsonify({'avatarUrl': avatar_url})
 
 
 # --- Announcements ---

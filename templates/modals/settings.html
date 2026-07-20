@@ -7,54 +7,11 @@
             </div>
             <div class="modal-body">
                 <div class="settings-section">
-                    <label><i class="bi bi-person me-1"></i>Имя для документов</label>
-                    <div class="input-group">
-                        <input type="text" class="form-control" id="profileName" placeholder="Введите ваше имя..." maxlength="100">
-                        <button class="btn btn-primary" onclick="saveProfile()"><i class="bi bi-check-lg"></i></button>
-                    </div>
-                    <div class="form-text small text-muted mt-1">Будет подставлено в документы вместо "{{ '{KA}' }}"</div>
-                </div>
-                <hr>
-                <div class="settings-section">
                     <label for="settingsWarehouse"><i class="bi bi-shop me-1"></i>Основной склад</label>
                     <select class="form-select" id="settingsWarehouse" onchange="saveProfile()">
                         <option value="">Не выбран</option>
                     </select>
                     <div class="form-text small text-muted mt-1">Будет подставляться по умолчанию на вкладке «Склад» и при подборе товаров в М15</div>
-                </div>
-                <hr>
-                <div class="settings-section">
-                    <div class="d-flex align-items-center justify-content-between">
-                        <div>
-                            <label class="mb-0"><i class="bi bi-bookmark-star me-1"></i>Отмечать мои</label>
-                            <div class="form-text small text-muted mt-0">Отметка по ключевым словам</div>
-                        </div>
-                        <button class="theme-toggle" id="markMyTasksToggle" onclick="toggleMarkMyTasks()" role="switch" aria-checked="false"></button>
-                    </div>
-                    <div class="mt-2">
-                        <label for="myTaskKeywords"><small>Ключевые слова</small></label>
-                        <input type="text" class="form-control form-control-sm" id="myTaskKeywords" placeholder="Слова через запятую..." onchange="saveProfile()">
-                    </div>
-                </div>
-                <hr>
-                <div class="settings-section">
-                    <div class="d-flex align-items-center justify-content-between">
-                        <div>
-                            <label class="mb-0"><i class="bi bi-bell me-1"></i>Уведомлять только моих</label>
-                            <div class="form-text small text-muted mt-0">Уведомления только по заявкам под ключевые слова</div>
-                        </div>
-                        <button class="theme-toggle" id="notifyOnlyMineToggle" onclick="toggleNotifyOnlyMine()" role="switch" aria-checked="false"></button>
-                    </div>
-                </div>
-                <hr>
-                <div class="settings-section">
-                    <div class="d-flex align-items-center justify-content-between">
-                        <div>
-                            <label class="mb-0"><i class="bi bi-shop me-1"></i>Уведомление по всем складам</label>
-                            <div class="form-text small text-muted mt-0">При выключении уведомления только по основному складу</div>
-                        </div>
-                        <button class="theme-toggle" id="notifyAllWarehousesToggle" onclick="toggleNotifyAllWarehouses()" role="switch" aria-checked="true"></button>
-                    </div>
                 </div>
                 <hr>
                 <div class="settings-section">

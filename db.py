@@ -1206,19 +1206,24 @@ def init_user_settings_table():
             c.execute(f"ALTER TABLE user_settings ADD COLUMN {col[0]} TEXT NOT NULL DEFAULT '{col[1]}'")
         except Exception:
             pass
+    try:
+        c.execute("ALTER TABLE user_settings ADD COLUMN avatar_url TEXT NOT NULL DEFAULT ''")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
 def save_user_settings(username, notify_only_mine, my_task_keywords,
                        profile_name='', default_warehouse='', theme='dark',
-                       mark_my_tasks=False, notify_all_warehouses=True):
+                       mark_my_tasks=False, notify_all_warehouses=True,
+                       avatar_url=''):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("""
         INSERT INTO user_settings (username, notify_only_mine, my_task_keywords,
             profile_name, default_warehouse, theme, mark_my_tasks,
-            notify_all_warehouses, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+            notify_all_warehouses, avatar_url, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
         ON CONFLICT(username) DO UPDATE SET
             notify_only_mine = excluded.notify_only_mine,
             my_task_keywords = excluded.my_task_keywords,
@@ -1227,11 +1232,13 @@ def save_user_settings(username, notify_only_mine, my_task_keywords,
             theme = excluded.theme,
             mark_my_tasks = excluded.mark_my_tasks,
             notify_all_warehouses = excluded.notify_all_warehouses,
+            avatar_url = excluded.avatar_url,
             updated_at = datetime('now', 'localtime')
     """, (username, notify_only_mine, my_task_keywords,
           profile_name, default_warehouse, theme,
           1 if mark_my_tasks else 0,
-          1 if notify_all_warehouses else 0))
+          1 if notify_all_warehouses else 0,
+          avatar_url))
     conn.commit()
     conn.close()
 
@@ -1239,7 +1246,7 @@ def get_user_settings(username):
     conn = get_db_connection()
     c = conn.cursor()
     try:
-        c.execute("SELECT notify_only_mine, my_task_keywords, profile_name, default_warehouse, theme, mark_my_tasks, notify_all_warehouses FROM user_settings WHERE username = ?", (username,))
+        c.execute("SELECT notify_only_mine, my_task_keywords, profile_name, default_warehouse, theme, mark_my_tasks, notify_all_warehouses, avatar_url FROM user_settings WHERE username = ?", (username,))
         row = c.fetchone()
         conn.close()
         if row:
@@ -1251,6 +1258,7 @@ def get_user_settings(username):
                 'theme': row[4] or 'dark',
                 'mark_my_tasks': bool(int(row[5])) if row[5] else False,
                 'notify_all_warehouses': bool(int(row[6])) if row[6] else True,
+                'avatar_url': row[7] or '',
             }
     except Exception:
         pass

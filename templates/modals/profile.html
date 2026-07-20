@@ -1,0 +1,36 @@
+<div class="modal fade" id="profileModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-primary">
+                <h5 class="modal-title"><i class="bi bi-person me-2"></i>Профиль</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-section">
+                    <label><i class="bi bi-person me-1"></i>Имя для документов</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="profileName" placeholder="Введите ваше имя..." maxlength="100">
+                        <button class="btn btn-primary" onclick="saveProfile()"><i class="bi bi-check-lg"></i></button>
+                    </div>
+                    <div class="form-text small text-muted mt-1">Будет подставлено в документы вместо "{{ '{KA}' }}"</div>
+                </div>
+                <hr>
+                <div class="settings-section">
+                    <label><i class="bi bi-camera me-1"></i>Аватар</label>
+                    <div class="d-flex align-items-center gap-3 mb-2">
+                        <div class="profile-avatar profile-avatar-lg" id="profileAvatarPreview">?</div>
+                        <div>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('avatarInput').click()">Загрузить</button>
+                            <button class="btn btn-outline-secondary btn-sm" id="removeAvatarBtn" onclick="removeAvatar()" style="display:none">Удалить</button>
+                            <input type="file" id="avatarInput" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="uploadAvatar(this)">
+                        </div>
+                    </div>
+                    <div class="form-text small text-muted mt-1">PNG, JPG или WebP до 2 МБ. Квадратное изображение будет обрезано в круг.</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+            </div>
+        </div>
+    </div>
+</div>
