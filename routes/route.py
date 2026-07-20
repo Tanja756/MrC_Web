@@ -176,6 +176,7 @@ def api_route_sheet():
         post = [e for e in all_entries if e['dt'] >= cutoff and e['dt'] >= month_start and e['dt'] < month_end]
         if pre:
             save_route_cache_entries(username, month, pre)
+        entries.extend(pre)
         entries.extend(post)
     else:
         # ── Live entries (dates >= cutoff) ──
