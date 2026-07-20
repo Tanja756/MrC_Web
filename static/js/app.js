@@ -108,7 +108,7 @@ function openNotificationsModal() {
     const notifyOn = lsGet('notifyOnlyMine', '') === 'true';
     document.getElementById('notifyOnlyMineToggle').classList.toggle('active', notifyOn);
     document.getElementById('notifyOnlyMineToggle').setAttribute('aria-checked', notifyOn);
-    const notifyAll = lsGet('notifyAllWarehouses', '') !== 'false';
+    const notifyAll = lsGet('notifyAllWarehouses', 'true') === 'true';
     document.getElementById('notifyAllWarehousesToggle').classList.toggle('active', notifyAll);
     document.getElementById('notifyAllWarehousesToggle').setAttribute('aria-checked', notifyAll);
     modal.show();
