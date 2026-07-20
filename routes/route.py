@@ -14,7 +14,8 @@ route_bp = Blueprint('route', __name__, url_prefix='/api/route')
 def _parse_dt(s):
     if not s:
         return datetime.min
-    for fmt in ('%d.%m.%Y %H:%M:%S', '%d.%m.%Y', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+    s = s.strip()
+    for fmt in ('%d.%m.%Y %H:%M:%S', '%d.%m.%Y %H:%M', '%d.%m.%Y', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
         try:
             return datetime.strptime(s, fmt)
         except ValueError:
