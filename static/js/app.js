@@ -101,7 +101,7 @@ function loadProfile() {
             const p = data.profile;
             if (!p) return;
             for (const key of Object.keys(p)) {
-                if (p[key]) lsSet(key, p[key]);
+                lsSet(key, p[key]);
             }
             if (p.profileName && p.profileName !== savedProfileName) {
                 savedProfileName = p.profileName;

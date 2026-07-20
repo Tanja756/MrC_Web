@@ -33,7 +33,7 @@ def api_profile_get():
         from db import get_user_settings
         settings = get_user_settings(username) or {}
         return jsonify({"profile": {
-            "notifyOnlyMine": str(settings.get("notify_only_mine", 0)),
+            "notifyOnlyMine": "true" if settings.get("notify_only_mine") else "",
             "myTaskKeywords": settings.get("my_task_keywords", ""),
             "profileName": settings.get("profile_name", ""),
             "defaultWarehouse": settings.get("default_warehouse", ""),
