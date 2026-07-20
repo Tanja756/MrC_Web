@@ -481,7 +481,7 @@ def copy_seed_notifications(username):
 
 
 def _task_matches_keywords(task, keywords_str, in_work_saps=None):
-    text = f"{task.get('name', '')} {task.get('number', '')}".lower()
+    text = f"{task.get('name', '')} {task.get('number', '')} {task.get('description', '')}".lower()
     if keywords_str:
         keywords = [k.strip().lower() for k in keywords_str.split(',') if k.strip()]
         if keywords and any(k in text for k in keywords):
@@ -745,17 +745,19 @@ def background_check_user(username, force=False):
         closed_data = {}
         closed_tasks = []
     try:
-        from db import get_user_settings
+        from db import get_user_settings, get_user_in_work_saps
         settings = get_user_settings(username)
         notify_only_mine = bool(settings and settings.get('notify_only_mine'))
         my_task_keywords = (settings or {}).get('my_task_keywords', '')
+        in_work_saps = get_user_in_work_saps(username) or []
     except Exception:
         notify_only_mine = False
         my_task_keywords = ''
+        in_work_saps = []
 
-    check_deadlines(user_tasks + free_tasks, username, now, notify_only_mine, my_task_keywords)
+    check_deadlines(user_tasks + free_tasks, username, now, notify_only_mine, my_task_keywords, in_work_saps)
     _track_task_transitions(username, user_tasks, free_tasks, closed_tasks, old_data)
-    check_new_free_tasks(username, free_tasks, old_data, notify_only_mine, my_task_keywords)
+    check_new_free_tasks(username, free_tasks, old_data, notify_only_mine, my_task_keywords, in_work_saps)
     check_1c_notifications(client, username)
     background_check_balances(client, username)
 
