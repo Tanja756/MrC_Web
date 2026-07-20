@@ -8,6 +8,7 @@
         <div class="d-flex align-items-center gap-2 mb-3">
             <button class="btn btn-primary btn-sm" onclick="openShopModal()"><i class="bi bi-plus-lg me-1"></i>Добавить магазин</button>
             <button class="btn btn-outline-secondary btn-sm" onclick="loadShops()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
+            <input class="form-control form-control-sm ms-auto" id="shopFilter" placeholder="Фильтр по адресу..." style="max-width:300px" oninput="filterShops()">
         </div>
         <div class="table-responsive">
             <table class="table table-sm table-hover align-middle" id="shopsTable">
@@ -17,11 +18,12 @@
                         <th>Номер магазина</th>
                         <th>SAP-код</th>
                         <th>Адрес</th>
+                        <th style="width:80px">В работе</th>
                         <th style="width:100px">Действия</th>
                     </tr>
                 </thead>
                 <tbody id="shopsTableBody">
-                    <tr><td colspan="5" class="text-center text-muted py-4">Загрузка...</td></tr>
+                    <tr><td colspan="6" class="text-center text-muted py-4">Загрузка...</td></tr>
                 </tbody>
             </table>
         </div>

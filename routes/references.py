@@ -1,7 +1,7 @@
 import logging
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, session
 from .helpers import api_login_required
-from db import get_all_shops, add_shop, update_shop, delete_shop
+from db import get_all_shops, add_shop, update_shop, delete_shop, set_user_shop_in_work, get_user_shops_status
 
 logger = logging.getLogger(__name__)
 references_bp = Blueprint('references', __name__, url_prefix='/api/references')
@@ -50,4 +50,25 @@ def api_shops_delete(rowid):
     ok = delete_shop(rowid)
     if not ok:
         return jsonify({'error': 'Магазин не найден'}), 404
+    return jsonify({'success': True})
+
+
+@references_bp.route('/shops/user-status')
+@api_login_required
+def api_shops_user_status():
+    username = session.get('username', '')
+    status = get_user_shops_status(username)
+    return jsonify(status)
+
+
+@references_bp.route('/shops/user-status', methods=['POST'])
+@api_login_required
+def api_shops_set_user_status():
+    username = session.get('username', '')
+    data = request.json or {}
+    sap_code = data.get('sap_code', '').strip()
+    in_work = bool(data.get('in_work', False))
+    if not sap_code:
+        return jsonify({'error': 'sap_code обязателен'}), 400
+    set_user_shop_in_work(username, sap_code, in_work)
     return jsonify({'success': True})

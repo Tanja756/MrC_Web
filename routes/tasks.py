@@ -6,7 +6,7 @@ from urllib.parse import quote
 from flask import Blueprint, request, jsonify, session
 from api_client import OneSApiClient
 
-from db import set_task_closed, update_task_closed_date, save_task_m15_items, save_task_m15_text
+from db import set_task_closed, clear_task_closed, update_task_closed_date, save_task_m15_items, save_task_m15_text
 from .helpers import (
     api_login_required, get_api_client,
     project_tasks, attach_tracking, filter_tasks,
@@ -92,6 +92,9 @@ def api_tasks_closed():
     tasks = project_tasks(data.get('tasks', []))
     attach_tracking(tasks, username)
     auto_close_tracked_tasks(tasks, username)
+    for t in tasks:
+        if not t.get('closed_at'):
+            t['closed_at'] = t.get('period')
     tasks = filter_tasks(tasks, search, sort, dir)
     return make_etag_response({"tasks": tasks})
 
@@ -228,6 +231,7 @@ def api_task_redirect():
     result = client.task_redirect(guid, comment)
     if isinstance(result, dict) and result.get('_error'):
         return jsonify({'success': False, 'error': result['_error'], 'detail': result}), 400
+    clear_task_closed(session.get('username', ''), guid)
     return jsonify({'success': True})
 
 

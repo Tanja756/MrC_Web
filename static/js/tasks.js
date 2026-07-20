@@ -276,7 +276,10 @@ function renderTasks(containerId, tasks, query, mode) {
         const urgency = mode === 'closed' ? { level: 0, label: '' } : getUrgency(t);
         const markMine = lsGet('markMyTasks', '') === 'true';
         const keywords = lsGet('myTaskKeywords', '').split(',').map(s => s.trim()).filter(Boolean);
-        const isMine = mode === 'free' && markMine && keywords.length > 0 && keywords.some(k => (t.name && t.name.toLowerCase().includes(k.toLowerCase())) || (t.number && t.number.toLowerCase().includes(k.toLowerCase())));
+        let inWorkSaps = [];
+        try { inWorkSaps = JSON.parse(lsGet('inWorkSaps', '[]')); } catch(e) {}
+        const allKeys = [...keywords, ...inWorkSaps];
+        const isMine = mode === 'free' && markMine && allKeys.length > 0 && allKeys.some(k => (t.name && t.name.toLowerCase().includes(k.toLowerCase())) || (t.number && t.number.toLowerCase().includes(k.toLowerCase())));
         const uc = isMine ? 'urgency-mine' : (t.is_new && mode === 'free' ? 'urgency-new' : urgencyClass(urgency.level));
         const pinIcon = isPinned(t.guid) ? 'pinned bi-pin-fill' : 'bi-pin';
         const pinHtml = mode === 'closed' ? '' : `<i class="bi ${pinIcon} pin-icon" onclick="togglePin('${t.guid}')"></i>`;

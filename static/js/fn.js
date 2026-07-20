@@ -296,13 +296,12 @@ function deleteSelectedFnRows() {
 
 function markFnByKeywords() {
     const keywordsStr = lsGet('myTaskKeywords', '');
-    if (!keywordsStr) {
-        showAlert('Ключевые слова не заданы в настройках', 'warning');
-        return;
-    }
-    const keywords = keywordsStr.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-    if (keywords.length === 0) {
-        showAlert('Ключевые слова не заданы', 'warning');
+    const keywords = keywordsStr ? keywordsStr.split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : [];
+    let inWorkSaps = [];
+    try { inWorkSaps = JSON.parse(lsGet('inWorkSaps', '[]')); } catch(e) {}
+    const allKeys = [...keywords, ...inWorkSaps.map(s => s.toLowerCase())];
+    if (allKeys.length === 0) {
+        showAlert('Ключевые слова и магазины в работе не заданы', 'warning');
         return;
     }
 
@@ -310,7 +309,7 @@ function markFnByKeywords() {
     document.querySelectorAll('.fn-row-cb').forEach(cb => {
         const uid = +cb.value;
         const row = fnRows.find(r => r._uid === uid);
-        if (row && row.sap_code && keywords.some(k => row.sap_code.toLowerCase().includes(k))) {
+        if (row && row.sap_code && allKeys.some(k => row.sap_code.toLowerCase().includes(k))) {
             cb.checked = true;
         }
     });

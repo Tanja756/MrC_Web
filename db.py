@@ -177,6 +177,64 @@ def update_shop_address(sap_code, new_address):
     conn.commit()
     conn.close()
 
+def init_user_shops_table():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS user_shops (
+            username TEXT NOT NULL,
+            sap_code TEXT NOT NULL,
+            in_work INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (username, sap_code)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def set_user_shop_in_work(username, sap_code, in_work):
+    if not username or not sap_code:
+        return
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO user_shops (username, sap_code, in_work)
+            VALUES (?, ?, ?)
+            ON CONFLICT(username, sap_code) DO UPDATE SET in_work = excluded.in_work
+        """, (username, sap_code, 1 if in_work else 0))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"set_user_shop_in_work failed: {e}")
+
+def get_user_in_work_saps(username):
+    if not username:
+        return []
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT sap_code FROM user_shops WHERE username = ? AND in_work = 1", (username,))
+        rows = c.fetchall()
+        conn.close()
+        return [r[0] for r in rows]
+    except Exception as e:
+        logger.warning(f"get_user_in_work_saps failed: {e}")
+        return []
+
+def get_user_shops_status(username):
+    if not username:
+        return {}
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT sap_code, in_work FROM user_shops WHERE username = ?", (username,))
+        rows = c.fetchall()
+        conn.close()
+        return {r[0]: bool(r[1]) for r in rows}
+    except Exception as e:
+        logger.warning(f"get_user_shops_status failed: {e}")
+        return {}
+
 def get_fias_cache(raw_address):
     conn = get_db_connection()
     c = conn.cursor()
@@ -921,6 +979,18 @@ def set_task_taken(username, guid):
         conn.close()
     _retry_on_locked(_write)
 
+def clear_task_closed(username, guid):
+    def _write():
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("""
+            UPDATE task_tracking SET closed_at = NULL
+            WHERE username = ? AND guid = ?
+        """, (username, guid))
+        conn.commit()
+        conn.close()
+    _retry_on_locked(_write)
+
 def set_task_closed(username, guid, task_name=''):
     def _write():
         conn = get_db_connection()
@@ -1558,6 +1628,7 @@ try:
     init_task_m15_items_table()
     init_task_m15_text_table()
     init_user_settings_table()
+    init_user_shops_table()
     init_fn_schedule_table()
     init_ppr_tasks_table()
 except Exception as e:

@@ -10,30 +10,63 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function loadShops() {
     const tbody = document.getElementById('shopsTableBody');
-    tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4"><div class="spinner-border spinner-border-sm text-muted"></div></td></tr>';
-    fetch('/api/references/shops')
-        .then(r => r.json())
-        .then(shops => {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4"><div class="spinner-border spinner-border-sm text-muted"></div></td></tr>';
+    Promise.all([
+        fetch('/api/references/shops').then(r => r.json()),
+        fetch('/api/references/shops/user-status').then(r => r.json()).catch(() => ({}))
+    ])
+        .then(([shops, userStatus]) => {
             if (!shops.length) {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">Нет магазинов</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">Нет магазинов</td></tr>';
                 return;
             }
-            tbody.innerHTML = shops.map((s, i) => `
-                <tr>
+            const inWorkSaps = [];
+            tbody.innerHTML = shops.map((s, i) => {
+                const checked = !!userStatus[s.sap_code];
+                if (checked) inWorkSaps.push(s.sap_code);
+                return `
+                <tr data-sap="${escHtml(s.sap_code)}">
                     <td>${i + 1}</td>
                     <td>${escHtml(s.shop_number)}</td>
                     <td>${escHtml(s.sap_code)}</td>
-                    <td>${escHtml(s.address)}</td>
+                    <td class="shop-address">${escHtml(s.address)}</td>
+                    <td><input type="checkbox" class="form-check-input" ${checked ? 'checked' : ''} onchange="toggleInWork('${escHtml(s.sap_code)}', this.checked)"></td>
                     <td>
                         <button class="btn btn-sm btn-outline-primary me-1" onclick="openShopModal(${s.id})" title="Редактировать"><i class="bi bi-pencil"></i></button>
                         <button class="btn btn-sm btn-outline-danger" onclick="deleteShop(${s.id})" title="Удалить"><i class="bi bi-trash"></i></button>
                     </td>
                 </tr>
-            `).join('');
+            `}).join('');
+            lsSet('inWorkSaps', JSON.stringify(inWorkSaps));
         })
         .catch(() => {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-4">Ошибка загрузки</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-danger py-4">Ошибка загрузки</td></tr>';
         });
+}
+
+function toggleInWork(sapCode, checked) {
+    fetch('/api/references/shops/user-status', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sap_code: sapCode, in_work: checked})
+    }).catch(() => {});
+    const saps = JSON.parse(lsGet('inWorkSaps', '[]'));
+    if (checked) {
+        if (!saps.includes(sapCode)) saps.push(sapCode);
+    } else {
+        const idx = saps.indexOf(sapCode);
+        if (idx !== -1) saps.splice(idx, 1);
+    }
+    lsSet('inWorkSaps', JSON.stringify(saps));
+}
+
+function filterShops() {
+    const q = document.getElementById('shopFilter').value.trim().toLowerCase();
+    document.querySelectorAll('#shopsTableBody tr').forEach(tr => {
+        if (!q) { tr.style.display = ''; return; }
+        const addr = (tr.querySelector('.shop-address')?.textContent || '').toLowerCase();
+        tr.style.display = addr.includes(q) ? '' : 'none';
+    });
 }
 
 function openShopModal(id) {

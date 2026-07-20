@@ -114,8 +114,6 @@ def attach_tracking(tasks, username):
                 t['closed_at'] = tracking[g]['closed_at']
         if not t.get('taken_at'):
             t['taken_at'] = t.get('date')
-        if not t.get('closed_at'):
-            t['closed_at'] = t.get('date')
 
 
 def auto_close_tracked_tasks(tasks, username):
@@ -136,7 +134,7 @@ def auto_close_tracked_tasks(tasks, username):
             if not period_str:
                 continue
             deadline = parse_1c_date(period_str)
-            if deadline and now <= deadline:
+            if deadline:
                 tn = t.get('number', '') or ''
                 nm = t.get('name', '') or ''
                 task_name = f"Заявка {tn} — {nm}" if tn else nm
@@ -429,21 +427,24 @@ def copy_seed_notifications(username):
         send_push_notification(username, s['title'], s['description'])
 
 
-def _task_matches_keywords(task, keywords_str):
-    if not keywords_str:
-        return True
-    keywords = [k.strip().lower() for k in keywords_str.split(',') if k.strip()]
-    if not keywords:
-        return True
+def _task_matches_keywords(task, keywords_str, in_work_saps=None):
     text = f"{task.get('name', '')} {task.get('number', '')}".lower()
-    return any(k in text for k in keywords)
+    if keywords_str:
+        keywords = [k.strip().lower() for k in keywords_str.split(',') if k.strip()]
+        if keywords and any(k in text for k in keywords):
+            return True
+    if in_work_saps:
+        saps = [s.strip().lower() for s in in_work_saps if s.strip()]
+        if saps and any(s in text for s in saps):
+            return True
+    return bool(not keywords_str and not in_work_saps)
 
 
-def check_deadlines(tasks, username, now, notify_only_mine=False, my_task_keywords=''):
+def check_deadlines(tasks, username, now, notify_only_mine=False, my_task_keywords='', in_work_saps=None):
     for task in tasks:
         if task.get('priority') == 700:
             continue
-        if notify_only_mine and not _task_matches_keywords(task, my_task_keywords):
+        if notify_only_mine and not _task_matches_keywords(task, my_task_keywords, in_work_saps):
             continue
         period_str = task.get('period') or task.get('date')
         if not period_str:
@@ -474,7 +475,7 @@ def check_deadlines(tasks, username, now, notify_only_mine=False, my_task_keywor
             continue
 
 
-def check_new_free_tasks(username, free_tasks, old_data, notify_only_mine=False, my_task_keywords=''):
+def check_new_free_tasks(username, free_tasks, old_data, notify_only_mine=False, my_task_keywords='', in_work_saps=None):
     current_free_guids = {t.get('guid', '') for t in free_tasks if t.get('guid')}
     if old_data is None:
         save_task_snapshot(username, list(current_free_guids))
@@ -484,7 +485,7 @@ def check_new_free_tasks(username, free_tasks, old_data, notify_only_mine=False,
     new_guids = current_free_guids - old_free_guids
     for task in free_tasks:
         if task.get('guid') in new_guids:
-            if notify_only_mine and not _task_matches_keywords(task, my_task_keywords):
+            if notify_only_mine and not _task_matches_keywords(task, my_task_keywords, in_work_saps):
                 continue
             desc = f'Заявка {task.get("number", "")} "{task.get("name", "")}"'
             if not notification_exists(username, 'new_task', desc, None):
@@ -581,16 +582,18 @@ def check_tasks(username):
         free_tasks = []
 
     try:
-        from db import get_user_settings
+        from db import get_user_settings, get_user_in_work_saps
         settings = get_user_settings(username)
         notify_only_mine = bool(settings and settings.get('notify_only_mine'))
         my_task_keywords = (settings or {}).get('my_task_keywords', '')
+        in_work_saps = get_user_in_work_saps(username) or []
     except Exception:
         notify_only_mine = False
         my_task_keywords = ''
+        in_work_saps = []
 
-    check_deadlines(user_tasks + free_tasks, username, now, notify_only_mine, my_task_keywords)
-    check_new_free_tasks(username, free_tasks, old_data, notify_only_mine, my_task_keywords)
+    check_deadlines(user_tasks + free_tasks, username, now, notify_only_mine, my_task_keywords, in_work_saps)
+    check_new_free_tasks(username, free_tasks, old_data, notify_only_mine, my_task_keywords, in_work_saps)
     check_1c_notifications(client, username)
 
 
