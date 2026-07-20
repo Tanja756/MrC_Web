@@ -47,7 +47,7 @@ class ODSFiller:
             ['libreoffice', '--headless', '--norestore',
              f'-env:UserInstallation=file:///{lo_dir}',
              '--convert-to', 'pdf', '--outdir', os.path.dirname(pdf_path), ods_path],
-            capture_output=True, text=True, timeout=60, env=env
+            capture_output=True, text=True, timeout=180, env=env
         )
         if result.returncode != 0:
             msg = (result.stderr or '').strip() or (result.stdout or '').strip() or f'LibreOffice exit code {result.returncode}'

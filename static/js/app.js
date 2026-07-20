@@ -52,6 +52,14 @@ function toggleNotifyOnlyMine() {
     saveProfile();
 }
 
+function toggleNotifyAllWarehouses() {
+    const el = document.getElementById('notifyAllWarehousesToggle');
+    const on = !el.classList.contains('active');
+    el.classList.toggle('active', on);
+    el.setAttribute('aria-checked', on);
+    saveProfile();
+}
+
 function openSettings(firstLogin) {
     const modal = new bootstrap.Modal(document.getElementById('settingsModal'));
     const titleEl = document.querySelector('#settingsModal .modal-title');
@@ -70,13 +78,16 @@ function openSettings(firstLogin) {
     document.getElementById('notifyOnlyMineToggle').setAttribute('aria-checked', notifyOn);
     document.getElementById('themeToggle').classList.toggle('active', currentTheme === 'light');
     document.getElementById('themeToggle').setAttribute('aria-checked', currentTheme === 'light');
+    const notifyAll = lsGet('notifyAllWarehouses', '') !== 'false';
+    document.getElementById('notifyAllWarehousesToggle').classList.toggle('active', notifyAll);
+    document.getElementById('notifyAllWarehousesToggle').setAttribute('aria-checked', notifyAll);
 
     const ws = document.getElementById('settingsWarehouse');
     const saved = lsGet('defaultWarehouse', '');
     fetchDeduped('/api/warehouse/storages', undefined, 60000)
         .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(data => {
-            ws.innerHTML = '<option value="">\u041D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D</option>' +
+            ws.innerHTML = '<option value="">Не выбран</option>' +
                 data.map(s => `<option value="${s.guid}" ${s.guid === saved ? 'selected' : ''}>${s.name}</option>`).join('');
         });
 
@@ -121,6 +132,8 @@ function saveProfile() {
     lsSet('myTaskKeywords', myTaskKeywords);
     const notifyOnlyMine = document.getElementById('notifyOnlyMineToggle').classList.contains('active') ? 'true' : '';
     lsSet('notifyOnlyMine', notifyOnlyMine);
+    const notifyAllWarehouses = document.getElementById('notifyAllWarehousesToggle').classList.contains('active') ? 'true' : '';
+    lsSet('notifyAllWarehouses', notifyAllWarehouses);
     updateProfileAvatar();
 
     fetch('/api/profile', {
@@ -134,6 +147,7 @@ function saveProfile() {
                 markMyTasks: markMyTasks,
                 myTaskKeywords: myTaskKeywords,
                 notifyOnlyMine: notifyOnlyMine,
+                notifyAllWarehouses: notifyAllWarehouses,
             }
         })
     }).catch(() => {});

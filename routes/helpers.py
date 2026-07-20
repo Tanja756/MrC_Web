@@ -617,9 +617,18 @@ def background_check_balances(client, username):
         storages = client.get_storages()
         if not storages:
             return
+        from db import get_user_settings
+        settings = get_user_settings(username) or {}
+        notify_all = settings.get('notify_all_warehouses', True)
+        default_wh = settings.get('default_warehouse', '')
+
         for storage in storages:
             storage_guid = storage.get('guid')
             if not storage_guid:
+                continue
+            if not notify_all and default_wh and storage_guid != default_wh:
+                continue
+            if not notify_all and not default_wh:
                 continue
             updated_at = get_snapshot_updated_at(username, storage_guid)
             if updated_at:

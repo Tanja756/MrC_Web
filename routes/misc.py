@@ -35,6 +35,11 @@ def api_profile_get():
         return jsonify({"profile": {
             "notifyOnlyMine": str(settings.get("notify_only_mine", 0)),
             "myTaskKeywords": settings.get("my_task_keywords", ""),
+            "profileName": settings.get("profile_name", ""),
+            "defaultWarehouse": settings.get("default_warehouse", ""),
+            "theme": settings.get("theme", "dark"),
+            "markMyTasks": "true" if settings.get("mark_my_tasks") else "",
+            "notifyAllWarehouses": "true" if settings.get("notify_all_warehouses", True) else "",
         }})
     except Exception as e:
         logger.warning(f"Failed to fetch profile: {e}")
@@ -66,7 +71,17 @@ def api_profile_post():
         from db import save_user_settings
         notify_only_mine = 1 if profile.get('notifyOnlyMine') == 'true' else 0
         my_task_keywords = profile.get('myTaskKeywords', '')
-        save_user_settings(username, notify_only_mine, my_task_keywords)
+        profile_name = profile.get('profileName', '')
+        default_warehouse = profile.get('defaultWarehouse', '')
+        theme = profile.get('theme', 'dark')
+        mark_my_tasks = profile.get('markMyTasks') == 'true'
+        notify_all_warehouses = profile.get('notifyAllWarehouses') != 'false'
+        save_user_settings(username, notify_only_mine, my_task_keywords,
+                           profile_name=profile_name,
+                           default_warehouse=default_warehouse,
+                           theme=theme,
+                           mark_my_tasks=mark_my_tasks,
+                           notify_all_warehouses=notify_all_warehouses)
         return jsonify({"status": "ok"})
     except Exception as e:
         logger.warning(f"Failed to save profile: {e}")
@@ -156,7 +171,7 @@ def api_priorities():
 # --- Static file endpoints ---
 @misc_bp.route('/sw.js')
 def service_worker():
-    return Response(open('static/sw.js', 'rb').read(), mimetype='application/javascript')
+    return Response(open('sw.js', 'rb').read(), mimetype='application/javascript')
 
 
 @misc_bp.route('/manifest.json')
