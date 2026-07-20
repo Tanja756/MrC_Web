@@ -8,7 +8,10 @@
         <div class="d-flex align-items-center gap-2 mb-3">
             <button class="btn btn-primary btn-sm" onclick="openShopModal()"><i class="bi bi-plus-lg me-1"></i>Добавить магазин</button>
             <button class="btn btn-outline-secondary btn-sm" onclick="loadShops()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
-            <input class="form-control form-control-sm ms-auto" id="shopFilter" placeholder="Фильтр по адресу..." style="max-width:300px" oninput="filterShops()">
+            <div class="ms-auto d-flex align-items-center gap-1">
+                <input class="form-control form-control-sm" id="shopFilter" placeholder="Поиск..." style="max-width:280px" oninput="filterShops()">
+                <button class="btn btn-outline-secondary btn-reset-filter" onclick="clearShopFilter()"><i class="bi bi-x-lg"></i></button>
+            </div>
         </div>
         <div class="table-responsive">
             <table class="table table-sm table-hover align-middle" id="shopsTable">

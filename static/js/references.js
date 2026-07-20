@@ -25,7 +25,7 @@ function loadShops() {
                 const checked = !!userStatus[s.sap_code];
                 if (checked) inWorkSaps.push(s.sap_code);
                 return `
-                <tr data-sap="${escHtml(s.sap_code)}">
+                <tr data-sap="${escHtml(s.sap_code)}" data-shop-number="${escHtml(s.shop_number)}">
                     <td>${i + 1}</td>
                     <td>${escHtml(s.shop_number)}</td>
                     <td>${escHtml(s.sap_code)}</td>
@@ -65,8 +65,15 @@ function filterShops() {
     document.querySelectorAll('#shopsTableBody tr').forEach(tr => {
         if (!q) { tr.style.display = ''; return; }
         const addr = (tr.querySelector('.shop-address')?.textContent || '').toLowerCase();
-        tr.style.display = addr.includes(q) ? '' : 'none';
+        const num = (tr.dataset.shopNumber || '').toLowerCase();
+        const sap = (tr.dataset.sap || '').toLowerCase();
+        tr.style.display = (addr.includes(q) || num.includes(q) || sap.includes(q)) ? '' : 'none';
     });
+}
+
+function clearShopFilter() {
+    document.getElementById('shopFilter').value = '';
+    filterShops();
 }
 
 function openShopModal(id) {
