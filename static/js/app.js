@@ -34,6 +34,7 @@ function applyTheme(theme) {
 
 function toggleTheme() {
     applyTheme(currentTheme === 'light' ? 'dark' : 'light');
+    saveProfile();
 }
 
 function toggleMarkMyTasks() {

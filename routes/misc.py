@@ -75,7 +75,7 @@ def api_profile_post():
         default_warehouse = profile.get('defaultWarehouse', '')
         theme = profile.get('theme', 'dark')
         mark_my_tasks = profile.get('markMyTasks') == 'true'
-        notify_all_warehouses = profile.get('notifyAllWarehouses') != 'false'
+        notify_all_warehouses = profile.get('notifyAllWarehouses') == 'true'
         save_user_settings(username, notify_only_mine, my_task_keywords,
                            profile_name=profile_name,
                            default_warehouse=default_warehouse,
