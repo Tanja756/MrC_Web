@@ -270,6 +270,59 @@ tr:nth-child(even) td {{ background: #fafafa; }}
 </body></html>'''
 
 
+def route_pdf_html(month_label, rows, username):
+    total_days = len(set(r['date'] for r in rows if r['type'] != 'home'))
+    total_tasks = sum(1 for r in rows if r['type'] == 'task')
+    total_trips = sum(1 for r in rows if r['type'] == 'trip')
+    now_str = datetime.now().strftime('%d.%m.%Y %H:%M')
+    home_rows_count = sum(1 for r in rows if r['type'] == 'home')
+    body_rows = ''.join(
+        f'<tr class="{r["type"]}">'
+        f'<td class="num">{i+1}</td>'
+        f'<td>{r["date"]}</td>'
+        f'<td>{_escape_html(r["content"])}</td></tr>'
+        for i, r in enumerate(rows)
+    )
+    return f'''<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="UTF-8">
+<style>
+@page {{ margin: 14mm 10mm; }}
+body {{ font-family: 'Liberation Sans', 'Arial', sans-serif; font-size: 9pt; color: #1a1a1a; }}
+.header {{ display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid #d32f2f; }}
+.header h1 {{ font-size: 13pt; margin: 0; color: #d32f2f; }}
+.header .meta {{ font-size: 8pt; color: #666; text-align: right; line-height: 1.4; }}
+table {{ width: 100%; border-collapse: collapse; }}
+th {{ background: #f5f5f5; font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.8px; padding: 5px 7px; text-align: left; border-bottom: 1px solid #ccc; color: #666; }}
+td {{ padding: 4px 7px; border-bottom: 1px solid #eee; font-size: 8.5pt; }}
+td.num {{ text-align: center; color: #999; width: 28px; }}
+tr.home td {{ background: #fff3e0; font-weight: 700; }}
+tr.home td.num {{ color: #e65100; }}
+tr.trip td {{ background: #e3f2fd; }}
+tr:nth-child(even):not(.home):not(.trip) td {{ background: #fafafa; }}
+.footer {{ margin-top: 16px; padding-top: 8px; border-top: 1px solid #ddd; font-size: 7.5pt; color: #999; text-align: center; }}
+.summary {{ font-size: 8pt; color: #666; margin-bottom: 8px; }}
+</style></head>
+<body>
+<div class="header">
+    <div><h1>Маршрутный лист</h1><div style="font-size:8.5pt;color:#444;margin-top:3px;">{username}</div></div>
+    <div class="meta">{month_label}<br>Сформировано: {now_str}</div>
+</div>
+<div class="summary">Дней: {total_days} | Заявок: {total_tasks} | Поездок: {total_trips}</div>
+<table>
+<tr><th>#</th><th>Дата</th><th>Содержание</th></tr>
+{body_rows}
+</table>
+<div class="footer">Сгенерировано Mr.Check</div>
+</body></html>'''
+
+
+def _escape_html(s):
+    if not s:
+        return ''
+    return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
+
+
 def check_balance_changes(username, storage_guid, new_data, storage_name=''):
     if not username or not new_data:
         return

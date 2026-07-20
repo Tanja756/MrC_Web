@@ -1,7 +1,11 @@
+import os
 import re
+import uuid
+import subprocess
+import tempfile
 from datetime import datetime, timedelta
-from flask import Blueprint, request, jsonify, session
-from .helpers import api_login_required, get_api_client
+from flask import Blueprint, request, jsonify, session, send_file
+from .helpers import api_login_required, get_api_client, route_pdf_html
 from db import get_db_connection, get_tasks_tracking, get_route_cache_entries, save_route_cache_entries, delete_route_cache_entries
 
 route_bp = Blueprint('route', __name__, url_prefix='/api/route')
@@ -188,6 +192,66 @@ def api_route_sheet():
 
     rows = _group_into_rows(entries, username, sort_dir)
     return jsonify({'rows': rows, 'count': len(rows)})
+
+
+@route_bp.route('/export-pdf', methods=['POST'])
+@api_login_required
+def api_route_export_pdf():
+    body = request.get_json(silent=True) or {}
+    rows = body.get('rows', [])
+    month = body.get('month', '')
+
+    username = session.get('username', '')
+    if not month or len(month) != 7:
+        return jsonify({'error': 'month required (YYYY-MM)'}), 400
+
+    year, mon = int(month[:4]), int(month[5:7])
+    month_names = ['Январь','Февраль','Март','Апрель','Май','Июнь',
+                   'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
+    month_label = f"{month_names[mon-1]} {year}"
+
+    html = route_pdf_html(month_label, rows, username)
+    tag = uuid.uuid4().hex[:12]
+    tmp_html = os.path.join(tempfile.gettempdir(), f'rt-{tag}.html')
+    tmp_pdf = os.path.join(tempfile.gettempdir(), f'rt-{tag}.pdf')
+    try:
+        with open(tmp_html, 'w', encoding='utf-8') as f:
+            f.write(html)
+        lo_dir = os.path.join(tempfile.gettempdir(), f'lo-rt-{tag}')
+        os.makedirs(lo_dir, exist_ok=True)
+        env = os.environ.copy()
+        env['HOME'] = lo_dir
+        result = subprocess.run(
+            ['libreoffice', '--headless', '--norestore',
+             f'-env:UserInstallation=file:///{lo_dir}',
+             '--convert-to', 'pdf', '--outdir', tempfile.gettempdir(), tmp_html],
+            capture_output=True, text=True, timeout=60, env=env
+        )
+        generated = os.path.join(tempfile.gettempdir(), f'rt-{tag}.html.pdf')
+        expected = tmp_pdf
+        if os.path.exists(generated):
+            os.rename(generated, expected)
+        if not os.path.exists(expected) or os.path.getsize(expected) < 100:
+            raise RuntimeError(result.stderr or 'PDF not generated')
+        filename = f'route_{month}.pdf'
+        response = send_file(expected, mimetype='application/pdf',
+                             as_attachment=True, download_name=filename)
+        @response.call_on_close
+        def cleanup():
+            for p in [tmp_html, expected, lo_dir]:
+                try:
+                    if os.path.isfile(p): os.unlink(p)
+                    elif os.path.isdir(p): os.rmdir(p)
+                except Exception:
+                    pass
+        return response
+    except Exception as e:
+        for p in [tmp_html, tmp_pdf]:
+            try:
+                if os.path.exists(p): os.unlink(p)
+            except Exception:
+                pass
+        return jsonify({'error': str(e)}), 500
 
 
 @route_bp.route('/rebuild-cache', methods=['POST'])

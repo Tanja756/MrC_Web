@@ -32,6 +32,62 @@ function updateRouteMonthLabel() {
         `${routeMonthNames[currentRouteDate.getMonth()]} ${year}`;
 }
 
+function exportRoutePdf() {
+    const year = currentRouteDate.getFullYear();
+    const month = String(currentRouteDate.getMonth() + 1).padStart(2, '0');
+    const monthStr = `${year}-${month}`;
+
+    const tbody = document.querySelector('#routeTable tbody');
+    const rows = [];
+    for (const tr of tbody.querySelectorAll('tr')) {
+        const tds = tr.querySelectorAll('td');
+        if (tds.length < 4) continue;
+        rows.push({
+            num: tds[0].textContent.trim(),
+            login_1c: tds[1].textContent.trim(),
+            date: tds[2].textContent.trim(),
+            content: tds[3].textContent.trim(),
+            type: tr.classList.contains('table-secondary') ? 'home'
+                : tr.classList.contains('table-info') ? 'trip'
+                : 'task',
+        });
+    }
+
+    if (!rows.length) { alert('Нет данных для экспорта'); return; }
+
+    const btn = document.querySelector('[onclick="exportRoutePdf()"]');
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    fetch('/api/route/export-pdf', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({rows, month: monthStr}),
+    })
+    .then(r => {
+        if (!r.ok) throw new Error('Ошибка сервера');
+        return r.blob();
+    })
+    .then(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `route_${monthStr}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    })
+    .catch(err => {
+        alert('Ошибка экспорта: ' + err.message);
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+    });
+}
+
 function rebuildRouteCache() {
     const year = currentRouteDate.getFullYear();
     const month = String(currentRouteDate.getMonth() + 1).padStart(2, '0');
