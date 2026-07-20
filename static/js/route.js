@@ -32,6 +32,31 @@ function updateRouteMonthLabel() {
         `${routeMonthNames[currentRouteDate.getMonth()]} ${year}`;
 }
 
+function rebuildRouteCache() {
+    const year = currentRouteDate.getFullYear();
+    const month = String(currentRouteDate.getMonth() + 1).padStart(2, '0');
+    const monthStr = `${year}-${month}`;
+    const btn = document.querySelector('[onclick="rebuildRouteCache()"]');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>...';
+    fetch('/api/route/rebuild-cache', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({month: monthStr}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Перестроить';
+        loadRouteSheet();
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Перестроить';
+        alert('Ошибка: ' + err.message);
+    });
+}
+
 function loadRouteSheet() {
     updateRouteMonthLabel();
     const year = currentRouteDate.getFullYear();

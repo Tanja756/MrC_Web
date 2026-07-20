@@ -1612,6 +1612,58 @@ def close_ppr_task(guid: str, comment: str, latitude: float = 0.0, longitude: fl
     return updated
 
 
+# ── Route sheet cache ─────────────────────────────────────────────────────────
+
+def init_route_sheet_cache_table():
+    conn = get_db_connection()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS route_sheet_cache (
+            username TEXT NOT NULL,
+            month TEXT NOT NULL,
+            row_id INTEGER NOT NULL,
+            login_1c TEXT NOT NULL DEFAULT '',
+            date TEXT NOT NULL,
+            content TEXT NOT NULL,
+            type TEXT NOT NULL,
+            time TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (username, month, row_id)
+        )
+    """)
+    conn.close()
+
+def get_route_cache_entries(username, month):
+    conn = get_db_connection()
+    conn.row_factory = sqlite3.Row
+    cur = conn.execute(
+        "SELECT date, content, type, time FROM route_sheet_cache WHERE username = ? AND month = ? ORDER BY row_id",
+        (username, month)
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+def save_route_cache_entries(username, month, entries):
+    def _write():
+        conn = get_db_connection()
+        conn.execute("DELETE FROM route_sheet_cache WHERE username = ? AND month = ?", (username, month))
+        for i, e in enumerate(entries):
+            conn.execute(
+                "INSERT INTO route_sheet_cache (username, month, row_id, login_1c, date, content, type, time) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (username, month, i, username, e['date'], e['content'], e['type'], e.get('time', ''))
+            )
+        conn.commit()
+        conn.close()
+    _retry_on_locked(_write)
+
+def delete_route_cache_entries(username, month):
+    def _write():
+        conn = get_db_connection()
+        conn.execute("DELETE FROM route_sheet_cache WHERE username = ? AND month = ?", (username, month))
+        conn.commit()
+        conn.close()
+    _retry_on_locked(_write)
+
+
 # Инициализация БД при импорте модуля
 try:
     init_db()
@@ -1631,5 +1683,6 @@ try:
     init_user_shops_table()
     init_fn_schedule_table()
     init_ppr_tasks_table()
+    init_route_sheet_cache_table()
 except Exception as e:
     logger.warning(f"init_db failed (readonly?): {e}")

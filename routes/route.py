@@ -1,8 +1,8 @@
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, session
 from .helpers import api_login_required, get_api_client
-from db import get_db_connection, get_tasks_tracking
+from db import get_db_connection, get_tasks_tracking, get_route_cache_entries, save_route_cache_entries, delete_route_cache_entries
 
 route_bp = Blueprint('route', __name__, url_prefix='/api/route')
 
@@ -34,21 +34,7 @@ def _local_closed_by_task(t, username):
     return row[0] if row and row[0] else None
 
 
-@route_bp.route('/sheet', methods=['POST'])
-@api_login_required
-def api_route_sheet():
-    body = request.get_json(silent=True) or {}
-    month = body.get('month', '')
-    if not month or len(month) != 7:
-        return jsonify({'error': 'month required (YYYY-MM)'}), 400
-    sort_dir = body.get('sort', 'desc')
-
-    username = session.get('username', '')
-    client = get_api_client()
-    if not client:
-        return jsonify({'error': 'no api client'}), 400
-
-    # ── Tasks: from 1C closed tasks, dates from local DB (priority) / 1C closed_at / 1C date ──
+def _load_1c_entries(client, username):
     closed_data = client.get_closed_tasks_user(limit=1000)
     closed_tasks = closed_data.get('tasks', []) if isinstance(closed_data, dict) else closed_data or []
 
@@ -65,20 +51,35 @@ def api_route_sheet():
         if not closed_at:
             continue
         dt = _parse_dt(closed_at)
-        if dt.strftime('%Y-%m') != month:
-            continue
         number = t.get('number', '') or ''
         name = t.get('name', '') or ''
-        content = name or guid[:18]
         entries.append({
             'type': 'task',
             'dt': dt,
             'date': dt.strftime('%d.%m.%Y'),
             'time': dt.strftime('%H:%M'),
-            'content': content,
+            'content': name or guid[:18],
         })
 
-    # ── Transfers: group by day into trips ──
+    # PPR from local DB
+    conn = get_db_connection()
+    cur = conn.execute(
+        "SELECT number, name, date, period, updated_at FROM ppr_tasks WHERE status = 'Завершена'"
+    )
+    for row in cur.fetchall():
+        number, name = row[0], row[1]
+        date_str = row[2] or row[3] or row[4]
+        dt = _parse_dt(date_str)
+        entries.append({
+            'type': 'task',
+            'dt': dt,
+            'date': dt.strftime('%d.%m.%Y'),
+            'time': dt.strftime('%H:%M'),
+            'content': f"[ППР] {number} {name}",
+        })
+    conn.close()
+
+    # Trips from stock transfers history
     from routes.warehouse import _stock_transfers_history_cache
     cached = _stock_transfers_history_cache.get("data")
     if cached is None:
@@ -90,14 +91,11 @@ def api_route_sheet():
             if not doc_date:
                 continue
             dt = _parse_dt(doc_date)
-            if dt.strftime('%Y-%m') != month:
-                continue
             day_key = dt.strftime('%Y-%m-%d')
             if day_key not in day_transfers:
                 day_transfers[day_key] = {'dts': [], 'count': 0}
             day_transfers[day_key]['dts'].append(dt)
             day_transfers[day_key]['count'] += 1
-
         for day_key, info in day_transfers.items():
             first_dt = min(info['dts'])
             entries.append({
@@ -108,12 +106,14 @@ def api_route_sheet():
                 'content': f"Поездка ({info['count']} перемещений)",
             })
 
-    if not entries:
-        return jsonify({'rows': [], 'count': 0})
+    return entries
 
+
+def _group_into_rows(entries, username, sort_dir):
+    if not entries:
+        return []
     entries.sort(key=lambda e: e['dt'], reverse=(sort_dir == 'desc'))
 
-    # ── Group by date, wrap with Дом ──
     rows = []
     current_day = None
     day_entries = []
@@ -131,4 +131,90 @@ def api_route_sheet():
     if current_day is not None and day_entries:
         rows.append({'num': len(rows) + 1, 'login_1c': username, 'date': current_day, 'content': 'Дом', 'type': 'home'})
 
+    return rows
+
+
+@route_bp.route('/sheet', methods=['POST'])
+@api_login_required
+def api_route_sheet():
+    body = request.get_json(silent=True) or {}
+    month = body.get('month', '')
+    if not month or len(month) != 7:
+        return jsonify({'error': 'month required (YYYY-MM)'}), 400
+    sort_dir = body.get('sort', 'desc')
+
+    username = session.get('username', '')
+    client = get_api_client()
+    if not client:
+        return jsonify({'error': 'no api client'}), 400
+
+    year, mon = int(month[:4]), int(month[5:7])
+    month_start = datetime(year, mon, 1)
+    month_end = datetime(year + 1, 1, 1) if mon == 12 else datetime(year, mon + 1, 1)
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    cutoff = today - timedelta(days=7)
+
+    entries = []
+
+    # ── Cached entries (dates < cutoff) ──
+    need_full_load = False
+    if month_start < cutoff:
+        cache_entries = get_route_cache_entries(username, month)
+        if cache_entries:
+            for e in cache_entries:
+                dt = _parse_dt(f"{e['date']} {e['time']}")
+                if dt >= cutoff:
+                    continue
+                e['dt'] = dt
+                entries.append(e)
+        else:
+            need_full_load = True
+
+    if need_full_load:
+        all_entries = _load_1c_entries(client, username)
+        pre = [e for e in all_entries if e['dt'] < cutoff and e['dt'] >= month_start and e['dt'] < month_end]
+        post = [e for e in all_entries if e['dt'] >= cutoff and e['dt'] >= month_start and e['dt'] < month_end]
+        if pre:
+            save_route_cache_entries(username, month, pre)
+        entries.extend(post)
+    else:
+        # ── Live entries (dates >= cutoff) ──
+        if cutoff < month_end:
+            live_entries = _load_1c_entries(client, username)
+            for e in live_entries:
+                if e['dt'] >= cutoff and e['dt'] >= month_start and e['dt'] < month_end:
+                    entries.append(e)
+
+    rows = _group_into_rows(entries, username, sort_dir)
     return jsonify({'rows': rows, 'count': len(rows)})
+
+
+@route_bp.route('/rebuild-cache', methods=['POST'])
+@api_login_required
+def api_route_rebuild_cache():
+    body = request.get_json(silent=True) or {}
+    month = body.get('month', '')
+    if not month or len(month) != 7:
+        return jsonify({'error': 'month required (YYYY-MM)'}), 400
+
+    username = session.get('username', '')
+    client = get_api_client()
+    if not client:
+        return jsonify({'error': 'no api client'}), 400
+
+    delete_route_cache_entries(username, month)
+
+    year, mon = int(month[:4]), int(month[5:7])
+    month_start = datetime(year, mon, 1)
+    month_end = datetime(year + 1, 1, 1) if mon == 12 else datetime(year, mon + 1, 1)
+
+    all_entries = _load_1c_entries(client, username)
+    month_entries = [e for e in all_entries if e['dt'] >= month_start and e['dt'] < month_end]
+
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    cutoff = today - timedelta(days=7)
+    pre = [e for e in month_entries if e['dt'] < cutoff]
+    if pre:
+        save_route_cache_entries(username, month, pre)
+
+    return jsonify({'success': True, 'count': len(month_entries)})
