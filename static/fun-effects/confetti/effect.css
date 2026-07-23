@@ -1,0 +1,12 @@
+.fun-confetti {
+    position: fixed;
+    width: 10px;
+    height: 10px;
+    pointer-events: none;
+    z-index: 9999;
+    animation: fun-confetti-burst 1.2s ease-out forwards;
+}
+@keyframes fun-confetti-burst {
+    0% { opacity: 1; transform: translate(0, 0) rotate(0deg) scale(1); }
+    100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--r)) scale(0.2); }
+}

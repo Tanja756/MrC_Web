@@ -4,7 +4,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, send_file
 from openpyxl import load_workbook
 from .helpers import api_login_required
-from db import get_ppr_list, get_ppr_departments, add_ppr_task, add_ppr_tasks_batch, close_ppr_task
+from db import get_ppr_list, get_ppr_departments, add_ppr_task, add_ppr_tasks_batch, close_ppr_task, update_ppr_close_date
 
 ppr_bp = Blueprint('ppr', __name__, url_prefix='/api/ppr')
 
@@ -40,9 +40,24 @@ def api_ppr_close():
     comment = data.get('comment', '')
     latitude = data.get('latitude', 0.0)
     longitude = data.get('longitude', 0.0)
-    success = close_ppr_task(guid, comment, latitude, longitude)
+    close_date = data.get('close_date')
+    success = close_ppr_task(guid, comment, latitude, longitude, close_date)
     if not success:
         return jsonify({'error': 'Task not found or already closed'}), 404
+    return jsonify({'success': True})
+
+
+@ppr_bp.route('/update-close-date', methods=['POST'])
+@api_login_required
+def api_ppr_update_close_date():
+    data = request.json or {}
+    guid = data.get('guid')
+    close_date = data.get('close_date')
+    if not guid or not close_date:
+        return jsonify({'error': 'guid and close_date are required'}), 400
+    success = update_ppr_close_date(guid, close_date)
+    if not success:
+        return jsonify({'error': 'Task not found or not closed'}), 404
     return jsonify({'success': True})
 
 

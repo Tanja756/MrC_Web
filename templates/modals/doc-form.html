@@ -10,8 +10,9 @@
                 <div class="doc-section-header doc-header-basic d-md-none" onclick="toggleDocSection(this)">Основные данные <i class="bi bi-chevron-up ms-auto"></i></div>
                 <div class="doc-section-body d-md-block" id="docBasicSection">
                 <div class="row g-3">
-                    <div class="col-6"><label class="form-label fw-semibold small">Номер магазина</label><input type="text" class="form-control" id="docShop" placeholder="Напр. 14908" autocomplete="off"></div>
-                    <div class="col-6"><label class="form-label fw-semibold small">SAP-код</label><input type="text" class="form-control" id="docSap" placeholder="Напр. O055" autocomplete="off"></div>
+                    <div class="col-4"><label class="form-label fw-semibold small">Дата документа</label><input type="date" class="form-control" id="docDate"></div>
+                    <div class="col-4"><label class="form-label fw-semibold small">Номер магазина</label><input type="text" class="form-control" id="docShop" placeholder="Напр. 14908" autocomplete="off"></div>
+                    <div class="col-4"><label class="form-label fw-semibold small">SAP-код</label><input type="text" class="form-control" id="docSap" placeholder="Напр. O055" autocomplete="off"></div>
                     <div class="col-12"><label class="form-label fw-semibold small">Адрес</label><textarea class="form-control" id="docAddr" rows="2" placeholder="Адрес магазина" autocomplete="off"></textarea></div>
                     <div class="col-6"><label class="form-label fw-semibold small">Номер задачи</label><input type="text" class="form-control" id="docZd" placeholder="Напр. ХК-002308" autocomplete="off"></div>
                     <div class="col-6"><label class="form-label fw-semibold small">Код заявки</label><input type="text" class="form-control" id="docCode" placeholder="Напр. ИНЦ-000123456" autocomplete="off"></div>
@@ -40,8 +41,13 @@
             </div>
         </div>
         <div class="modal-footer" id="docFormFooter">
-            <button class="btn btn-secondary" data-bs-dismiss="modal" id="docFormCancelBtn">Отмена</button>
-            <button class="btn btn-primary" onclick="generateDocForm()" id="docFormSubmitBtn"><i class="bi bi-file-earmark-pdf me-1"></i>Сформировать</button>
+            <div>
+                <button class="btn btn-outline-info" onclick="generateDocFormAndUpload()" title="Сформировать на Я.Диск"><i class="bi bi-cloud-upload"></i></button>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-secondary" data-bs-dismiss="modal" id="docFormCancelBtn">Отмена</button>
+                <button class="btn btn-primary" onclick="generateDocForm()" id="docFormSubmitBtn"><i class="bi bi-file-earmark-pdf me-1"></i>Сформировать</button>
+            </div>
         </div>
         <div id="docFormLoading" class="d-none position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center bg-white bg-opacity-90" style="z-index:1060;border-radius:inherit;">
             <div class="spinner-border text-primary mb-3" role="status" style="width:3rem;height:3rem;"></div>

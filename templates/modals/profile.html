@@ -25,7 +25,17 @@
                             <input type="file" id="avatarInput" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="uploadAvatar(this)">
                         </div>
                     </div>
-                    <div class="form-text small text-muted mt-1">PNG, JPG или WebP до 2 МБ. Квадратное изображение будет обрезано в круг.</div>
+                    <div class="form-text small text-muted mt-1">PNG, JPG или WebP до 2 МБ. Большие изображения будут сжаты до 200px.</div>
+                </div>
+                <hr>
+                <div class="settings-section">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <label class="mb-0"><i class="bi bi-emoji-smile me-1"></i>Весёлый молочник</label>
+                            <div class="form-text small text-muted mt-0">Забавная фича</div>
+                        </div>
+                        <button class="theme-toggle" id="merryMilkmanToggle" onclick="toggleMerryMilkman()" role="switch" aria-checked="false"></button>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">

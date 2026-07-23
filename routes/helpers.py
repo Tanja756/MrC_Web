@@ -117,8 +117,8 @@ def attach_tracking(tasks, username):
 
 
 def auto_close_tracked_tasks(tasks, username):
-    """If a task was taken via web app (has taken_at in local tracking)
-    but closed externally (no closed_at), set closed_at to now if now <= period."""
+    """If a task appears in the closed list from 1C but has no local closed_at,
+    set closed_at to now. This handles tasks closed externally (in 1C)."""
     if not tasks or not username:
         return
     now = datetime.now()
@@ -130,16 +130,11 @@ def auto_close_tracked_tasks(tasks, username):
             continue
         tr = tracking[g]
         if tr.get('taken_at') and not tr.get('closed_at'):
-            period_str = t.get('period')
-            if not period_str:
-                continue
-            deadline = parse_1c_date(period_str)
-            if deadline:
-                tn = t.get('number', '') or ''
-                nm = t.get('name', '') or ''
-                task_name = f"Заявка {tn} — {nm}" if tn else nm
-                set_task_closed(username, g, task_name)
-                t['closed_at'] = now.strftime('%Y-%m-%d %H:%M:%S')
+            tn = t.get('number', '') or ''
+            nm = t.get('name', '') or ''
+            task_name = f"Заявка {tn} — {nm}" if tn else nm
+            set_task_closed(username, g, task_name)
+            t['closed_at'] = now.strftime('%Y-%m-%d %H:%M:%S')
 
 
 def parse_1c_date(s):
@@ -168,7 +163,7 @@ def filter_tasks(tasks, search=None, sort=None, dir='desc'):
         tasks.sort(key=lambda t: parse_1c_date(t.get('period')) or (datetime.max if not reverse else datetime.min), reverse=reverse)
     elif sort == 'closed_at':
         def _ck(t):
-            v = t.get('closed_at')
+            v = t.get('closed_at') or t.get('period')
             if v:
                 try:
                     return datetime.strptime(v, '%Y-%m-%d %H:%M:%S')
@@ -181,7 +176,8 @@ def filter_tasks(tasks, search=None, sort=None, dir='desc'):
         tasks.sort(key=_ck, reverse=reverse)
     else:
         tasks.sort(key=lambda t: parse_1c_date(t.get('date')) or (datetime.min if reverse else datetime.max), reverse=reverse)
-    tasks.sort(key=lambda t: 0 if 'Подтвердить' in (t.get('status') or '') or 'подтвердить' in (t.get('status') or '') else 1)
+    if sort != 'closed_at':
+        tasks.sort(key=lambda t: 0 if 'Подтвердить' in (t.get('status') or '') or 'подтвердить' in (t.get('status') or '') else 1)
     return tasks
 
 

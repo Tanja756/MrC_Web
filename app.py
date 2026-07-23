@@ -2,7 +2,7 @@ import os
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
-from flask import Flask
+from flask import Flask, render_template
 from flask_compress import Compress
 
 from config import config
@@ -50,6 +50,10 @@ def create_app():
     @app.context_processor
     def inject_now():
         return {'now': datetime.now}
+
+    @app.errorhandler(404)
+    def not_found(e):
+        return render_template('404.html'), 404
 
     return app
 

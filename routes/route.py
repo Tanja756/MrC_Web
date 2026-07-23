@@ -69,11 +69,11 @@ def _load_1c_entries(client, username):
     # PPR from local DB
     conn = get_db_connection()
     cur = conn.execute(
-        "SELECT number, name, date, period, updated_at FROM ppr_tasks WHERE status = 'Завершена'"
+        "SELECT number, name, close_date, date, period, updated_at FROM ppr_tasks WHERE status = 'Завершена'"
     )
     for row in cur.fetchall():
         number, name = row[0], row[1]
-        date_str = row[2] or row[3] or row[4]
+        date_str = row[2] or row[3] or row[4] or row[5]
         dt = _parse_dt(date_str)
         entries.append({
             'type': 'task',

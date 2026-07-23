@@ -42,6 +42,7 @@ def api_profile_get():
             "markMyTasks": "true" if settings.get("mark_my_tasks") else "",
             "notifyAllWarehouses": "true" if settings.get("notify_all_warehouses", True) else "",
             "avatarUrl": avatar_url,
+            "merryMilkman": "true" if settings.get("merry_milkman") else "",
         }})
     except Exception as e:
         logger.warning(f"Failed to fetch profile: {e}")
@@ -78,6 +79,7 @@ def api_profile_post():
         theme = profile.get('theme', 'dark')
         mark_my_tasks = profile.get('markMyTasks') == 'true'
         notify_all_warehouses = profile.get('notifyAllWarehouses') == 'true'
+        merry_milkman = profile.get('merryMilkman') == 'true'
         existing = get_user_settings(username) or {}
         avatar_url = existing.get('avatar_url', '')
         save_user_settings(username, notify_only_mine, my_task_keywords,
@@ -86,7 +88,8 @@ def api_profile_post():
                            theme=theme,
                            mark_my_tasks=mark_my_tasks,
                            notify_all_warehouses=notify_all_warehouses,
-                           avatar_url=avatar_url)
+                           avatar_url=avatar_url,
+                           merry_milkman=merry_milkman)
         return jsonify({"status": "ok"})
     except Exception as e:
         logger.warning(f"Failed to save profile: {e}")
@@ -109,18 +112,30 @@ def api_profile_avatar():
     if not file.filename:
         return jsonify({'error': 'No file'}), 400
     import os, hashlib
+    from PIL import Image
+    import io
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in ('.png', '.jpg', '.jpeg', '.webp'):
         return jsonify({'error': 'Invalid format'}), 400
     raw = file.read()
     if len(raw) > 2 * 1024 * 1024:
         return jsonify({'error': 'File too large'}), 400
-    digest = hashlib.md5(raw).hexdigest()
-    name = f"{username}_{digest}{ext}"
+    img = Image.open(io.BytesIO(raw))
+    max_size = 200
+    if img.width > max_size or img.height > max_size:
+        img.thumbnail((max_size, max_size), Image.LANCZOS)
+    out = io.BytesIO()
+    save_ext = ext if ext in ('.png', '.webp') else '.jpg'
+    if save_ext == '.jpg' and img.mode in ('RGBA', 'P'):
+        img = img.convert('RGB')
+    img.save(out, format='PNG' if save_ext == '.png' else 'WEBP' if save_ext == '.webp' else 'JPEG', quality=85)
+    resized = out.getvalue()
+    digest = hashlib.md5(resized).hexdigest()
+    name = f"{username}_{digest}{save_ext}"
     path = os.path.join('static', 'avatars', name)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'wb') as f:
-        f.write(raw)
+        f.write(resized)
     avatar_url = f"/static/avatars/{name}"
     from db import save_user_settings
     save_user_settings(username, 0, '', avatar_url=avatar_url)
@@ -184,7 +199,10 @@ def api_shop_by_sap():
     from db import find_shop_by_sap
     row = find_shop_by_sap(sap)
     if row:
-        return jsonify({'shop': row[0], 'sap': row[1], 'addr': row[2]})
+        return jsonify({'shop': row[0], 'sap': row[1], 'addr': row[2],
+                        'dm_name': row[3], 'dm_phone': row[4],
+                        'adm1_name': row[5], 'adm1_phone': row[6],
+                        'adm2_name': row[7], 'adm2_phone': row[8]})
     return jsonify({})
 
 @misc_bp.route('/api/shop/by-sap-list', methods=['POST'])
@@ -196,7 +214,10 @@ def api_shop_by_sap_list():
         return jsonify({})
     from db import find_shops_by_sap_list
     rows = find_shops_by_sap_list(saps)
-    result = {r[1]: {'shop': r[0], 'sap': r[1], 'addr': r[2]} for r in rows}
+    result = {r[1]: {'shop': r[0], 'sap': r[1], 'addr': r[2],
+                      'dm_name': r[3], 'dm_phone': r[4],
+                      'adm1_name': r[5], 'adm1_phone': r[6],
+                      'adm2_name': r[7], 'adm2_phone': r[8]} for r in rows}
     return jsonify(result)
 
 

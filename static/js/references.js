@@ -1,6 +1,7 @@
 let shopModalInstance = null;
 let fiasDebounceTimer = null;
 let fiasHideTimer = null;
+let shopContacts = {};
 
 document.addEventListener('DOMContentLoaded', () => {
     shopModalInstance = new bootstrap.Modal(document.getElementById('shopFormModal'));
@@ -21,9 +22,11 @@ function loadShops() {
                 return;
             }
             const inWorkSaps = [];
+            shopContacts = {};
             tbody.innerHTML = shops.map((s, i) => {
                 const checked = !!userStatus[s.sap_code];
                 if (checked) inWorkSaps.push(s.sap_code);
+                shopContacts[s.id] = s;
                 return `
                 <tr data-sap="${escHtml(s.sap_code)}" data-shop-number="${escHtml(s.shop_number)}">
                     <td>${i + 1}</td>
@@ -85,12 +88,18 @@ function openShopModal(id) {
     if (id) {
         document.getElementById('shopFormModalLabel').textContent = 'Редактировать магазин';
         document.getElementById('shopFormSaveBtn').textContent = 'Сохранить изменения';
-        const cells = document.querySelector(`#shopsTableBody tr:has(button[onclick*="${id}"])`)?.cells;
-        if (cells) {
-            document.getElementById('shopNumber').value = cells[1].textContent;
-            document.getElementById('sapCode').value = cells[2].textContent;
-            document.getElementById('shopAddress').value = cells[3].textContent;
+        const c = shopContacts[id];
+        if (c) {
+            document.getElementById('shopNumber').value = c.shop_number;
+            document.getElementById('sapCode').value = c.sap_code;
+            document.getElementById('shopAddress').value = c.address;
             document.getElementById('shopId').value = id;
+            document.getElementById('dmName').value = c.dm_name || '';
+            document.getElementById('dmPhone').value = c.dm_phone || '';
+            document.getElementById('adm1Name').value = c.adm1_name || '';
+            document.getElementById('adm1Phone').value = c.adm1_phone || '';
+            document.getElementById('adm2Name').value = c.adm2_name || '';
+            document.getElementById('adm2Phone').value = c.adm2_phone || '';
         }
     }
     shopModalInstance.show();
@@ -155,6 +164,12 @@ function saveShop() {
         shop_number: document.getElementById('shopNumber').value.trim(),
         sap_code: document.getElementById('sapCode').value.trim(),
         address: document.getElementById('shopAddress').value.trim(),
+        dm_name: document.getElementById('dmName').value.trim(),
+        dm_phone: document.getElementById('dmPhone').value.trim(),
+        adm1_name: document.getElementById('adm1Name').value.trim(),
+        adm1_phone: document.getElementById('adm1Phone').value.trim(),
+        adm2_name: document.getElementById('adm2Name').value.trim(),
+        adm2_phone: document.getElementById('adm2Phone').value.trim(),
     };
     if (!data.shop_number || !data.sap_code || !data.address) {
         showAlert('Заполните все поля');

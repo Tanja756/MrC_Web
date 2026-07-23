@@ -23,7 +23,13 @@ def api_shops_create():
     address = data.get('address', '').strip()
     if not all([shop_number, sap_code, address]):
         return jsonify({'error': 'Заполните все поля'}), 400
-    rowid = add_shop(shop_number, sap_code, address)
+    rowid = add_shop(shop_number, sap_code, address,
+                     dm_name=data.get('dm_name', '').strip(),
+                     dm_phone=data.get('dm_phone', '').strip(),
+                     adm1_name=data.get('adm1_name', '').strip(),
+                     adm1_phone=data.get('adm1_phone', '').strip(),
+                     adm2_name=data.get('adm2_name', '').strip(),
+                     adm2_phone=data.get('adm2_phone', '').strip())
     if rowid is None:
         return jsonify({'error': 'Не удалось добавить магазин (возможно, уже существует)'}), 409
     return jsonify({'id': rowid, 'shop_number': shop_number, 'sap_code': sap_code, 'address': address}), 201
@@ -38,7 +44,13 @@ def api_shops_update(rowid):
     address = data.get('address', '').strip()
     if not all([shop_number, sap_code, address]):
         return jsonify({'error': 'Заполните все поля'}), 400
-    ok = update_shop(rowid, shop_number, sap_code, address)
+    ok = update_shop(rowid, shop_number, sap_code, address,
+                     dm_name=data.get('dm_name', '').strip(),
+                     dm_phone=data.get('dm_phone', '').strip(),
+                     adm1_name=data.get('adm1_name', '').strip(),
+                     adm1_phone=data.get('adm1_phone', '').strip(),
+                     adm2_name=data.get('adm2_name', '').strip(),
+                     adm2_phone=data.get('adm2_phone', '').strip())
     if not ok:
         return jsonify({'error': 'Магазин не найден'}), 404
     return jsonify({'id': rowid, 'shop_number': shop_number, 'sap_code': sap_code, 'address': address})

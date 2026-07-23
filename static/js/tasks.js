@@ -5,6 +5,44 @@ let pendingAttachments = [];
 let tasksMy = [], tasksFree = [], tasksClosed = [];
 let multiSelectMode = false;
 const selectedGuids = new Set();
+let knownTaskGuids = {};
+let taskGuidsInitialized = false;
+let deadlinesNotified = false;
+
+function checkNewTaskNotifications(tasks) {
+    if (!taskGuidsInitialized) {
+        tasks.forEach(function(t) { knownTaskGuids[t.guid] = true; });
+        taskGuidsInitialized = true;
+        return;
+    }
+    var newOnes = [];
+    tasks.forEach(function(t) {
+        if (!knownTaskGuids[t.guid]) newOnes.push(t);
+        knownTaskGuids[t.guid] = true;
+    });
+    if (newOnes.length === 0) return;
+    if (newOnes.length === 1) {
+        var t = newOnes[0];
+        NotificationCenter.show({ icon: 'message', title: 'Новая задача', subtitle: t.name || ('Задача #' + (t.number || '')), actions: ['OK'], duration: 9000 });
+    } else {
+        NotificationCenter.show({ icon: 'message', title: 'Новые задачи', subtitle: newOnes.length + ' новых задач в разделе «В работе»', actions: ['OK'], duration: 9000 });
+    }
+}
+
+function checkDeadlineNotifications(tasks) {
+    if (deadlinesNotified) return;
+    var soon = tasks.filter(function(t) { return getUrgency(t).level >= 2; });
+    if (soon.length === 0) return;
+    if (soon.length === 1) {
+        var t = soon[0];
+        NotificationCenter.show({ icon: 'clock', title: 'Скоро дедлайн', subtitle: t.name || ('Задача #' + (t.number || '')), actions: ['OK'], duration: 10000 });
+    } else {
+        NotificationCenter.show({ icon: 'clock', title: 'Скоро дедлайн', subtitle: soon.length + ' задач с приближающимся сроком', actions: ['OK'], duration: 10000 });
+    }
+    deadlinesNotified = true;
+}
+
+/**** guids tracking ****/
 let currentTab = localStorage.getItem('taskTab') || 'my';
 if (!['my', 'free', 'closed'].includes(currentTab)) currentTab = 'my';
 let tabPrefs = {
@@ -59,7 +97,7 @@ function loadTasks(search, types) {
     if (fetches.length === 0) return;
     Promise.all(fetches).then(results => {
         let i = 0;
-        if (labels.includes('my')) { const d = results[i] || {}; if (Array.isArray(d.tasks)) tasksMy = d.tasks; i++; }
+        if (labels.includes('my')) { const d = results[i] || {}; if (Array.isArray(d.tasks)) { checkNewTaskNotifications(d.tasks); checkDeadlineNotifications(d.tasks); tasksMy = d.tasks; } i++; }
         if (labels.includes('free')) { const d = results[i] || {}; if (Array.isArray(d.tasks)) tasksFree = d.tasks; i++; }
         filterTasks();
     });
@@ -107,7 +145,7 @@ function refreshCurrentTab(search) {
         .then(r => r instanceof Response ? r.json().catch(() => ({})) : r)
         .then(data => {
             if (Array.isArray(data.tasks)) {
-                if (currentTab === 'my') tasksMy = data.tasks;
+                if (currentTab === 'my') { checkNewTaskNotifications(data.tasks); checkDeadlineNotifications(data.tasks); tasksMy = data.tasks; }
                 else tasksFree = data.tasks;
             }
             filterTasks();
@@ -181,7 +219,8 @@ function sortTasks(tasks, sort, dir) {
         }
         case 'closed_at': {
             s.sort((a, b) => {
-                const da = parseDate(a.closed_at), db = parseDate(b.closed_at);
+                const da = parseDate(a.closed_at) || parseDate(a.period);
+                const db = parseDate(b.closed_at) || parseDate(b.period);
                 if (!da && !db) return 0;
                 if (!da) return 1;
                 if (!db) return -1;
@@ -248,8 +287,8 @@ function renderTasks(containerId, tasks, query, mode) {
     let sorted;
     if (mode === 'closed') {
         if (sort === 'deadline') {
-            const confirming = filtered.filter(t => t.status && (t.status.includes('Подтвердить') || t.status.includes('подтвердить')));
-            const rest = filtered.filter(t => !t.status || (!t.status.includes('Подтвердить') && !t.status.includes('подтвердить')));
+            const confirming = sortTasks(filtered.filter(t => t.status && (t.status.includes('Подтвердить') || t.status.includes('подтвердить'))), 'deadline', dir);
+            const rest = sortTasks(filtered.filter(t => !t.status || (!t.status.includes('Подтвердить') && !t.status.includes('подтвердить'))), 'deadline', dir);
             sorted = [...confirming, ...rest];
         } else {
             sorted = sortTasks(filtered, sort, dir);
@@ -346,7 +385,9 @@ function renderTasks(containerId, tasks, query, mode) {
                     ${t.guid_client && clientName(t.guid_client) ? `<span class="task-meta-item"><i class="bi bi-building"></i>${clientName(t.guid_client)}</span>` : ''}
                     ${t.date ? `<span class="task-meta-item"><i class="bi bi-calendar3"></i>${formatDate(t.date)}</span>` : ''}
                     ${t.taken_at && mode === 'my' ? `<span class="task-meta-item"><i class="bi bi-play-fill"></i>${formatDate(t.taken_at)}</span>` : ''}
-                    ${t.closed_at && mode !== 'my' ? `<span class="task-meta-item"><i class="bi bi-check-circle"></i>${formatDate(t.closed_at)}</span>` : ''}
+                    ${(t.closed_at)
+                        ? `<span class="task-meta-item"><i class="bi bi-check-circle"></i>${formatDate(t.closed_at)}</span>`
+                        : (mode === 'closed' ? `<span class="task-meta-item text-muted"><i class="bi bi-check-circle"></i>${formatDate(t.period)} <small>(срок)</small></span>` : '')}
                     <span class="task-meta-item ${deadlineClass}"><i class="bi bi-alarm"></i>${deadlineLabel}</span>
                 </div>
                 <div class="task-actions">
@@ -469,7 +510,7 @@ function showTaskDetail(task, mode, guid) {
                     <div class="col-6 col-md-4">
                         <small class="text-muted d-block">Дата закрытия</small>
                         <span class="fw-semibold" id="closedAtDisplay" data-value="${task.closed_at || ''}">
-                            ${formatDate(task.closed_at)}
+                            ${task.closed_at ? formatDate(task.closed_at) : (formatDate(task.period) + ' <small class="text-muted">(срок)</small>')}
                             <i class="bi bi-pencil ms-1 edit-icon" onclick="editClosedAt('${guid}')" title="Изменить дату закрытия"></i>
                         </span>
                     </div>
@@ -530,6 +571,7 @@ function showTaskDetail(task, mode, guid) {
     }
 
     fetchAndAppendFnData(task);
+    fetchAndAppendShopContacts(task);
 }
 
 function fetchAndAppendFnData(task) {
@@ -561,6 +603,38 @@ function fetchAndAppendFnData(task) {
         .catch(() => {});
 }
 
+function fetchAndAppendShopContacts(task) {
+    const text = (task.name || '') + '\n' + (task.description || '');
+    const m = text.match(/SAP-(\w{4})/i);
+    const sap = m ? m[1].toUpperCase() : '';
+    if (!sap) return;
+    fetch(`/api/shop/by-sap?sap=${encodeURIComponent(sap)}`)
+        .then(checkAuth)
+        .then(r => r.json())
+        .then(data => {
+            if (!data || !data.sap) return;
+            const roles = [
+                { label: 'ДМ', name: data.dm_name, phone: data.dm_phone },
+                { label: 'АДМ1', name: data.adm1_name, phone: data.adm1_phone },
+                { label: 'АДМ2', name: data.adm2_name, phone: data.adm2_phone },
+            ];
+            const parts = roles
+                .filter(r => r.phone)
+                .map(r => r.label + ': ' + r.phone + (r.name ? ' (' + r.name + ')' : ''));
+            if (!parts.length) return;
+            const bodyEl = document.getElementById('taskDetailBody');
+            if (!bodyEl) return;
+            const contactHtml = '<div class="mt-2 p-2 bg-info bg-opacity-10 rounded-3 small"><strong>Контакты:</strong> ' + esc(parts.join(' ')) + '</div>';
+            const descEl = bodyEl.querySelector('.task-description');
+            if (descEl) {
+                descEl.insertAdjacentHTML('afterend', contactHtml);
+            } else {
+                bodyEl.insertAdjacentHTML('afterbegin', contactHtml);
+            }
+        })
+        .catch(() => {});
+}
+
 // ============ EDIT CLOSED AT ============
 function editClosedAt(guid) {
     const display = document.getElementById('closedAtDisplay');
@@ -570,7 +644,7 @@ function editClosedAt(guid) {
     let value = '';
     const parts = raw.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2})/);
     if (parts) {
-        value = `${parts[1]}-${parts[2]}-${parts[3]}T${String(parts[4]).padStart(2,'0')}:${parts[5]}`;
+        value = `${parts[1]}-${parts[2]}-${parts[3]} ${String(parts[4]).padStart(2,'0')}:${parts[5]}`;
     } else {
         const now = new Date();
         const y = now.getFullYear();
@@ -578,15 +652,23 @@ function editClosedAt(guid) {
         const d = String(now.getDate()).padStart(2, '0');
         const h = String(now.getHours()).padStart(2, '0');
         const mi = String(now.getMinutes()).padStart(2, '0');
-        value = `${y}-${mo}-${d}T${h}:${mi}`;
+        value = `${y}-${mo}-${d} ${h}:${mi}`;
     }
     display.innerHTML = `
         <div class="d-flex align-items-center gap-1 flex-nowrap">
-            <input type="datetime-local" id="${inputId}" class="form-control form-control-sm" value="${value}" style="max-width:190px">
+            <input type="text" id="${inputId}" class="form-control form-control-sm" placeholder="ДД.ММ.ГГГГ ЧЧ:ММ" style="max-width:200px">
             <button class="btn btn-sm btn-outline-success" onclick="saveClosedAt('${guid}')" title="Сохранить"><i class="bi bi-check-lg"></i></button>
             <button class="btn btn-sm btn-outline-secondary" onclick="cancelEditClosedAt()" title="Отмена"><i class="bi bi-x-lg"></i></button>
         </div>`;
-    document.getElementById(inputId).focus();
+    flatpickr('#' + inputId, {
+        enableTime: true,
+        locale: 'ru',
+        dateFormat: 'Y-m-d H:i',
+        defaultDate: value,
+        time_24hr: true,
+        allowInput: true,
+        position: 'auto'
+    });
 }
 
 function saveClosedAt(guid) {
@@ -594,7 +676,7 @@ function saveClosedAt(guid) {
     if (!input) return;
     const val = input.value;
     if (!val) return;
-    const closedAt = val.replace('T', ' ') + ':00';
+    const closedAt = val + ':00';
     const display = document.getElementById('closedAtDisplay');
     const originalHtml = display.innerHTML;
     display.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
@@ -622,6 +704,8 @@ function saveClosedAt(guid) {
 }
 
 function cancelEditClosedAt() {
+    const input = document.getElementById('closedAtInput');
+    if (input && input._flatpickr) input._flatpickr.destroy();
     const display = document.getElementById('closedAtDisplay');
     if (!display) return;
     const raw = display.dataset.value || '';
@@ -767,6 +851,7 @@ function closeTask(guid, guidDoc) {
                     bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
                     setTimeout(() => {
                         showAlert('Заявка закрыта! После проверки менеджером статус будет обновлён.', 'success');
+                        NotificationCenter.show({ icon: 'success', title: 'Заявка закрыта', subtitle: 'После проверки менеджером статус будет обновлён', actions: ['OK'], duration: 6000 });
                     }, 300);
                     tasksMy = tasksMy.filter(t => t.guid !== guid);
                     cacheDel('/api/tasks/my');
@@ -830,6 +915,7 @@ function takeTask(guid) {
             body: JSON.stringify({guid})
         }).then(checkAuth).then(r => r.json()).then(data => {
             if (data.status === 'Выполнить' || data.status === 'OK') {
+                NotificationCenter.show({ icon: 'success', title: 'Заявка взята', subtitle: 'Заявка #' + (cleanNumber(task.number) || task.guid.slice(0,8)) + ' теперь в работе', actions: ['OK'], duration: 6000 });
                 cacheClearPrefix('/api/tasks/');
                 loadTasks();
             } else {
@@ -1118,8 +1204,10 @@ function showM15EquipmentModal(text) {
     } else {
         shareBtn.classList.add('d-none');
     }
-    const modal = new bootstrap.Modal(document.getElementById('m15EquipmentModal'));
-    modal.show();
+    showModalStacked('m15EquipmentModal', () => {
+        const modal = new bootstrap.Modal(document.getElementById('m15EquipmentModal'));
+        modal.show();
+    });
 }
 
 function copyM15Equipment() {
@@ -1163,6 +1251,7 @@ function openDocForm(guid) {
     const modalEl = document.getElementById('docFormModal');
     if (modalEl.classList.contains('show')) return;
     const fillForm = (task) => {
+        document.querySelectorAll('#docFormModal .modal-body .alert').forEach(el => el.remove());
         const text = (task.name || '') + '\n' + (task.description || '');
 
         function rx(p) {
@@ -1171,6 +1260,7 @@ function openDocForm(guid) {
         }
 
         document.getElementById('docFormGuid').value = guid;
+        document.getElementById('docDate').value = new Date().toISOString().slice(0,10);
         document.getElementById('docShop').value = rx(/(\d+)-Пятерочка/);
         const sap = rx(/SAP-(\w{4})/).toUpperCase();
         document.getElementById('docSap').value = sap;
@@ -1186,7 +1276,14 @@ function openDocForm(guid) {
             if (m) document.getElementById('docZd').value = m[0];
         }
 
-        document.getElementById('docAddr').value = '';
+        let addr = rx(/Адрес:\s*(.*)$/m);
+        if (!addr && sap) {
+            const m = text.match(new RegExp('SAP-' + sap + '\\s+(.*?)(?:\\s*\\||$)'));
+            if (m) {
+                addr = m[1].trim().replace(/\s*(Контрагент:|Срок:).*$/, '').trim();
+            }
+        }
+        document.getElementById('docAddr').value = addr;
         if (sap) {
             fetch(`/api/shop/by-sap?sap=${encodeURIComponent(sap)}`)
                 .then(checkAuth).then(r => r.json())
@@ -1221,8 +1318,10 @@ function openDocForm(guid) {
         });
         loadDocStorages(document.getElementById('docStorageSelect'));
 
-        const modal = new bootstrap.Modal(document.getElementById('docFormModal'));
-        modal.show();
+        showModalStacked('docFormModal', () => {
+            const modal = new bootstrap.Modal(document.getElementById('docFormModal'));
+            modal.show();
+        });
     };
 
     const allTasks = [...tasksMy, ...tasksFree, ...tasksClosed];
@@ -1248,9 +1347,14 @@ function generateDocForm() {
     const desc = document.getElementById('docDesc').value.trim();
     const code = document.getElementById('docCode').value.trim();
     const zd = document.getElementById('docZd').value.trim();
-    if (shop || sap || addr || desc || code || zd) {
-        Object.assign(fields, {shop, sap, addr, desc, code, zd});
-    }
+    const docDate = document.getElementById('docDate').value;
+    if (shop) fields.shop = shop;
+    if (sap) fields.sap = sap;
+    if (addr) fields.addr = addr;
+    if (desc) fields.desc = desc;
+    if (code) fields.code = code;
+    if (zd) fields.zd = zd;
+    if (docDate) Object.assign(fields, {doc_date: docDate});
     if (docSelectedItems.length > 0) {
         fields.items = docSelectedItems.map(item => ({name: item.name, series: item.series}));
     }
@@ -1293,7 +1397,7 @@ function generateDocForm() {
         fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body})
             .then(checkAuth)
             .then(r => {
-                if (!r.ok) return r.text().then(t => { throw new Error(t) });
+                if (!r.ok) return r.json().then(t => { throw new Error(t.error || 'Ошибка генерации') });
                 const filename = getFilenameFromHeaders(r.headers);
                 return r.blob().then(blob => ({blob, filename}));
             })
@@ -1324,6 +1428,68 @@ function generateDocForm() {
             '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
         errDiv.querySelector('span').textContent = e.message;
         body.prepend(errDiv);
+    });
+}
+
+function generateDocFormAndUpload() {
+    const guid = document.getElementById('docFormGuid').value;
+    if (!guid) return;
+
+    const fields = {};
+    const shop = document.getElementById('docShop').value.trim();
+    const sap = document.getElementById('docSap').value.trim();
+    const addr = document.getElementById('docAddr').value.trim();
+    const desc = document.getElementById('docDesc').value.trim();
+    const code = document.getElementById('docCode').value.trim();
+    const zd = document.getElementById('docZd').value.trim();
+    const docDate = document.getElementById('docDate').value;
+    if (shop) fields.shop = shop;
+    if (sap) fields.sap = sap;
+    if (addr) fields.addr = addr;
+    if (desc) fields.desc = desc;
+    if (code) fields.code = code;
+    if (zd) fields.zd = zd;
+    if (docDate) Object.assign(fields, {doc_date: docDate});
+    if (docSelectedItems.length > 0) {
+        fields.items = docSelectedItems.map(item => ({name: item.name, series: item.series}));
+    }
+
+    const includeAct = document.getElementById('docIncludeAct').checked;
+    const includeFn = document.getElementById('docIncludeFn').checked;
+    const includeM15 = document.getElementById('docIncludeM15').checked;
+
+    const loading = document.getElementById('docFormLoading');
+    const footer = document.getElementById('docFormFooter');
+    const status = document.getElementById('docFormStatus');
+
+    loading.classList.remove('d-none');
+    footer.querySelectorAll('button').forEach(b => b.disabled = true);
+    status.textContent = 'Генерация и загрузка на Я.Диск...';
+
+    fetch('/api/tasks/documents/upload-to-yandex', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            guid,
+            profile_name: savedProfileName,
+            fields: Object.keys(fields).length > 0 ? fields : undefined,
+            include_act: includeAct,
+            include_fn: includeFn,
+            include_m15: includeM15,
+        })
+    }).then(checkAuth).then(r => r.json()).then(data => {
+        loading.classList.add('d-none');
+        footer.querySelectorAll('button').forEach(b => b.disabled = false);
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('docFormModal'))?.hide();
+            showAlert('Документы сформированы и загружены на Я.Диск', 'success');
+        } else {
+            showAlert(data.error || 'Ошибка при загрузке на Я.Диск', 'danger');
+        }
+    }).catch(e => {
+        loading.classList.add('d-none');
+        footer.querySelectorAll('button').forEach(b => b.disabled = false);
+        showAlert('Ошибка сети: ' + e.message, 'danger');
     });
 }
 

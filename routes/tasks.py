@@ -92,9 +92,6 @@ def api_tasks_closed():
     tasks = project_tasks(data.get('tasks', []))
     attach_tracking(tasks, username)
     auto_close_tracked_tasks(tasks, username)
-    for t in tasks:
-        if not t.get('closed_at'):
-            t['closed_at'] = t.get('period')
     tasks = filter_tasks(tasks, search, sort, dir)
     return make_etag_response({"tasks": tasks})
 
@@ -363,6 +360,67 @@ def api_task_documents_fn():
 @tasks_bp.route('/documents/m15', methods=['POST'])
 def api_task_documents_m15():
     return _make_doc_endpoint(False, False, True, 'm15')
+
+
+@tasks_bp.route('/documents/upload-to-yandex', methods=['POST'])
+def api_task_documents_upload_yandex():
+    from docgen import generate_documents, extract_task_data
+    from yandex_disk import YandexDiskClient
+    guid = request.json.get('guid')
+    if not guid:
+        return jsonify({'error': 'GUID required'}), 400
+    profile_name = request.json.get('profile_name', '')
+    include_act = request.json.get('include_act', True)
+    include_fn = request.json.get('include_fn', True)
+    include_m15 = request.json.get('include_m15', True)
+    fields = request.json.get('fields') or None
+    login = request.json.get('login') or ''
+    password = request.json.get('password') or ''
+    client = _resolve_client(login, password)
+    if not client:
+        return jsonify({'error': 'Authentication required'}), 401
+    task = _fetch_task(client, guid)
+    if task is None:
+        return jsonify({'error': 'Task not found'}), 404
+    parsed = extract_task_data(task)
+    try:
+        pdfs = generate_documents(task, profile_name=profile_name,
+                                  include_act=include_act, include_fn=include_fn,
+                                  include_m15=include_m15,
+                                  field_overrides=fields)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    if fields and fields.get('items'):
+        if include_m15:
+            save_task_m15_items(guid, fields['items'])
+        text = '\n'.join(f"{item['name']} ({item['series']})" for item in fields['items'])
+        save_task_m15_text(guid, text, parsed.get('code', ''), hk_code=parsed.get('zd', ''))
+
+    hk_code = parsed.get('zd', '')
+    sap = parsed.get('sap', 'unknown')
+    username = session.get('username', '')
+    today = datetime.now().strftime('%Y.%m.%d')
+
+    yandex = YandexDiskClient()
+    remote_dir = f"{username}/Docs/{today}/{sap}/{hk_code}/"
+    yandex.ensure_folder(remote_dir)
+
+    uploaded = []
+    for pdf_path in pdfs:
+        fname = os.path.basename(pdf_path)
+        try:
+            with open(pdf_path, 'rb') as f:
+                data = f.read()
+            yandex.upload_file(remote_dir, fname, data)
+            uploaded.append(fname)
+        except Exception as e:
+            return jsonify({'error': f'Failed to upload {fname}: {str(e)}'}), 500
+        finally:
+            if os.path.exists(pdf_path):
+                os.unlink(pdf_path)
+
+    return jsonify({'success': True, 'files': uploaded})
 
 
 @tasks_bp.route('/<guid>/m15-items', methods=['GET'])

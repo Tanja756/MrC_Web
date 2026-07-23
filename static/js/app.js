@@ -61,21 +61,67 @@ function toggleNotifyAllWarehouses() {
     saveProfile();
 }
 
+function toggleMerryMilkman() {
+    const el = document.getElementById('merryMilkmanToggle');
+    const on = !el.classList.contains('active');
+    el.classList.toggle('active', on);
+    el.setAttribute('aria-checked', on);
+    saveProfile();
+    applyMerryMilkman();
+}
+
+var __currentMerryEffect = null;
+
+function applyMerryMilkman() {
+    var isOn = lsGet('merryMilkman', '') === 'true';
+
+    if (window.__funEffectsCleanup) {
+        window.__funEffectsCleanup.forEach(function(fn) { fn(); });
+        window.__funEffectsCleanup.length = 0;
+    }
+    document.querySelectorAll('[data-fun]').forEach(function(el) { el.remove(); });
+    __currentMerryEffect = null;
+
+    if (!isOn) return;
+
+    var chosen = 'confetti';
+    __currentMerryEffect = chosen;
+
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = '/static/fun-effects/confetti/effect.css';
+    link.dataset.fun = chosen;
+    document.head.appendChild(link);
+
+    var script = document.createElement('script');
+    script.src = '/static/fun-effects/confetti/effect.js';
+    script.dataset.fun = chosen;
+    document.body.appendChild(script);
+}
+
 function openProfileModal() {
     const modal = new bootstrap.Modal(document.getElementById('profileModal'));
     document.getElementById('profileName').value = savedProfileName;
     const avatar = document.getElementById('profileAvatarPreview');
     const avatarUrl = lsGet('avatarUrl', '');
-    const avatarImg = avatar.querySelector('img');
-    if (avatarUrl && avatarImg) {
-        avatarImg.src = avatarUrl;
-        avatarImg.style.display = '';
-        avatar.textContent = '';
+    let avatarImg = avatar.querySelector('img');
+    if (avatarUrl) {
+        if (avatarImg) {
+            avatarImg.src = avatarUrl;
+        } else {
+            avatar.innerHTML = '<img src="' + avatarUrl + '" class="profile-avatar-img">';
+        }
     } else {
         const name = savedProfileName || '?';
         avatar.textContent = name.charAt(0).toUpperCase();
     }
     document.getElementById('removeAvatarBtn').style.display = avatarUrl ? '' : 'none';
+    const mmOn = lsGet('merryMilkman', '') === 'true';
+    const mmEl = document.getElementById('merryMilkmanToggle');
+    if (mmEl) {
+        mmEl.classList.toggle('active', mmOn);
+        mmEl.setAttribute('aria-checked', mmOn);
+    }
     modal.show();
 }
 
@@ -152,6 +198,8 @@ function saveProfile() {
     if (nomEl) lsSet('notifyOnlyMine', nomEl.classList.contains('active') ? 'true' : '');
     const nawEl = document.getElementById('notifyAllWarehousesToggle');
     if (nawEl) lsSet('notifyAllWarehouses', nawEl.classList.contains('active') ? 'true' : '');
+    const mmEl = document.getElementById('merryMilkmanToggle');
+    if (mmEl) lsSet('merryMilkman', mmEl.classList.contains('active') ? 'true' : '');
     updateProfileAvatar();
 
     fetch('/api/profile', {
@@ -166,6 +214,7 @@ function saveProfile() {
                 myTaskKeywords: lsGet('myTaskKeywords', ''),
                 notifyOnlyMine: lsGet('notifyOnlyMine', ''),
                 notifyAllWarehouses: lsGet('notifyAllWarehouses', ''),
+                merryMilkman: lsGet('merryMilkman', ''),
             }
         })
     }).catch(() => {});
@@ -254,6 +303,26 @@ function removeAvatar() {
 }
 
 // ============ NOTIFICATIONS ============
+var knownNotifIds = {};
+var notifIdsInitialized = false;
+
+function checkNewNotifications(list) {
+    if (!Array.isArray(list)) return;
+    if (!notifIdsInitialized) {
+        list.forEach(function(n) { knownNotifIds[n.id] = true; });
+        notifIdsInitialized = true;
+        return;
+    }
+    list.forEach(function(n) {
+        if (!knownNotifIds[n.id]) {
+            var icon = n.type === 'warehouse_arrival' ? 'success' : n.type === 'warehouse_writeoff' ? 'error' : n.type === 'task_deadline' ? 'clock' : n.type === 'new_task' ? 'message' : 'message';
+            var title = n.type === 'warehouse_arrival' ? 'Приход товара' : n.type === 'warehouse_writeoff' ? 'Списание товара' : n.type === 'task_deadline' ? 'Дедлайн задачи' : n.type === 'new_task' ? 'Новая задача' : 'Уведомление';
+            NotificationCenter.show({ icon: icon, title: title, subtitle: n.title || n.description || '', actions: ['OK'], duration: 8000 });
+            knownNotifIds[n.id] = true;
+        }
+    });
+}
+
 function renderNotifications(list, container) {
     if (!list || !list.length) {
         container.innerHTML = '<div class="text-muted small p-2">\u041D\u0435\u0442 \u0443\u0432\u0435\u0434\u043E\u043C\u043B\u0435\u043D\u0438\u0439</div>';
@@ -299,6 +368,7 @@ function loadNotifications(storageGuid, checkTasks) {
     fetchDeduped(url, undefined, 30000)
         .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(list => {
+            checkNewNotifications(list);
             renderNotifications(list, container);
             updateNotifBadge(list);
             const dropdownList = document.getElementById('notifDropdownList');
@@ -327,13 +397,18 @@ document.addEventListener('click', function(e) {
 function dismissAllNotifications() {
     const container = document.getElementById('notificationsList');
     if (container) container.innerHTML = '<div class="text-muted small">\u041E\u0447\u0438\u0441\u0442\u043A\u0430...</div>';
+    knownNotifIds = {};
+    notifIdsInitialized = false;
     const storage = document.getElementById('storageSelect')?.value || '';
     cacheClearPrefix('/api/notifications');
 
     document.getElementById('notifDropdown')?.classList.remove('show');
     fetch('/api/notifications/dismiss-all', {method: 'POST'})
         .then(checkAuth)
-        .then(() => { loadNotifications(storage); })
+        .then(() => {
+            NotificationCenter.show({ icon: 'success', title: 'Уведомления очищены', actions: ['OK'], duration: 4000 });
+            loadNotifications(storage);
+        })
         .catch(() => {
             if (container) container.innerHTML = '<div class="text-muted small">\u041E\u0448\u0438\u0431\u043A\u0430</div>';
         });
@@ -448,10 +523,18 @@ function requestPermissions() {
     // Notifications
     if ('Notification' in window) {
         if (Notification.permission === 'default') {
-            showToast('Для получения уведомлений о новых задачах разрешите показ уведомлений', 'info', 4000);
+            NotificationCenter.show({
+                icon: 'message', title: 'Уведомления',
+                subtitle: 'Для получения уведомлений о новых задачах разрешите показ уведомлений',
+                actions: ['OK'], duration: 4000
+            });
             Notification.requestPermission();
         } else if (Notification.permission === 'denied') {
-            showToast('Уведомления отключены. Включите их в настройках браузера.', 'warning', 5000);
+            NotificationCenter.show({
+                icon: 'warning', title: 'Уведомления',
+                subtitle: 'Уведомления отключены. Включите их в настройках браузера.',
+                actions: ['OK'], duration: 5000
+            });
         }
     }
 
@@ -459,10 +542,18 @@ function requestPermissions() {
     if ('geolocation' in navigator && 'permissions' in navigator) {
         navigator.permissions.query({ name: 'geolocation' }).then(function (result) {
             if (result.state === 'prompt') {
-                showToast('Для автоматической фиксации местоположения при закрытии задач разрешите геолокацию', 'info', 4000);
+                NotificationCenter.show({
+                    icon: 'message', title: 'Геолокация',
+                    subtitle: 'Для автоматической фиксации местоположения при закрытии задач разрешите геолокацию',
+                    actions: ['OK'], duration: 4000
+                });
                 navigator.geolocation.getCurrentPosition(function () {}, function () {}, { timeout: 3000 });
             } else if (result.state === 'denied') {
-                showToast('Геолокация отключена. Включите её в настройках браузера.', 'warning', 5000);
+                NotificationCenter.show({
+                    icon: 'warning', title: 'Геолокация',
+                    subtitle: 'Геолокация отключена. Включите её в настройках браузера.',
+                    actions: ['OK'], duration: 5000
+                });
             }
         }).catch(function () {});
     }
@@ -495,7 +586,7 @@ document.addEventListener('DOMContentLoaded', () => {
     applyTheme(currentTheme);
     updateProfileAvatar();
 
-    loadProfile();
+    loadProfile().then(function() { applyMerryMilkman(); });
 
     loadNotifications('', true);
     loadAnnouncements();

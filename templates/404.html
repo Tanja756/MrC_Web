@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mr.Check - 404</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#1a1d23">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Mr.Check">
+    <link rel="apple-touch-icon" href="/static/icon.png">
+    <style>
+        :root {
+            --glitch-duration: 4s;
+        }
+
+        body {
+            margin: 0;
+            background: #0a0a0a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            flex-direction: column;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+        }
+
+        .screen {
+            position: relative;
+            background: #111;
+            border-radius: 15px;
+            width: 75vw;
+            max-width: 800px;
+            top: 10px;
+            height: 70vh;
+            max-height: 600px;
+            overflow: hidden;
+            padding: 20px;
+            box-shadow: 0 0 30px rgba(20, 255, 160, 0.3);
+            border: 1px solid rgba(20, 255, 160, 0.5);
+        }
+
+        .screen:before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                transparent 0px,
+                rgba(0, 0, 0, 0.1) 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        .screen:after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 5px;
+            background: rgba(255, 255, 255, 0.05);
+            animation: scanline 6s linear infinite;
+            z-index: 3;
+        }
+
+        @keyframes scanline {
+            0% { top: 0; }
+            100% { top: 100%; }
+        }
+
+        .glitch-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .glitch-text {
+            color: #14ffa0;
+            font-size: 4.2vw;
+            font-weight: bold;
+            position: relative;
+            letter-spacing: 0.1em;
+            z-index: 1;
+            text-shadow: 0 0 5px rgba(20, 255, 160, 0.7);
+        }
+
+        .glitch-text::before,
+        .glitch-text::after {
+            content: attr(data-text);
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+
+        .glitch-text::before {
+            color: #ff00c1;
+            animation: glitch-anim-1 var(--glitch-duration) infinite linear alternate-reverse;
+        }
+
+        .glitch-text::after {
+            color: #0084ff;
+            animation: glitch-anim-2 calc(var(--glitch-duration) * 1.1) infinite linear alternate-reverse;
+        }
+
+        @keyframes glitch-anim-1 {
+            0%, 90% { 
+                clip-path: inset(20% 0 60% 0);
+                transform: translate(-0.04em, 0);
+            }
+            5% {
+                clip-path: inset(40% 0 20% 0);
+                transform: translate(0.04em, -0.02em);
+            }
+            15% {
+                clip-path: inset(80% 0 5% 0);
+                transform: translate(-0.08em, 0.04em);
+            }
+            25% {
+                clip-path: inset(7% 0 78% 0);
+                transform: translate(0.04em, 0.06em);
+            }
+            35% {
+                clip-path: inset(54% 0 30% 0);
+                transform: translate(-0.08em, -0.04em);
+            }
+            45% {
+                clip-path: inset(33% 0 66% 0);
+                transform: translate(0.02em, 0.08em);
+            }
+            55% {
+                clip-path: inset(3% 0 97% 0);
+                transform: translate(-0.06em, -0.02em);
+            }
+            65% {
+                clip-path: inset(92% 0 3% 0);
+                transform: translate(0.08em, 0.04em);
+            }
+            75% {
+                clip-path: inset(18% 0 82% 0);
+                transform: translate(-0.04em, -0.06em);
+            }
+            85% {
+                clip-path: inset(71% 0 29% 0);
+                transform: translate(0.06em, 0.02em);
+            }
+        }
+
+        @keyframes glitch-anim-2 {
+            0%, 100% { 
+                clip-path: inset(40% 0 40% 0);
+                transform: translate(0.02em, 0.04em);
+            }
+            10% {
+                clip-path: inset(10% 0 60% 0);
+                transform: translate(-0.04em, 0.08em);
+            }
+            20% {
+                clip-path: inset(60% 0 10% 0);
+                transform: translate(0.06em, -0.06em);
+            }
+            30% {
+                clip-path: inset(40% 0 40% 0);
+                transform: translate(-0.08em, 0.02em);
+            }
+            40% {
+                clip-path: inset(25% 0 75% 0);
+                transform: translate(0.06em, 0.08em);
+            }
+            50% {
+                clip-path: inset(75% 0 25% 0);
+                transform: translate(-0.02em, -0.04em);
+            }
+            60% {
+                clip-path: inset(15% 0 85% 0);
+                transform: translate(0.04em, 0.06em);
+            }
+            70% {
+                clip-path: inset(85% 0 15% 0);
+                transform: translate(-0.06em, -0.08em);
+            }
+            80% {
+                clip-path: inset(5% 0 95% 0);
+                transform: translate(0.08em, 0.02em);
+            }
+            90% {
+                clip-path: inset(95% 0 5% 0);
+                transform: translate(-0.04em, -0.02em);
+            }
+        }
+
+        .subtext {
+            color: #14ffa0;
+            font-size: 1.7vw;
+            margin-top: 20px;
+            opacity: 0.7;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            animation: flicker 5s infinite;
+        }
+
+        @keyframes flicker {
+            0%, 19.999%, 22%, 62.999%, 64%, 64.999%, 70%, 100% {
+                opacity: 0.7;
+                text-shadow: none;
+            }
+            20%, 21.999%, 63%, 63.999%, 65%, 69.999% {
+                opacity: 0.2;
+                text-shadow: none;
+            }
+        }
+
+        .noise {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAACXBIWXMAAAsTAAALEwEAmpwYAAAD/0lEQVR4nO2aTW8TVxTH/+fOxG5CWzUBYRqVbvwJKmCFKgtAYsFHYAcbNqzY8BlYwII9qEgsoUIXSD5CgwQSjRpUFk1JnHmecy6Le+MZ20lcRHDmTuxfMpI19rzz/N9z7rkvNrAb3TEqyScA+gCc+ZCRMk9ZRFIAE4DuA/iZdTv/q7K3oaB3AArbIaIxSHdYt8c7LeYPFfQORNkN0WWw/3K7xfxXRYOLIN0H6x8o+GinxQBQsP4A+HvB+vcO6AJYBqQHYBl0VEgTRG+h4ArYhZ0WU4WCL4BdANGbnRaTQfQ9FH4BO3+74jT8uM0HGjepXA/s3SsrGG1T3u3Kuw+2PfGatYlvqwpJ4M1W722yiLpgikHU22rAlIsoA6YtMMUiqoDZNpgiEZ1g2iOMvYgmMDuC2YtoArMjmL2ImjA7irkdolsT93aIbk3croj/zRPvTUQ9mB353jDqv0+OcBH1fOGDRZ9P83xlm/J3eKLu5SxRV8xexMqDz1eez9U4PoTRYdZYFWOiqjKC1yzqlWNRpzrHvqgck1TlyDp71rWj8j5OdlsZpxFOaZe4nUTjb1oTXfNuVdgEu3TvVg2V0Zy4dJNyPc2JKiD0FMr9HRD1NMr9XRH1NMr9oIh6KuV+UEQ9lXI/OKKePnIfJFGPR+6DJOrxyH2wRD2GeoBEPcbUAyXq0UjdD56oRyP1vRD1aKS+F6IejdT3RtSrUf/8iA7uPjfvzSixeDszc+uDaGMRXM3fD5JkLRofvVn8cbK0vLyY8dEXAQBrh6cbdvSx/dD/dspbZw7g3NjYyL3VweTB+Pj4V0qoqKqC1trIGJPIe1+ICSFw1YLKwdcq3GVBvQRYF8z4uQRlwZcGOJVBQS/EUNAp/EUFvgSfS1ApcpLa+Z/mNWvt0Pl3hSvT08k03BbOfXtLRMC+UO9kCqCDOEO39mX+F9ZaAwDX5+a+yJ3ftRCJCK21sW3bNo9Gq/lTqVSqTMNJ8vurO5OTuXPC+L08X7cBHtcO7mSCJFWK1dpwkiTmrcmTTnDuZYu5QURDS0tLb5/NzT2o1+txCCGUzzDnMkxrPbRy8KpSjBORFREAADRDRAsrK4u1ev25c640f+Xq9ZM77eXp6akP4+HhUQCHACB3vnD9xrfPWuv/KkD3z1V47rXVzpdp41pHxHsV5NZWLSxGIoqYWc3MHMcx53nOWmsBAJOTk+nGgz148OD1fxk6nFkdzMCZaHDAh1BUK7zGzJo7J4SgrLXaORcKZkPxjfK8YGYVQlAAQCLi8uVLmxqgGnk+l8+/D5Ht7B8AVh81zn0xFe8AAAAASUVORK5CYII=");
+            background-repeat: repeat;
+            opacity: 0.03;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .glitch {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            z-index: 3;
+            animation: glitch-overlay 8s infinite;
+            pointer-events: none;
+        }
+
+        @keyframes glitch-overlay {
+            0%, 90%, 100% {
+                opacity: 0;
+                transform: translateX(0);
+            }
+            10%, 10.5% {
+                opacity: 0.1;
+                transform: translateX(5px);
+            }
+            30%, 30.5% {
+                opacity: 0.1;
+                transform: translateX(-5px);
+            }
+            50%, 50.2% {
+                opacity: 0.1;
+                transform: translateY(3px);
+            }
+            70%, 70.5% {
+                opacity: 0.1;
+                transform: translateY(-3px);
+            }
+        }
+
+        .crt-lines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            background: linear-gradient(
+                to bottom,
+                rgba(255, 255, 255, 0) 50%,
+                rgba(0, 0, 0, 0.02) 50%
+            );
+            background-size: 100% 4px;
+            pointer-events: none;
+        }
+
+        .vhs-effect {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            animation: vhs-glitch 15s infinite;
+            z-index: 3;
+            mix-blend-mode: screen;
+            pointer-events: none;
+            background: radial-gradient(
+                ellipse at center,
+                rgba(0, 255, 200, 0.2) 0%,
+                rgba(0, 0, 0, 0) 70%
+            );
+        }
+
+        @keyframes vhs-glitch {
+            0%, 95%, 100% {
+                opacity: 0;
+                transform: translateY(0);
+            }
+            29%, 31% {
+                opacity: 0.4;
+                transform: translateY(-10px);
+            }
+            65%, 67% {
+                opacity: 0.4;
+                transform: translateY(10px);
+            }
+        }
+
+        .controls {
+            margin-top: 30px;
+            display: flex;
+            gap: 20px;
+        }
+
+        .button {
+            padding: 10px 20px;
+            background: #14ffa0;
+            color: #111;
+            border: none;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 0 15px rgba(20, 255, 160, 0.5);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .button:hover {
+            background: #0de292;
+        }
+
+        .button::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                rgba(255, 255, 255, 0.2),
+                transparent
+            );
+            animation: button-glitch 3s infinite;
+        }
+
+        @keyframes button-glitch {
+            0% {
+                left: -100%;
+            }
+            40%, 100% {
+                left: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="screen">
+        <div class="noise"></div>
+        <div class="crt-lines"></div>
+        <div class="glitch"></div>
+        <div class="vhs-effect"></div>
+        <div class="glitch-container">
+            <h1 class="glitch-text" data-text="SYSTEM FAILURE">SYSTEM FAILURE</h1>
+            <p class="subtext">Critical error detected</p>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button class="button" id="text-btn">Try Again</button>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const glitchText = document.querySelector('.glitch-text');
+            const subtext = document.querySelector('.subtext');
+            const textBtn = document.getElementById('text-btn');
+
+            const glitchTexts = [
+                "SYSTEM FAILURE",
+                "CONNECTION LOST",
+                "DATA CORRUPTED",
+                "ACCESS DENIED",
+                "MEMORY ERROR",
+                "BUFFER OVERFLOW",
+                "KERNEL PANIC",
+                "SIGNAL HACKED",
+                "REALITY GLITCH",
+                "MATRIX ERROR"
+            ];
+
+            const subtexts = [
+                "Critical error detected",
+                "Attempting reconnection...",
+                "Run diagnostics immediately",
+                "Security breach detected",
+                "System unstable",
+                "Attempting recovery",
+                "Fatal exception",
+                "Transmission interrupted",
+                "Reality buffer corrupted",
+                "Signal interference detected"
+            ];
+
+            let currentTextIndex = 0;
+
+            textBtn.addEventListener('click', () => {
+                currentTextIndex = (currentTextIndex + 1) % glitchTexts.length;
+                const newText = glitchTexts[currentTextIndex];
+                const newSubtext = subtexts[currentTextIndex];
+
+                glitchText.textContent = newText;
+                glitchText.setAttribute('data-text', newText);
+                subtext.textContent = newSubtext;
+
+                document.documentElement.style.setProperty('--glitch-duration', '0.5s');
+                setTimeout(() => {
+                    document.documentElement.style.setProperty('--glitch-duration', '4s');
+                }, 500);
+            });
+        });
+    </script>
+</body>
+</html>

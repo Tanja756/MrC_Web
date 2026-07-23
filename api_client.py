@@ -26,7 +26,7 @@ class OneSApiClient:
     def _clean_response(data, endpoint: str):
         """Strip heavy fields from 1C responses (same as mrc_proxy did)."""
         CLEAN_DOCS_SERVICES = ("tasks-user", "tasks-unallocated", "closed-tasks-user")
-        CLEAN_ATTACHMENTS = ("stock-transfers",)
+        CLEAN_ATTACHMENTS = ("stock-transfers", "stock-transfers-history")
 
         if isinstance(data, dict):
             if any(endpoint.endswith(s) for s in CLEAN_DOCS_SERVICES):

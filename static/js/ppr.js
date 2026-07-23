@@ -240,16 +240,22 @@ function openPprDetail(guid) {
             if (!task) return;
             const modal = new bootstrap.Modal(document.getElementById('pprDetailModal'));
             document.getElementById('pprDetailTitle').innerHTML = `<i class="bi bi-kanban me-2"></i>ППР #${task.number || task.guid.slice(0,8)}`;
+            const isClosed = task.status === 'Завершена' || task.status === 'Closed';
             document.getElementById('pprDetailBody').innerHTML = `
                 <div class="row g-3">
                     <div class="col-md-6"><div class="p-3 bg-light rounded-3"><small class="text-muted d-block mb-1">Название</small><p class="mb-0 fw-semibold">${task.name || '—'}</p></div></div>
                     <div class="col-md-6"><div class="p-3 bg-light rounded-3"><small class="text-muted d-block mb-1">Отдел</small><p class="mb-0">${task.name_department || '—'}</p></div></div>
                     <div class="col-12"><div class="p-3 bg-light rounded-3"><small class="text-muted d-block mb-1">Описание</small><p class="mb-0 task-description">${task.description || '—'}</p></div></div>
-                    <div class="col-md-4"><small class="text-muted d-block">Статус</small><span class="fw-semibold">${task.status || '—'}</span></div>
-                    <div class="col-md-4"><small class="text-muted d-block">Срок</small><span class="fw-semibold">${formatDate(task.period || task.date)}</span></div>
-                    <div class="col-md-4"><small class="text-muted d-block">Комментарий</small><span class="fw-semibold">${task.closeComment || '—'}</span></div>
+                    <div class="col-md-3"><small class="text-muted d-block">Статус</small><span class="fw-semibold">${task.status || '—'}</span></div>
+                    <div class="col-md-3"><small class="text-muted d-block">Срок</small><span class="fw-semibold">${formatDate(task.period || task.date)}</span></div>
+                    <div class="col-md-3"><small class="text-muted d-block">Дата закрытия</small><span class="fw-semibold" id="pprDetailCloseDate">${isClosed ? (formatDateShort(task.closeDate) || '—') : '—'}</span></div>
+                    <div class="col-md-3"><small class="text-muted d-block">Комментарий</small><span class="fw-semibold">${task.closeComment || '—'}</span></div>
                 </div>`;
-            document.getElementById('pprDetailFooter').innerHTML = `<button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
+            const closeBtn = `<button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
+            const editDateBtn = isClosed
+                ? `<button class="btn btn-outline-primary ms-2" onclick="openEditCloseDate('${guid}')"><i class="bi bi-pencil me-1"></i>Изменить дату закрытия</button>`
+                : '';
+            document.getElementById('pprDetailFooter').innerHTML = closeBtn + editDateBtn;
             modal.show();
         });
 }
@@ -291,8 +297,13 @@ function openPprClose(guid) {
     if (modalEl.classList.contains('show')) return;
     pprPendingAttachments = [];
     const modal = new bootstrap.Modal(document.getElementById('pprDetailModal'));
+    const today = new Date().toISOString().slice(0, 10);
     document.getElementById('pprDetailTitle').innerHTML = '<i class="bi bi-check-circle me-2"></i>Закрыть задачу ППР';
     document.getElementById('pprDetailBody').innerHTML = `
+        <div class="mb-3">
+            <label class="form-label fw-semibold">Дата закрытия</label>
+            <input type="date" class="form-control" id="pprCloseDate" value="${today}">
+        </div>
         <div class="mb-3">
             <label class="form-label fw-semibold">Комментарий</label>
             <textarea class="form-control" id="pprCloseComment" rows="3" placeholder="Введите комментарий..."></textarea>
@@ -318,6 +329,8 @@ function doPprClose(guid) {
         return;
     }
 
+    const closeDate = document.getElementById('pprCloseDate')?.value || '';
+
     const btn = document.querySelector('#pprDetailFooter .btn-success');
     const origHtml = btn.innerHTML;
     btn.disabled = true;
@@ -327,7 +340,7 @@ function doPprClose(guid) {
         fetch('/api/ppr/close', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({guid, comment, latitude: lat, longitude: lng, attachments: pprPendingAttachments})
+            body: JSON.stringify({guid, comment, close_date: closeDate, latitude: lat, longitude: lng, attachments: pprPendingAttachments})
         }).then(checkAuth).then(r => r.json()).then(data => {
             btn.disabled = false;
             btn.innerHTML = origHtml;
@@ -354,6 +367,54 @@ function doPprClose(guid) {
         () => doRequest(0, 0),
         { timeout: 5000 }
     );
+}
+
+function openEditCloseDate(guid) {
+    const modal = new bootstrap.Modal(document.getElementById('pprDetailModal'));
+    document.getElementById('pprDetailTitle').innerHTML = '<i class="bi bi-pencil me-2"></i>Изменить дату закрытия';
+    const today = new Date().toISOString().slice(0, 10);
+    const currentEl = document.getElementById('pprDetailCloseDate');
+    const currentText = currentEl ? currentEl.textContent.trim() : '';
+    const currentDate = currentText && currentText !== '—'
+        ? currentText.split('.').reverse().join('-')
+        : today;
+    document.getElementById('pprDetailBody').innerHTML = `
+        <div class="mb-3">
+            <label class="form-label fw-semibold">Дата закрытия</label>
+            <input type="date" class="form-control" id="pprEditCloseDate" value="${currentDate}">
+        </div>`;
+    document.getElementById('pprDetailFooter').innerHTML = `
+        <button class="btn btn-secondary" onclick="openPprDetail('${guid}')">Отмена</button>
+        <button class="btn btn-primary" onclick="saveCloseDate('${guid}')"><i class="bi bi-check-lg me-1"></i>Сохранить</button>`;
+    modal.show();
+}
+
+function saveCloseDate(guid) {
+    const closeDate = document.getElementById('pprEditCloseDate')?.value;
+    if (!closeDate) return;
+    const btn = document.querySelector('#pprDetailFooter .btn-primary');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Сохранение...';
+    fetch('/api/ppr/update-close-date', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({guid, close_date: closeDate})
+    }).then(checkAuth).then(r => r.json()).then(data => {
+        if (data.success) {
+            cacheClearPrefix('/api/ppr/');
+            loadPpr();
+            bootstrap.Modal.getInstance(document.getElementById('pprDetailModal'))?.hide();
+            openPprDetail(guid);
+        } else {
+            showAlert('Ошибка при сохранении', 'danger');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Сохранить';
+        }
+    }).catch(() => {
+        showAlert('Ошибка сети', 'danger');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Сохранить';
+    });
 }
 
 // ============ UPLOAD PPR ============
@@ -438,7 +499,7 @@ function handleUploadFile(file) {
                     number: String(row[0]).trim(),
                     name: `${String(row[1] || '').trim()} (${String(row[2] || '').trim()}) — ${String(row[3] || '').trim()}`,
                     name_department: String(row[5] || '').trim(),
-                    date: getQuarterStart(quarter, year),
+                    date: hasExecDate ? formatXlsxDate(row[6]) : '',
                     period: periodEnd,
                     user_name: String(row[8] || '').trim(),
                     status: hasExecDate ? 'Завершена' : 'open',
@@ -464,6 +525,22 @@ function parseWeekEnd(str) {
 
 function getQuarterStart(quarter, year) {
     return `${year}-${String((quarter - 1) * 3 + 1).padStart(2, '0')}-01`;
+}
+
+function formatXlsxDate(val) {
+    if (!val) return '';
+    if (typeof val === 'number') {
+        const epoch = new Date(1899, 11, 30);
+        const d = new Date(epoch.getTime() + val * 86400000);
+        return d.toISOString().slice(0, 10);
+    }
+    if (typeof val === 'string') {
+        const m = val.match(/^(\d{2})\.(\d{2})\.(\d{4})/);
+        if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+        return val.slice(0, 10);
+    }
+    if (val instanceof Date) return val.toISOString().slice(0, 10);
+    return '';
 }
 
 function populateRegionFilter() {
@@ -608,7 +685,7 @@ function submitPprBatch() {
         name: r.name,
         name_department: r.name_department,
         user_name: r.user_name || '',
-        date: getQuarterStart(quarter, year),
+        date: r.date || getQuarterStart(quarter, year),
         period: r.period,
         status: r.status || 'open',
     }));

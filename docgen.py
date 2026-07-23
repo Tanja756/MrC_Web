@@ -214,8 +214,11 @@ def extract_task_data(task: dict) -> dict:
     return result
 
 
-def build_replacements(parsed: dict, profile_name: str = '') -> dict:
-    now = datetime.now()
+def build_replacements(parsed: dict, profile_name: str = '', doc_date: str = None) -> dict:
+    if doc_date:
+        now = datetime.strptime(doc_date, '%Y-%m-%d')
+    else:
+        now = datetime.now()
     repl = {
         '{D1}': now.strftime('%d')[0], '{D0}': now.strftime('%d')[1],
         '{M1}': now.strftime('%m')[0], '{M0}': now.strftime('%m')[1],
@@ -317,9 +320,13 @@ def generate_fn(repl: dict, out_dir: str = None, lo_dir: str = None) -> str:
             os.unlink(ods_path)
 
 
-def generate_m15(repl: dict, is_p: bool, in_value_for_in: Optional[str] = None, in_value_for_out: Optional[str] = None, out_dir: str = None, lo_dir: str = None) -> list:
+def generate_m15(repl: dict, is_p: bool, in_value_for_in: Optional[str] = None, in_value_for_out: Optional[str] = None, out_dir: str = None, lo_dir: str = None, doc_date: str = None) -> list:
     out_dir = out_dir or OUT_DIR
-    repl['{DATE}'] = datetime.now().strftime('%d.%m.%Y')
+    if doc_date:
+        dt = datetime.strptime(doc_date, '%Y-%m-%d')
+        repl['{DATE}'] = dt.strftime('%d.%m.%Y')
+    else:
+        repl['{DATE}'] = datetime.now().strftime('%d.%m.%Y')
     pdf_files = []
     templates = [
         (TEMPLATE_M15_IN, "IN", in_value_for_in),
@@ -378,7 +385,7 @@ def generate_documents(task: dict, profile_name: str = '',
     if sap:
         db_entry = find_shop_by_sap(sap)
         if db_entry:
-            shop, sap, addr = db_entry
+            shop, sap, addr = db_entry[:3]
             parsed['desc'] = ''
 
     if not shop or not shop.isdigit():
@@ -408,12 +415,14 @@ def generate_documents(task: dict, profile_name: str = '',
 
         for key in ('shop', 'sap', 'addr', 'desc', 'code', 'zd'):
             val = field_overrides.get(key)
-            if val is not None:
+            if val:
                 parsed[key] = str(val)
         # Re-derive rvr/dop from possibly overridden code
         code = parsed.get('code', '')
         parsed['rvr'] = 'V' if code.startswith('ИНЦ-') else ''
         parsed['dop'] = 'V' if code.startswith('ЗНО-') else ''
+
+    doc_date = field_overrides.get('doc_date') if field_overrides else None
 
     if not parsed.get('sap'):
         raise ValueError("Не удалось определить SAP-код магазина")
@@ -421,7 +430,7 @@ def generate_documents(task: dict, profile_name: str = '',
     code = parsed.get('code', '')
     is_p = code.startswith('ЗНО-')
 
-    repl = build_replacements(parsed, profile_name)
+    repl = build_replacements(parsed, profile_name, doc_date)
     temp_files = []
     attachments = []
 
@@ -484,7 +493,7 @@ def generate_documents(task: dict, profile_name: str = '',
             else:
                 if is_p:
                     repl['{MVZ}'] = 'X0UGSMW6'
-                m15_pdfs = generate_m15(repl, is_p, out_dir=out_dir, lo_dir=lo_dir)
+                m15_pdfs = generate_m15(repl, is_p, out_dir=out_dir, lo_dir=lo_dir, doc_date=doc_date)
                 all_m15_pdfs.extend(m15_pdfs)
                 temp_files.extend(m15_pdfs)
             m15_combined = os.path.join(out_dir, f"{repl['{NUM}']}-{repl['{SAP}']}-M15-{uuid.uuid4().hex[:8]}.pdf")

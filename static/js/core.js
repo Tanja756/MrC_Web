@@ -64,6 +64,10 @@ function fetchDeduped(url, options, ttl) {
     return r;
   }).catch(e => {
     inflight.delete(key);
+    if (e && (!e.message || !e.message.includes('Session expired'))) {
+        var msg = e && e.message ? e.message : 'Неизвестная ошибка';
+        NotificationCenter.show({ icon: 'error', title: 'Ошибка сети', subtitle: msg.length > 120 ? msg.slice(0, 120) + '...' : msg, actions: ['OK'], duration: 6000 });
+    }
     throw e;
   });
   inflight.set(key, p);
@@ -81,6 +85,36 @@ function cacheClearPrefix(prefix) {
 }
 
 const currentStorage = () => document.getElementById('storageSelect')?.value || '';
+
+// Modal stack for nested modal support
+let _modalStack = [];
+
+function showModalStacked(elementOrId, showFn) {
+    const el = typeof elementOrId === 'string' ? document.getElementById(elementOrId) : elementOrId;
+    if (!el) return;
+    const openEl = document.querySelector('.modal.show');
+    if (openEl && openEl !== el) {
+        const inst = bootstrap.Modal.getInstance(openEl);
+        if (inst) {
+            _modalStack.push(inst);
+            inst.hide();
+        }
+    }
+    const doShow = () => { if (showFn) showFn(); };
+    if (openEl) {
+        openEl.addEventListener('hidden.bs.modal', () => doShow(), { once: true });
+    } else {
+        doShow();
+    }
+    const onHidden = () => {
+        el.removeEventListener('hidden.bs.modal', onHidden);
+        if (_modalStack.length > 0) {
+            const prev = _modalStack.pop();
+            if (prev) prev.show();
+        }
+    };
+    el.addEventListener('hidden.bs.modal', onHidden);
+}
 
 let _alertModalInstance = null;
 function showAlert(message, type) {
@@ -105,27 +139,162 @@ function showAlert(message, type) {
     }
 
     body.textContent = message;
-    if (!_alertModalInstance) {
-        _alertModalInstance = new bootstrap.Modal(modalEl, {});
-    }
-    _alertModalInstance.show();
+    showModalStacked('alertModal', () => {
+        if (!_alertModalInstance) {
+            _alertModalInstance = new bootstrap.Modal(modalEl, {});
+        }
+        _alertModalInstance.show();
+    });
 }
+
+// ============ NOTIFICATION CENTER ============
+window.NotificationCenter = (function() {
+    var items = [];
+    var itemsToKill = [];
+    var killTimeout = null;
+    var block = 'notification';
+
+    function show(opts) {
+        opts = opts || {};
+        var id = 'n-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+        var duration = opts.duration != null ? opts.duration : 8000;
+
+        var note = new NotificationItem(id, opts);
+        note.el.style.transform = 'translateY(' + (100 * items.length) + '%)';
+        items.push(note);
+
+        if (duration > 0) {
+            setTimeout(function() { kill(id); }, duration);
+        }
+        return id;
+    }
+
+    function kill(id) {
+        var idx = -1;
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].id === id) { idx = i; break; }
+        }
+        if (idx === -1) return;
+        var note = items[idx];
+        if (note.el.classList.contains(block + '--out')) return;
+
+        note.el.classList.add(block + '--out');
+        itemsToKill.push(note);
+
+        clearTimeout(killTimeout);
+        killTimeout = setTimeout(function() {
+            for (var k = 0; k < itemsToKill.length; k++) {
+                var n = itemsToKill[k];
+                if (n.el.parentNode) n.el.parentNode.removeChild(n.el);
+                var li = items.indexOf(n);
+                if (li !== -1) items.splice(li, 1);
+            }
+            itemsToKill = [];
+            shiftItems();
+        }, 300);
+    }
+
+    function shiftItems() {
+        for (var i = 0; i < items.length; i++) {
+            items[i].el.style.transform = 'translateY(' + (100 * i) + '%)';
+        }
+    }
+
+    function NotificationItem(id, opts) {
+        this.id = id;
+        this.el = null;
+        initItem(this, opts);
+    }
+
+    function initItem(self, opts) {
+        var note = document.createElement('div');
+        note.className = block;
+        note.id = self.id;
+        document.body.appendChild(note);
+
+        var box = document.createElement('div');
+        box.className = block + '__box';
+        note.appendChild(box);
+
+        var content = document.createElement('div');
+        content.className = block + '__content';
+        box.appendChild(content);
+
+        var iconDiv = document.createElement('div');
+        iconDiv.className = block + '__icon';
+        content.appendChild(iconDiv);
+
+        var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('class', block + '__icon-svg');
+        svg.setAttribute('role', 'img');
+        svg.setAttribute('aria-label', opts.icon || 'message');
+        svg.setAttribute('width', '32px');
+        svg.setAttribute('height', '32px');
+        iconDiv.appendChild(svg);
+
+        var use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+        use.setAttributeNS('http://www.w3.org/1999/xlink', 'href', '#' + (opts.icon || 'message'));
+        svg.appendChild(use);
+
+        var textDiv = document.createElement('div');
+        textDiv.className = block + '__text';
+        content.appendChild(textDiv);
+
+        var titleEl = document.createElement('div');
+        titleEl.className = block + '__text-title';
+        titleEl.textContent = opts.title || '';
+        textDiv.appendChild(titleEl);
+
+        if (opts.subtitle) {
+            var subEl = document.createElement('div');
+            subEl.className = block + '__text-subtitle';
+            subEl.textContent = opts.subtitle;
+            textDiv.appendChild(subEl);
+        }
+
+        var btns = document.createElement('div');
+        btns.className = block + '__btns';
+        box.appendChild(btns);
+
+        var actions = opts.actions || ['OK'];
+        for (var a = 0; a < actions.length; a++) (function(action) {
+            var btn = document.createElement('button');
+            btn.className = block + '__btn';
+            btn.type = 'button';
+
+            var btnText = document.createElement('span');
+            btnText.className = block + '__btn-text';
+            btnText.textContent = action;
+
+            btn.appendChild(btnText);
+            btns.appendChild(btn);
+
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                kill(self.id);
+            });
+        })(actions[a]);
+
+        note.addEventListener('click', function() { kill(self.id); });
+
+        self.el = note;
+    }
+
+    return { show: show };
+})();
 
 function showToast(message, type, duration) {
     type = type || 'info';
     duration = duration || 5000;
-    var container = document.getElementById('toastContainer');
-    if (!container) return;
-    var toast = document.createElement('div');
-    toast.className = 'toast-item toast-' + type;
-    toast.textContent = message;
-    container.appendChild(toast);
-    setTimeout(function () { toast.classList.add('toast-show'); }, 10);
-    setTimeout(function () {
-        toast.classList.remove('toast-show');
-        toast.classList.add('toast-hide');
-        setTimeout(function () { toast.remove(); }, 300);
-    }, duration);
+    var iconMap = { info: 'message', warning: 'warning', success: 'success', danger: 'error' };
+    var titleMap = { info: 'Информация', warning: 'Предупреждение', success: 'Готово', danger: 'Ошибка' };
+    NotificationCenter.show({
+        icon: iconMap[type] || 'message',
+        title: titleMap[type] || 'Информация',
+        subtitle: message,
+        actions: ['OK'],
+        duration: duration
+    });
 }
 
 function showConfirm(message) {
@@ -154,7 +323,7 @@ function showConfirm(message) {
         yesBtn.addEventListener('click', onYes);
         noBtn.addEventListener('click', onNo);
 
-        modal.show();
+        showModalStacked('confirmModal', () => modal.show());
     });
 }
 

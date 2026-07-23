@@ -46,6 +46,14 @@ def init_db():
             UNIQUE(shop_number, sap_code)
         )
     """)
+    existing = {r[1] for r in c.execute("PRAGMA table_info('shops')").fetchall()}
+    for col in ['dm_name', 'dm_phone', 'adm1_name', 'adm1_phone', 'adm2_name', 'adm2_phone']:
+        if col not in existing:
+            try:
+                c.execute(f"ALTER TABLE shops ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
+                logger.info(f"Added column {col} to shops table")
+            except Exception as e:
+                logger.warning(f"Could not add column {col} to shops table: {e}")
     c.execute("""
         CREATE TABLE IF NOT EXISTS fias_cache (
             raw TEXT PRIMARY KEY,
@@ -73,31 +81,33 @@ def add_shop_if_not_exists(shop_number, sap_code, address):
 def get_all_shops():
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT rowid, shop_number, sap_code, address FROM shops ORDER BY shop_number")
+    c.execute("SELECT rowid, shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone FROM shops ORDER BY shop_number")
     rows = c.fetchall()
     conn.close()
-    return [{'id': r[0], 'shop_number': r[1], 'sap_code': r[2], 'address': r[3]} for r in rows]
+    return [{'id': r[0], 'shop_number': r[1], 'sap_code': r[2], 'address': r[3],
+             'dm_name': r[4], 'dm_phone': r[5], 'adm1_name': r[6], 'adm1_phone': r[7],
+             'adm2_name': r[8], 'adm2_phone': r[9]} for r in rows]
 
-def add_shop(shop_number, sap_code, address):
+def add_shop(shop_number, sap_code, address, dm_name='', dm_phone='', adm1_name='', adm1_phone='', adm2_name='', adm2_phone=''):
     if not all([shop_number, sap_code, address]):
         return None
     conn = get_db_connection()
     c = conn.cursor()
     c.execute(
-        "INSERT INTO shops (shop_number, sap_code, address) VALUES (?, ?, ?)",
-        (shop_number, sap_code, address)
+        "INSERT INTO shops (shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone)
     )
     rowid = c.lastrowid
     conn.commit()
     conn.close()
     return rowid
 
-def update_shop(rowid, shop_number, sap_code, address):
+def update_shop(rowid, shop_number, sap_code, address, dm_name='', dm_phone='', adm1_name='', adm1_phone='', adm2_name='', adm2_phone=''):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute(
-        "UPDATE shops SET shop_number = ?, sap_code = ?, address = ? WHERE rowid = ?",
-        (shop_number, sap_code, address, rowid)
+        "UPDATE shops SET shop_number = ?, sap_code = ?, address = ?, dm_name = ?, dm_phone = ?, adm1_name = ?, adm1_phone = ?, adm2_name = ?, adm2_phone = ? WHERE rowid = ?",
+        (shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone, rowid)
     )
     affected = c.rowcount
     conn.commit()
@@ -132,7 +142,7 @@ def find_shop_by_sap(sap):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute(
-        "SELECT shop_number, sap_code, address FROM shops WHERE sap_code = ?",
+        "SELECT shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone FROM shops WHERE sap_code = ?",
         (sap,)
     )
     row = c.fetchone()
@@ -146,7 +156,7 @@ def find_shops_by_sap_list(saps):
     c = conn.cursor()
     placeholders = ','.join('?' * len(saps))
     rows = c.execute(
-        f"SELECT shop_number, sap_code, address FROM shops WHERE sap_code IN ({placeholders})",
+        f"SELECT shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone FROM shops WHERE sap_code IN ({placeholders})",
         saps
     ).fetchall()
     conn.close()
@@ -159,7 +169,7 @@ def search_shops(query):
     c = conn.cursor()
     like_query = f"%{query}%"
     c.execute("""
-        SELECT shop_number, sap_code, address FROM shops
+        SELECT shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone FROM shops
         WHERE LOWER_RU(shop_number) LIKE LOWER_RU(?)
            OR LOWER_RU(sap_code) LIKE LOWER_RU(?)
            OR LOWER_RU(address) LIKE LOWER_RU(?)
@@ -1210,20 +1220,24 @@ def init_user_settings_table():
         c.execute("ALTER TABLE user_settings ADD COLUMN avatar_url TEXT NOT NULL DEFAULT ''")
     except Exception:
         pass
+    try:
+        c.execute("ALTER TABLE user_settings ADD COLUMN merry_milkman TEXT NOT NULL DEFAULT '0'")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
 def save_user_settings(username, notify_only_mine, my_task_keywords,
                        profile_name='', default_warehouse='', theme='dark',
                        mark_my_tasks=False, notify_all_warehouses=True,
-                       avatar_url=''):
+                       avatar_url='', merry_milkman=False):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("""
         INSERT INTO user_settings (username, notify_only_mine, my_task_keywords,
             profile_name, default_warehouse, theme, mark_my_tasks,
-            notify_all_warehouses, avatar_url, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+            notify_all_warehouses, avatar_url, merry_milkman, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
         ON CONFLICT(username) DO UPDATE SET
             notify_only_mine = excluded.notify_only_mine,
             my_task_keywords = excluded.my_task_keywords,
@@ -1233,12 +1247,14 @@ def save_user_settings(username, notify_only_mine, my_task_keywords,
             mark_my_tasks = excluded.mark_my_tasks,
             notify_all_warehouses = excluded.notify_all_warehouses,
             avatar_url = excluded.avatar_url,
+            merry_milkman = excluded.merry_milkman,
             updated_at = datetime('now', 'localtime')
     """, (username, notify_only_mine, my_task_keywords,
           profile_name, default_warehouse, theme,
           1 if mark_my_tasks else 0,
           1 if notify_all_warehouses else 0,
-          avatar_url))
+          avatar_url,
+          1 if merry_milkman else 0))
     conn.commit()
     conn.close()
 
@@ -1246,7 +1262,7 @@ def get_user_settings(username):
     conn = get_db_connection()
     c = conn.cursor()
     try:
-        c.execute("SELECT notify_only_mine, my_task_keywords, profile_name, default_warehouse, theme, mark_my_tasks, notify_all_warehouses, avatar_url FROM user_settings WHERE username = ?", (username,))
+        c.execute("SELECT notify_only_mine, my_task_keywords, profile_name, default_warehouse, theme, mark_my_tasks, notify_all_warehouses, avatar_url, merry_milkman FROM user_settings WHERE username = ?", (username,))
         row = c.fetchone()
         conn.close()
         if row:
@@ -1259,6 +1275,7 @@ def get_user_settings(username):
                 'mark_my_tasks': bool(int(row[5])) if row[5] else False,
                 'notify_all_warehouses': bool(int(row[6])) if row[6] else True,
                 'avatar_url': row[7] or '',
+                'merry_milkman': bool(int(row[8])) if row[8] else False,
             }
     except Exception:
         pass
@@ -1479,6 +1496,10 @@ def init_ppr_tasks_table():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ppr_tasks_date ON ppr_tasks(date)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ppr_tasks_dept ON ppr_tasks(name_department)")
+    try:
+        conn.execute("ALTER TABLE ppr_tasks ADD COLUMN close_date TEXT")
+    except:
+        pass
     conn.close()
 
 
@@ -1602,18 +1623,43 @@ def add_ppr_tasks_batch(tasks_list: list[dict]) -> list[str]:
     return guids
 
 
-def close_ppr_task(guid: str, comment: str, latitude: float = 0.0, longitude: float = 0.0) -> bool:
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def close_ppr_task(guid: str, comment: str, latitude: float = 0.0, longitude: float = 0.0, close_date: str = None) -> bool:
+    now = datetime.now()
+    now_str = now.strftime('%Y-%m-%d %H:%M:%S')
+    close_date_val = close_date or now_str
+    if len(close_date_val) <= 10:
+        close_date_val = f"{close_date_val} {now.strftime('%H:%M:%S')}"
     conn = get_db_connection()
     cursor = conn.execute("""
         UPDATE ppr_tasks
         SET status = 'Завершена',
             close_comment = ?,
+            close_date = ?,
             latitude = CASE WHEN ? != 0.0 THEN ? ELSE latitude END,
             longitude = CASE WHEN ? != 0.0 THEN ? ELSE longitude END,
             updated_at = ?
         WHERE guid = ? AND status != 'Завершена'
-    """, (comment, latitude, latitude, longitude, longitude, now, guid))
+    """, (comment, close_date_val, latitude, latitude, longitude, longitude, now_str, guid))
+    conn.commit()
+    updated = cursor.rowcount > 0
+    conn.close()
+    return updated
+
+
+def update_ppr_close_date(guid: str, close_date: str) -> bool:
+    now = datetime.now()
+    now_str = now.strftime('%Y-%m-%d %H:%M:%S')
+    conn = get_db_connection()
+    row = conn.execute("SELECT close_date FROM ppr_tasks WHERE guid = ?", (guid,)).fetchone()
+    if row and row[0] and ' ' in row[0]:
+        existing_time = row[0].split(' ', 1)[1]
+        close_date = f"{close_date} {existing_time}"
+    else:
+        close_date = f"{close_date} {now.strftime('%H:%M:%S')}"
+    cursor = conn.execute(
+        "UPDATE ppr_tasks SET close_date = ?, updated_at = ? WHERE guid = ? AND status = 'Завершена'",
+        (close_date, now_str, guid)
+    )
     conn.commit()
     updated = cursor.rowcount > 0
     conn.close()
