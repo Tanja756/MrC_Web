@@ -84,8 +84,8 @@ def api_tasks_closed():
     client = get_api_client()
     if not client:
         return jsonify({"tasks": []})
-    search = request.args.get('search')
-    sort = request.args.get('sort')
+    search = request.args.get('search', '')
+    sort = request.args.get('sort', '')
     dir = request.args.get('dir', 'desc')
     username = session.get('username', '')
     data = client.get_closed_tasks_user(limit=5000, offset=0)
@@ -159,7 +159,7 @@ def api_task_close():
         return jsonify({'error': 'No connection'}), 400
     data = request.json
     guid = data.get('guid')
-    guid_doc = data.get('guidDoc', '')
+    guid_doc = data.get('guidDoc')
     comment = data.get('comment', '')
     latitude = data.get('latitude', 0.0)
     longitude = data.get('longitude', 0.0)

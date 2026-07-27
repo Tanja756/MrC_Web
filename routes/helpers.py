@@ -103,8 +103,11 @@ def project_tasks(tasks):
 def attach_tracking(tasks, username):
     if not tasks or not username:
         return
+    import logging
+    logger = logging.getLogger(__name__)
     guids = [t.get('guid') for t in tasks if t.get('guid')]
     tracking = get_tasks_tracking(guids, username)
+    logger.info(f"[DEBUG attach_tracking] username={username}, guids={guids[:3]}..., tracking_keys={list(tracking.keys())[:3]}")
     for t in tasks:
         g = t.get('guid')
         if g in tracking:
@@ -112,13 +115,14 @@ def attach_tracking(tasks, username):
                 t['taken_at'] = tracking[g]['taken_at']
             if tracking[g].get('closed_at'):
                 t['closed_at'] = tracking[g]['closed_at']
+                logger.info(f"[DEBUG attach_tracking] Для guid={g} установлен closed_at={tracking[g]['closed_at']}")
+            else:
+                logger.info(f"[DEBUG attach_tracking] Для guid={g} closed_at отсутствует в tracking")
         if not t.get('taken_at'):
             t['taken_at'] = t.get('date')
 
 
 def auto_close_tracked_tasks(tasks, username):
-    """If a task appears in the closed list from 1C but has no local closed_at,
-    set closed_at to now. This handles tasks closed externally (in 1C)."""
     if not tasks or not username:
         return
     now = datetime.now()
@@ -126,15 +130,16 @@ def auto_close_tracked_tasks(tasks, username):
     tracking = get_tasks_tracking(guids, username)
     for t in tasks:
         g = t.get('guid')
-        if not g or g not in tracking:
+        if not g:
             continue
-        tr = tracking[g]
-        if tr.get('taken_at') and not tr.get('closed_at'):
-            tn = t.get('number', '') or ''
-            nm = t.get('name', '') or ''
-            task_name = f"Заявка {tn} — {nm}" if tn else nm
-            set_task_closed(username, g, task_name)
-            t['closed_at'] = now.strftime('%Y-%m-%d %H:%M:%S')
+        tr = tracking.get(g)
+        if tr and tr.get('closed_at'):
+            continue
+        tn = t.get('number', '') or ''
+        nm = t.get('name', '') or ''
+        task_name = f"Заявка {tn} — {nm}" if tn else nm
+        set_task_closed(username, g, task_name)
+        t['closed_at'] = now.strftime('%Y-%m-%d %H:%M:%S')
 
 
 def parse_1c_date(s):
@@ -543,6 +548,69 @@ def check_new_free_tasks(username, free_tasks, old_data, notify_only_mine=False,
     save_task_snapshot(username, list(current_free_guids))
 
 
+def auto_generate_docs_for_new_free_tasks(username, free_tasks, old_data, client):
+    current_free_guids = {t.get('guid', '') for t in free_tasks if t.get('guid')}
+    if old_data is None:
+        return
+    old_free_guids = set(old_data)
+    new_guids = current_free_guids - old_free_guids
+    if not new_guids:
+        return
+
+    from db import get_user_settings, create_notification
+    settings = get_user_settings(username)
+    if not settings or not settings.get('auto_generate_docs'):
+        return
+
+    from docgen import generate_documents, extract_task_data
+    from yandex_disk import YandexDiskClient
+
+    profile_name = settings.get('profile_name', '')
+    include_act = settings.get('auto_include_act', True)
+    include_m15 = settings.get('auto_include_m15', True)
+
+    for task in free_tasks:
+        if task.get('guid') not in new_guids:
+            continue
+        try:
+            parsed = extract_task_data(task)
+            sap = parsed.get('sap', '')
+            if not sap:
+                logger.info("Auto-docs: skipped task %s (%s) — SAP not found", task.get('guid'), task.get('number', ''))
+                continue
+
+            pdfs = generate_documents(task, profile_name=profile_name,
+                                      include_act=include_act,
+                                      include_fn=False,
+                                      include_m15=include_m15)
+            if not pdfs:
+                continue
+
+            hk_code = parsed.get('zd', '')
+            today = datetime.now().strftime('%Y.%m.%d')
+            remote_dir = f"{username}/Docs/{today}/{sap}/{hk_code}/"
+
+            yandex = YandexDiskClient()
+            yandex.ensure_folder(remote_dir)
+            for pdf_path in pdfs:
+                fname = os.path.basename(pdf_path)
+                with open(pdf_path, 'rb') as f:
+                    data = f.read()
+                yandex.upload_file(remote_dir, fname, data)
+                if os.path.exists(pdf_path):
+                    os.unlink(pdf_path)
+
+            desc = f'Заявка {task.get("number", "")} — документы сформированы и загружены на Я.Диск'
+            create_notification(username, 'docs_generated', 'Документы сформированы', desc, task.get('guid'))
+            send_push_notification(username, 'Документы сформированы', desc)
+            logger.info("Auto-docs: generated for task %s (%s), SAP=%s, uploaded to %s",
+                        task.get('guid'), task.get('number', ''), sap, remote_dir)
+
+        except Exception as e:
+            logger.error("Auto-docs: failed for task %s (%s): %s",
+                         task.get('guid'), task.get('number', ''), e)
+
+
 _1C_NOTIFICATION_TITLES = {
     'new_task': 'Новое уведомление от 1С',
 }
@@ -754,6 +822,7 @@ def background_check_user(username, force=False):
     check_deadlines(user_tasks + free_tasks, username, now, notify_only_mine, my_task_keywords, in_work_saps)
     _track_task_transitions(username, user_tasks, free_tasks, closed_tasks, old_data)
     check_new_free_tasks(username, free_tasks, old_data, notify_only_mine, my_task_keywords, in_work_saps)
+    auto_generate_docs_for_new_free_tasks(username, free_tasks, old_data, client)
     check_1c_notifications(client, username)
     background_check_balances(client, username)
 

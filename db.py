@@ -1002,9 +1002,14 @@ def clear_task_closed(username, guid):
     _retry_on_locked(_write)
 
 def set_task_closed(username, guid, task_name=''):
+    import logging
+    logger = logging.getLogger(__name__)
     def _write():
         conn = get_db_connection()
         c = conn.cursor()
+        from datetime import datetime
+        now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        logger.info(f"[DEBUG db/set_task_closed] Вставка/обновление: guid={guid}, username={username}, closed_at={now_str}(python), task_name={task_name}")
         c.execute("""
             INSERT INTO task_tracking (guid, username, closed_at, task_name)
             VALUES (?, ?, datetime('now', 'localtime'), ?)
@@ -1013,6 +1018,10 @@ def set_task_closed(username, guid, task_name=''):
                 task_name = COALESCE(NULLIF(?, ''), task_tracking.task_name)
         """, (guid, username, task_name, task_name))
         conn.commit()
+        # Проверим что записалось
+        c.execute("SELECT closed_at FROM task_tracking WHERE guid=? AND username=?", (guid, username))
+        row = c.fetchone()
+        logger.info(f"[DEBUG db/set_task_closed] Проверка после записи: closed_at={row[0] if row else 'NOT FOUND'}")
         conn.close()
     _retry_on_locked(_write)
 
@@ -1224,20 +1233,35 @@ def init_user_settings_table():
         c.execute("ALTER TABLE user_settings ADD COLUMN merry_milkman TEXT NOT NULL DEFAULT '0'")
     except Exception:
         pass
+    try:
+        c.execute("ALTER TABLE user_settings ADD COLUMN auto_generate_docs INTEGER NOT NULL DEFAULT 0")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE user_settings ADD COLUMN auto_include_act INTEGER NOT NULL DEFAULT 1")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE user_settings ADD COLUMN auto_include_m15 INTEGER NOT NULL DEFAULT 1")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
 def save_user_settings(username, notify_only_mine, my_task_keywords,
                        profile_name='', default_warehouse='', theme='dark',
                        mark_my_tasks=False, notify_all_warehouses=True,
-                       avatar_url='', merry_milkman=False):
+                       avatar_url='', merry_milkman=False,
+                       auto_generate_docs=False, auto_include_act=True,
+                       auto_include_m15=True):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("""
         INSERT INTO user_settings (username, notify_only_mine, my_task_keywords,
             profile_name, default_warehouse, theme, mark_my_tasks,
-            notify_all_warehouses, avatar_url, merry_milkman, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+            notify_all_warehouses, avatar_url, merry_milkman,
+            auto_generate_docs, auto_include_act, auto_include_m15, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
         ON CONFLICT(username) DO UPDATE SET
             notify_only_mine = excluded.notify_only_mine,
             my_task_keywords = excluded.my_task_keywords,
@@ -1248,13 +1272,19 @@ def save_user_settings(username, notify_only_mine, my_task_keywords,
             notify_all_warehouses = excluded.notify_all_warehouses,
             avatar_url = excluded.avatar_url,
             merry_milkman = excluded.merry_milkman,
+            auto_generate_docs = excluded.auto_generate_docs,
+            auto_include_act = excluded.auto_include_act,
+            auto_include_m15 = excluded.auto_include_m15,
             updated_at = datetime('now', 'localtime')
     """, (username, notify_only_mine, my_task_keywords,
           profile_name, default_warehouse, theme,
           1 if mark_my_tasks else 0,
           1 if notify_all_warehouses else 0,
           avatar_url,
-          1 if merry_milkman else 0))
+          1 if merry_milkman else 0,
+          1 if auto_generate_docs else 0,
+          1 if auto_include_act else 0,
+          1 if auto_include_m15 else 0))
     conn.commit()
     conn.close()
 
@@ -1262,7 +1292,7 @@ def get_user_settings(username):
     conn = get_db_connection()
     c = conn.cursor()
     try:
-        c.execute("SELECT notify_only_mine, my_task_keywords, profile_name, default_warehouse, theme, mark_my_tasks, notify_all_warehouses, avatar_url, merry_milkman FROM user_settings WHERE username = ?", (username,))
+        c.execute("SELECT notify_only_mine, my_task_keywords, profile_name, default_warehouse, theme, mark_my_tasks, notify_all_warehouses, avatar_url, merry_milkman, auto_generate_docs, auto_include_act, auto_include_m15 FROM user_settings WHERE username = ?", (username,))
         row = c.fetchone()
         conn.close()
         if row:
@@ -1276,6 +1306,9 @@ def get_user_settings(username):
                 'notify_all_warehouses': bool(int(row[6])) if row[6] else True,
                 'avatar_url': row[7] or '',
                 'merry_milkman': bool(int(row[8])) if row[8] else False,
+                'auto_generate_docs': bool(int(row[9])) if row[9] else False,
+                'auto_include_act': bool(int(row[10])) if row[10] else True,
+                'auto_include_m15': bool(int(row[11])) if row[11] else True,
             }
     except Exception:
         pass
