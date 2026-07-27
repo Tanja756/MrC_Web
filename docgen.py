@@ -215,17 +215,18 @@ def extract_task_data(task: dict) -> dict:
 
 
 def build_replacements(parsed: dict, profile_name: str = '', doc_date: str = None) -> dict:
-    if doc_date:
-        now = datetime.strptime(doc_date, '%Y-%m-%d')
-    else:
+    if doc_date is None:
         now = datetime.now()
+    elif doc_date == '':
+        now = None
+    else:
+        now = datetime.strptime(doc_date, '%Y-%m-%d')
     repl = {
-        '{D1}': now.strftime('%d')[0], '{D0}': now.strftime('%d')[1],
-        '{M1}': now.strftime('%m')[0], '{M0}': now.strftime('%m')[1],
-        '{Y3}': now.strftime('%Y')[0], '{Y2}': now.strftime('%Y')[1],
-        '{Y1}': now.strftime('%Y')[2], '{Y0}': now.strftime('%Y')[3],
-        '{H1}': now.strftime('%H')[0], '{H0}': now.strftime('%H')[1],
-        '{DATE}': now.strftime('%d.%m.%Y'),
+        '{D1}': '', '{D0}': '',
+        '{M1}': '', '{M0}': '',
+        '{Y3}': '', '{Y2}': '', '{Y1}': '', '{Y0}': '',
+        '{H1}': '', '{H0}': '',
+        '{DATE}': '',
         '{KA}': profile_name or '',
         '{MVZ}': 'X0UGSMP4',
         '{RVR}': parsed.get('rvr', ''),
@@ -265,6 +266,15 @@ def build_replacements(parsed: dict, profile_name: str = '', doc_date: str = Non
         '{DS10}': (parsed.get('tv10', '') + ' ' + parsed.get('sn10', '')).strip(),
         '{DN6}': (parsed.get('tv6', '') + ' ' + parsed.get('sn6', '')).strip(),
     }
+    if now is not None:
+        repl.update({
+            '{D1}': now.strftime('%d')[0], '{D0}': now.strftime('%d')[1],
+            '{M1}': now.strftime('%m')[0], '{M0}': now.strftime('%m')[1],
+            '{Y3}': now.strftime('%Y')[0], '{Y2}': now.strftime('%Y')[1],
+            '{Y1}': now.strftime('%Y')[2], '{Y0}': now.strftime('%Y')[3],
+            '{H1}': now.strftime('%H')[0], '{H0}': now.strftime('%H')[1],
+            '{DATE}': now.strftime('%d.%m.%Y'),
+        })
     shop = parsed.get('shop', '')
     sap = parsed.get('sap', '')
     addr = parsed.get('addr', '')
@@ -322,11 +332,13 @@ def generate_fn(repl: dict, out_dir: str = None, lo_dir: str = None) -> str:
 
 def generate_m15(repl: dict, is_p: bool, in_value_for_in: Optional[str] = None, in_value_for_out: Optional[str] = None, out_dir: str = None, lo_dir: str = None, doc_date: str = None) -> list:
     out_dir = out_dir or OUT_DIR
-    if doc_date:
+    if doc_date is None:
+        repl['{DATE}'] = datetime.now().strftime('%d.%m.%Y')
+    elif doc_date == '':
+        repl['{DATE}'] = ''
+    else:
         dt = datetime.strptime(doc_date, '%Y-%m-%d')
         repl['{DATE}'] = dt.strftime('%d.%m.%Y')
-    else:
-        repl['{DATE}'] = datetime.now().strftime('%d.%m.%Y')
     pdf_files = []
     templates = [
         (TEMPLATE_M15_IN, "IN", in_value_for_in),

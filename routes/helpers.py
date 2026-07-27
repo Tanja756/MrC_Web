@@ -582,7 +582,8 @@ def auto_generate_docs_for_new_free_tasks(username, free_tasks, old_data, client
             pdfs = generate_documents(task, profile_name=profile_name,
                                       include_act=include_act,
                                       include_fn=False,
-                                      include_m15=include_m15)
+                                      include_m15=include_m15,
+                                      field_overrides={'doc_date': ''})
             if not pdfs:
                 continue
 
