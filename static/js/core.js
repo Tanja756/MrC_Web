@@ -51,6 +51,7 @@ function fetchDeduped(url, options, ttl) {
 
   const p = fetch(url, options).then(r => {
     inflight.delete(key);
+    setServerOnline();
     if (r.status === 401) { window.location.href = '/login'; throw new Error('Session expired'); }
     const ct = r.headers.get('content-type') || '';
     if (r.ok && ct.includes('json') && ttl) {
@@ -64,6 +65,7 @@ function fetchDeduped(url, options, ttl) {
     return r;
   }).catch(e => {
     inflight.delete(key);
+    setServerOffline();
     if (e && (!e.message || !e.message.includes('Session expired'))) {
         var msg = e && e.message ? e.message : 'Неизвестная ошибка';
         NotificationCenter.show({ icon: 'error', title: 'Ошибка сети', subtitle: msg.length > 120 ? msg.slice(0, 120) + '...' : msg, actions: ['OK'], duration: 6000 });
@@ -83,6 +85,50 @@ function cacheClearPrefix(prefix) {
   for (const k of reqCache.keys()) { if (k.startsWith(prefix)) reqCache.delete(k); }
   _lsCClearPrefix(prefix);
 }
+
+// ============ SERVER CONNECTIVITY ============
+let isServerOnline = true;
+let _pingTimer = null;
+let _offlineBanner = null;
+
+function ensureOfflineBanner() {
+  if (_offlineBanner) return;
+  _offlineBanner = document.createElement('div');
+  _offlineBanner.id = 'offlineBanner';
+  _offlineBanner.className = 'offline-banner';
+  _offlineBanner.style.display = 'none';
+  _offlineBanner.innerHTML = '<i class="bi bi-wifi-off me-1"></i>Нет соединения с сервером. Показываются кешированные данные.';
+  document.body.insertBefore(_offlineBanner, document.body.firstChild);
+}
+
+function setServerOnline() {
+  if (isServerOnline) return;
+  isServerOnline = true;
+  if (_pingTimer) { clearInterval(_pingTimer); _pingTimer = null; }
+  if (_offlineBanner) _offlineBanner.style.display = 'none';
+  cacheClearPrefix('/api/tasks/');
+  cacheClearPrefix('/api/notifications');
+  cacheDel('/api/profile');
+  if (typeof refreshOnReconnect === 'function') refreshOnReconnect();
+  NotificationCenter.show({ icon: 'success', title: 'Соединение восстановлено', actions: ['OK'], duration: 4000 });
+}
+
+function setServerOffline() {
+  if (!isServerOnline) return;
+  isServerOnline = false;
+  ensureOfflineBanner();
+  _offlineBanner.style.display = '';
+  if (!_pingTimer) {
+    _pingTimer = setInterval(() => {
+      fetch('/api/ping', {cache: 'no-store'})
+        .then(r => { if (r.ok) setServerOnline(); })
+        .catch(() => {});
+    }, 30000);
+  }
+}
+
+// ============ REFRESH ON RECONNECT (overridden by page scripts) ============
+let refreshOnReconnect = function() {};
 
 const currentStorage = () => document.getElementById('storageSelect')?.value || '';
 

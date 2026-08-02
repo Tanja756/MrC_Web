@@ -1296,7 +1296,7 @@ function openDocForm(guid) {
         }
 
         let desc = rx(/Подробное\s*описание:\s*\n?(.*?)(?:\n\n|\*{3}|$)/s);
-        if (!desc) desc = (task.description || '').replace(/Объект обслуживания:.*?(?:\n|$)/g, '').replace(/Адрес:.*?(?:\n|$)/g, '').trim();
+        if (!desc) desc = (task.description || '').replace(/Объект обслуживания:.*?(?:\n|$)/g, '').replace(/Адрес:.*?(?:\n|$)/g, '').replace(/Код заявки:.*?(?:\n|$)/g, '').replace(/Номер:.*?(?:\n|$)/g, '').trim();
         document.getElementById('docDesc').value = desc;
 
         document.getElementById('docIncludeAct').checked = true;
@@ -1351,9 +1351,9 @@ function generateDocForm() {
     if (shop) fields.shop = shop;
     if (sap) fields.sap = sap;
     if (addr) fields.addr = addr;
-    if (desc) fields.desc = desc;
-    if (code) fields.code = code;
-    if (zd) fields.zd = zd;
+    fields.desc = desc;
+    fields.code = code;
+    fields.zd = zd;
     if (docDate) Object.assign(fields, {doc_date: docDate});
     if (docSelectedItems.length > 0) {
         fields.items = docSelectedItems.map(item => ({name: item.name, series: item.series}));
@@ -1446,9 +1446,9 @@ function generateDocFormAndUpload() {
     if (shop) fields.shop = shop;
     if (sap) fields.sap = sap;
     if (addr) fields.addr = addr;
-    if (desc) fields.desc = desc;
-    if (code) fields.code = code;
-    if (zd) fields.zd = zd;
+    fields.desc = desc;
+    fields.code = code;
+    fields.zd = zd;
     if (docDate) Object.assign(fields, {doc_date: docDate});
     if (docSelectedItems.length > 0) {
         fields.items = docSelectedItems.map(item => ({name: item.name, series: item.series}));

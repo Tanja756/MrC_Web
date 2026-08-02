@@ -611,6 +611,14 @@ function runStartup() {
 }
 
 // ============ INIT ============
+refreshOnReconnect = function() {
+    if (typeof loadMyTasks === 'function') loadMyTasks();
+    if (typeof loadFreeTasks === 'function') loadFreeTasks();
+    if (typeof loadClosedTasks === 'function') loadClosedTasks();
+    loadNotifications('', true);
+    loadProfile().then(function() { applyMerryMilkman(); });
+};
+
 document.addEventListener('DOMContentLoaded', () => {
     if (document.body.classList.contains('login-page')) return;
 
@@ -635,6 +643,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             loadNotifications('', true);
         }
+    });
+
+    window.addEventListener('online', () => {
+        fetch('/api/ping', {cache: 'no-store'}).then(r => { if (r.ok) setServerOnline(); }).catch(() => {});
     });
 
     window.addEventListener('scroll', () => {

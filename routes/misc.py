@@ -152,6 +152,11 @@ def api_profile_avatar():
 
 
 # --- Announcements ---
+@misc_bp.route('/api/ping')
+def api_ping():
+    return jsonify({'ok': True})
+
+
 @misc_bp.route('/api/announcements')
 @api_login_required
 def api_announcements():

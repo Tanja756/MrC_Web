@@ -426,9 +426,8 @@ def generate_documents(task: dict, profile_name: str = '',
                 parsed[f'sn{i}'] = item.get('series', '')
 
         for key in ('shop', 'sap', 'addr', 'desc', 'code', 'zd'):
-            val = field_overrides.get(key)
-            if val:
-                parsed[key] = str(val)
+            if key in field_overrides:
+                parsed[key] = str(field_overrides.get(key) or '')
         # Re-derive rvr/dop from possibly overridden code
         code = parsed.get('code', '')
         parsed['rvr'] = 'V' if code.startswith('ИНЦ-') else ''
