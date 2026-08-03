@@ -320,6 +320,11 @@ function openPprClose(guid) {
         <button class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
         <button class="btn btn-success" onclick="doPprClose('${guid}')"><i class="bi bi-check-lg me-1"></i>Закрыть</button>`;
     modal.show();
+    modal._element.addEventListener('shown.bs.modal', function handler() {
+        const el = document.getElementById('pprCloseComment');
+        if (el) el.focus();
+        modal._element.removeEventListener('shown.bs.modal', handler);
+    });
 }
 
 function doPprClose(guid) {

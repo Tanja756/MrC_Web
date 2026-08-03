@@ -418,6 +418,8 @@ def generate_documents(task: dict, profile_name: str = '',
 
     # Apply field overrides from the form (override extracted/DB values)
     items = field_overrides.get('items') if field_overrides else None
+    # M15 contains only items with a serial number; the rest go only into the АВР
+    m15_items = [it for it in (items or []) if (it.get('series') or '').strip()] or None
     if field_overrides:
         # Product items for TV/SN placeholders
         if items:
@@ -458,7 +460,7 @@ def generate_documents(task: dict, profile_name: str = '',
             attachments.append(fn_pdf)
 
         if include_m15:
-            items_count = len(items) if items else 0
+            items_count = len(m15_items) if m15_items else 0
             needs_chunking = items_count > 10
             all_m15_pdfs = []
             if needs_chunking:
@@ -469,8 +471,8 @@ def generate_documents(task: dict, profile_name: str = '',
                     for j in range(1, 11):
                         idx = chunk_start + j - 1
                         if idx < items_count:
-                            chunk_repl[f'{{TV{j}}}'] = items[idx].get('name', '')
-                            chunk_repl[f'{{SN{j}}}'] = items[idx].get('series', '')
+                            chunk_repl[f'{{TV{j}}}'] = m15_items[idx].get('name', '')
+                            chunk_repl[f'{{SN{j}}}'] = m15_items[idx].get('series', '')
                         else:
                             chunk_repl[f'{{TV{j}}}'] = ''
                             chunk_repl[f'{{SN{j}}}'] = ''
@@ -502,9 +504,17 @@ def generate_documents(task: dict, profile_name: str = '',
                     if os.path.exists(ods_path):
                         os.unlink(ods_path)
             else:
+                m15_repl = repl.copy()
                 if is_p:
-                    repl['{MVZ}'] = 'X0UGSMW6'
-                m15_pdfs = generate_m15(repl, is_p, out_dir=out_dir, lo_dir=lo_dir, doc_date=doc_date)
+                    m15_repl['{MVZ}'] = 'X0UGSMW6'
+                for j in range(1, 11):
+                    if m15_items and j - 1 < len(m15_items):
+                        m15_repl[f'{{TV{j}}}'] = m15_items[j - 1].get('name', '')
+                        m15_repl[f'{{SN{j}}}'] = m15_items[j - 1].get('series', '')
+                    else:
+                        m15_repl[f'{{TV{j}}}'] = ''
+                        m15_repl[f'{{SN{j}}}'] = ''
+                m15_pdfs = generate_m15(m15_repl, is_p, out_dir=out_dir, lo_dir=lo_dir, doc_date=doc_date)
                 all_m15_pdfs.extend(m15_pdfs)
                 temp_files.extend(m15_pdfs)
             m15_combined = os.path.join(out_dir, f"{repl['{NUM}']}-{repl['{SAP}']}-M15-{uuid.uuid4().hex[:8]}.pdf")

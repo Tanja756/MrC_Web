@@ -289,9 +289,10 @@ def api_task_documents_post():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     if fields and fields.get('items'):
+        m15_items = [it for it in fields['items'] if (it.get('series') or '').strip()]
         if include_m15:
-            save_task_m15_items(guid, fields['items'])
-        text = '\n'.join(f"{item['name']} ({item['series']})" for item in fields['items'])
+            save_task_m15_items(guid, m15_items)
+        text = '\n'.join(f"{item['name']} ({item['series']})" for item in m15_items)
         save_task_m15_text(guid, text, code, hk_code=hk)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -333,9 +334,10 @@ def _make_doc_endpoint(include_act, include_fn, include_m15, suffix):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     if fields and fields.get('items'):
+        m15_items = [it for it in fields['items'] if (it.get('series') or '').strip()]
         if include_m15:
-            save_task_m15_items(guid, fields['items'])
-        text = '\n'.join(f"{item['name']} ({item['series']})" for item in fields['items'])
+            save_task_m15_items(guid, m15_items)
+        text = '\n'.join(f"{item['name']} ({item['series']})" for item in m15_items)
         save_task_m15_text(guid, text, code, hk_code=hk)
     pdf_path = pdfs[0]
     with open(pdf_path, 'rb') as f:
@@ -392,9 +394,10 @@ def api_task_documents_upload_yandex():
         return jsonify({'error': str(e)}), 500
 
     if fields and fields.get('items'):
+        m15_items = [it for it in fields['items'] if (it.get('series') or '').strip()]
         if include_m15:
-            save_task_m15_items(guid, fields['items'])
-        text = '\n'.join(f"{item['name']} ({item['series']})" for item in fields['items'])
+            save_task_m15_items(guid, m15_items)
+        text = '\n'.join(f"{item['name']} ({item['series']})" for item in m15_items)
         save_task_m15_text(guid, text, parsed.get('code', ''), hk_code=parsed.get('zd', ''))
 
     hk_code = parsed.get('zd', '')

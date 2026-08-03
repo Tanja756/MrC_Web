@@ -572,6 +572,15 @@ function showTaskDetail(task, mode, guid) {
 
     fetchAndAppendFnData(task);
     fetchAndAppendShopContacts(task);
+
+    if (mode === 'user') {
+        const modalEl = document.getElementById('taskDetailModal');
+        modalEl.addEventListener('shown.bs.modal', function handler() {
+            const el = document.getElementById('closeComment');
+            if (el) el.focus();
+            modalEl.removeEventListener('shown.bs.modal', handler);
+        });
+    }
 }
 
 function fetchAndAppendFnData(task) {
@@ -1113,7 +1122,8 @@ function loadDocProducts() {
     fetchDeduped(`/api/warehouse/balances?storage=${guid}`, undefined, 15000)
         .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(data => {
-            docAllProducts = (data || []).filter(p => p.series_name && !p.broken);
+            const includeAll = document.getElementById('docIncludeAllGoods')?.checked;
+            docAllProducts = (data || []).filter(p => !p.broken && (includeAll || !!p.series_name));
             renderDocProducts();
         });
 }
@@ -1131,7 +1141,7 @@ function renderDocProducts() {
     );
 
     if (filtered.length === 0) {
-        container.innerHTML = '<div class="text-muted small text-center py-3">Нет товаров с серийными номерами</div>';
+        container.innerHTML = '<div class="text-muted small text-center py-3">Нет товаров</div>';
         return;
     }
 
@@ -1149,7 +1159,7 @@ function renderDocProducts() {
             const disabled = !checked && maxReached;
             return `<div class="form-check doc-product-item ${checked ? 'selected' : ''} ${disabled ? 'disabled' : ''}" data-key="${key.replace(/"/g,'&quot;')}">
                 <input class="form-check-input" type="checkbox" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
-                <label class="form-check-label small">${(p.product_name || '—').replace(/</g,'&lt;')} <span class="text-muted">[${(p.series_name || '—').replace(/</g,'&lt;')}]</span></label>
+                <label class="form-check-label small">${(p.product_name || '—').replace(/</g,'&lt;')} ${p.series_name ? `<span class="text-muted">[${(p.series_name || '—').replace(/</g,'&lt;')}]</span>` : '<span class="text-muted small">(без серийного номера)</span>'}</label>
             </div>`;
         }).join('');
 }
@@ -1183,7 +1193,7 @@ function renderDocSelected() {
     }
     container.innerHTML = docSelectedItems.map((item, i) =>
         `<span class="badge bg-primary d-flex align-items-center gap-1" style="font-size:0.75rem">
-            ${i+1}. ${item.name} [${item.series}]
+            ${i+1}. ${item.name}${item.series ? ' [' + item.series + ']' : ''}
             <i class="bi bi-x" style="cursor:pointer" onclick="removeDocItem(${i})"></i>
         </span>`
     ).join('');
@@ -1302,6 +1312,7 @@ function openDocForm(guid) {
         document.getElementById('docIncludeAct').checked = true;
         document.getElementById('docIncludeFn').checked = false;
         document.getElementById('docIncludeM15').checked = false;
+        document.getElementById('docIncludeAllGoods').checked = false;
 
         docSelectedItems = [];
         docAllProducts = [];
@@ -1413,7 +1424,7 @@ function generateDocForm() {
             const shop = document.getElementById('docShop').value;
             const sap = document.getElementById('docSap').value;
             const code = document.getElementById('docCode').value;
-            const items = docSelectedItems.map(i => i.name + ' (' + i.series + ')').join('\n');
+            const items = docSelectedItems.filter(i => i.series).map(i => i.name + ' (' + i.series + ')').join('\n');
             const header = `Перемещение оборудования на/с магазин(а) ${shop} - ${sap} - ${code}:`;
             setTimeout(() => showM15EquipmentModal(header + '\n' + items), 300);
         }
