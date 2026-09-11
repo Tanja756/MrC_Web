@@ -85,10 +85,12 @@ function toggleYandexSyncData() {
     const on = !el.classList.contains('active');
     el.classList.toggle('active', on);
     el.setAttribute('aria-checked', on);
-    saveProfile();
-    // Фаза 2: включили — сразу получили токен моста; выключили — забыли его
+    // Фаза 2: включили — сразу получили токен моста; выключили — забыли его.
+    // Токен запрашиваем строго ПОСЛЕ сохранения профиля: иначе гонка —
+    // эндпоинт токена ещё видит старое значение настройки → 403 → токен стёрт
+    const saved = saveProfile();
     if (typeof YD !== 'undefined') {
-        if (on) YD.refreshTokenFromServer();
+        if (on) Promise.resolve(saved).then(() => YD.refreshTokenFromServer());
         else YD.clearCredentials();
     }
 }
@@ -173,6 +175,17 @@ function openSettings(firstLogin) {
     const autoYdOn = lsGet('autoIncludeYandex', 'true') === 'true';
     const autoYdEl = document.getElementById('autoIncludeYandex');
     if (autoYdEl) autoYdEl.checked = autoYdOn;
+
+    // Фаза 2: состояние «Синхронизации данных» применяем при каждом открытии
+    // настроек. Раньше тумблер не инициализировался вовсе: выглядел выключенным,
+    // и любое частичное сохранение профиля (тема, имя, склад…) читало его
+    // classList и фактически сбрасывало настройку на сервере
+    const ydSyncOn = lsGet('yandexSyncData', 'true') === 'true';
+    const ydSyncEl = document.getElementById('yandexSyncDataToggle');
+    if (ydSyncEl) {
+        ydSyncEl.classList.toggle('active', ydSyncOn);
+        ydSyncEl.setAttribute('aria-checked', ydSyncOn);
+    }
 
     const ws = document.getElementById('settingsWarehouse');
     const saved = lsGet('defaultWarehouse', '');
@@ -282,7 +295,9 @@ function saveProfile() {
     const ydVal = lsGet('yandexSyncData', null);
     if (ydVal !== null) prof.yandexSyncData = ydVal;
 
-    fetch('/api/profile', {
+    // возвращаем промис: вызывающим (toggleYandexSyncData) нужно ждать
+    // фактического сохранения на сервере
+    return fetch('/api/profile', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ profile: prof })
