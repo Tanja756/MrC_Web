@@ -286,7 +286,6 @@ function saveProfile() {
         autoIncludeAct: lsGet('autoIncludeAct', 'true'),
         autoIncludeM15: lsGet('autoIncludeM15', 'true'),
         autoIncludeYandex: lsGet('autoIncludeYandex', 'true'),
-        defaultDepartment: lsGet('defaultDepartment', ''),
     };
     // yandexSyncData отправляем только если значение известно (после loadProfile
     // или переключения в настройках): отсутствующее поле сервер трактует как
@@ -294,6 +293,11 @@ function saveProfile() {
     // девайсе с пустым localStorage) молча сбрасывает выключатель в true
     const ydVal = lsGet('yandexSyncData', null);
     if (ydVal !== null) prof.yandexSyncData = ydVal;
+    // defaultDepartment — та же защита: сохранённый фильтр подразделений не
+    // должен затираться частичным сохранением с устройства, где значение
+    // неизвестно. Осознанная очистка (resetFilters) пишет '' — она доезжает
+    const ddVal = lsGet('defaultDepartment', null);
+    if (ddVal !== null) prof.defaultDepartment = ddVal;
 
     // возвращаем промис: вызывающим (toggleYandexSyncData) нужно ждать
     // фактического сохранения на сервере

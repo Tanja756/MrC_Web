@@ -125,6 +125,33 @@ def api_profile_post():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
+def _save_settings_with_avatar(username, avatar_url):
+    """Сохраняет настройки, меняя только avatar_url.
+
+    save_user_settings обновляет upsert'ом ВСЕ колонки: прежний вызов
+    save_user_settings(username, 0, '', avatar_url=…) при загрузке/удалении
+    аватара стирал все настройки пользователя (ключевые слова, тему,
+    склад, подразделение, «Синхронизацию данных» и т.д.) в дефолты."""
+    from db import get_user_settings, save_user_settings
+    ex = get_user_settings(username) or {}
+    save_user_settings(username,
+                       1 if ex.get('notify_only_mine') else 0,
+                       ex.get('my_task_keywords', ''),
+                       profile_name=ex.get('profile_name', ''),
+                       default_warehouse=ex.get('default_warehouse', ''),
+                       default_department=ex.get('default_department', ''),
+                       theme=ex.get('theme', 'dark'),
+                       mark_my_tasks=bool(ex.get('mark_my_tasks')),
+                       notify_all_warehouses=bool(ex.get('notify_all_warehouses', True)),
+                       avatar_url=avatar_url,
+                       merry_milkman=bool(ex.get('merry_milkman')),
+                       auto_generate_docs=bool(ex.get('auto_generate_docs')),
+                       auto_include_act=bool(ex.get('auto_include_act', True)),
+                       auto_include_m15=bool(ex.get('auto_include_m15', True)),
+                       yandex_sync_data=bool(ex.get('yandex_sync_data', True)),
+                       auto_include_yandex=bool(ex.get('auto_include_yandex', True)))
+
+
 @misc_bp.route('/api/profile/avatar', methods=['POST', 'DELETE'])
 @api_login_required
 def api_profile_avatar():
@@ -132,8 +159,7 @@ def api_profile_avatar():
     if not username:
         return jsonify({'error': 'Not authenticated'}), 401
     if request.method == 'DELETE':
-        from db import save_user_settings
-        save_user_settings(username, 0, '', avatar_url='')
+        _save_settings_with_avatar(username, '')
         return jsonify({'ok': True})
     if 'avatar' not in request.files:
         return jsonify({'error': 'No file'}), 400
@@ -166,8 +192,7 @@ def api_profile_avatar():
     with open(path, 'wb') as f:
         f.write(resized)
     avatar_url = f"/static/avatars/{name}"
-    from db import save_user_settings
-    save_user_settings(username, 0, '', avatar_url=avatar_url)
+    _save_settings_with_avatar(username, avatar_url)
     return jsonify({'avatarUrl': avatar_url})
 
 
