@@ -66,9 +66,12 @@ function fetchDeduped(url, options, ttl) {
   }).catch(e => {
     inflight.delete(key);
     setServerOffline();
+    // ydQuiet: страница сама обрабатывает офлайн-режим (Яндекс.Диск) — без аларма
     if (e && (!e.message || !e.message.includes('Session expired'))) {
-        var msg = e && e.message ? e.message : 'Неизвестная ошибка';
-        NotificationCenter.show({ icon: 'error', title: 'Ошибка сети', subtitle: msg.length > 120 ? msg.slice(0, 120) + '...' : msg, actions: ['OK'], duration: 6000 });
+        if (!(options && options.ydQuiet)) {
+            var msg = e && e.message ? e.message : 'Неизвестная ошибка';
+            NotificationCenter.show({ icon: 'error', title: 'Ошибка сети', subtitle: msg.length > 120 ? msg.slice(0, 120) + '...' : msg, actions: ['OK'], duration: 6000 });
+        }
     }
     throw e;
   });

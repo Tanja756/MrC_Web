@@ -82,6 +82,43 @@ function setSortDir(dir) {
     filterTasks();
 }
 
+// ---- Офлайн-фолбэк через Яндекс.Диск (Фаза 2.3) ----
+// Активен только когда сервер недоступен и мост включён с токеном на устройстве
+function ydTasksFallbackActive() {
+    return typeof isServerOnline !== 'undefined' && !isServerOnline &&
+        typeof YDData !== 'undefined' && typeof YD !== 'undefined' && YDData.isBridgeEnabled();
+}
+
+function applyDiskTasks(labels, recs) {
+    if (typeof YDData === 'undefined') return false;
+    const N = YDData.DUMP_NAMES;
+    recs = recs || {};
+    let applied = false;
+    if (labels.includes('my') && recs[N.my] && Array.isArray(recs[N.my].data)) {
+        checkNewTaskNotifications(recs[N.my].data);
+        checkDeadlineNotifications(recs[N.my].data);
+        tasksMy = recs[N.my].data;
+        applied = true;
+    }
+    if (labels.includes('free') && recs[N.free] && Array.isArray(recs[N.free].data)) { tasksFree = recs[N.free].data; applied = true; }
+    if (labels.includes('closed') && recs[N.closed] && Array.isArray(recs[N.closed].data)) { tasksClosed = recs[N.closed].data; applied = true; }
+    if (applied) {
+        filterTasks();
+        YDData.updateOfflineBanner();
+    }
+    return applied;
+}
+
+function loadTasksFromDisk(labels) {
+    if (typeof YDData === 'undefined') return Promise.resolve(false);
+    const names = labels.map(l => YDData.DUMP_NAMES[l]).filter(Boolean);
+    if (!names.length) return Promise.resolve(false);
+    return YDData.syncDumps(names)
+        .catch(() => YDData.loadLocal(names))
+        .then(recs => applyDiskTasks(labels, recs))
+        .catch(() => false);
+}
+
 function loadTasks(search, types) {
     const fetches = [];
     const labels = types || ['my', 'free'];
@@ -92,7 +129,9 @@ function loadTasks(search, types) {
         params.set('sort', tabPrefs[label].sort);
         params.set('dir', tabPrefs[label].dir);
         const qs = params.toString() ? '?' + params.toString() : '';
-        fetches.push(fetchDeduped('/api/tasks/' + label + qs, undefined, ttl).then(r => { if (r instanceof Response) return r.json().catch(() => ({})); return r; }));
+        // при офлайне глушим аларм fetchDeduped — страницу спасает Диск
+        const opts = isServerOnline ? undefined : { ydQuiet: true };
+        fetches.push(fetchDeduped('/api/tasks/' + label + qs, opts, ttl).then(r => { if (r instanceof Response) return r.json().catch(() => ({})); return r; }));
     }
     if (fetches.length === 0) return;
     Promise.all(fetches).then(results => {
@@ -100,6 +139,9 @@ function loadTasks(search, types) {
         if (labels.includes('my')) { const d = results[i] || {}; if (Array.isArray(d.tasks)) { checkNewTaskNotifications(d.tasks); checkDeadlineNotifications(d.tasks); tasksMy = d.tasks; } i++; }
         if (labels.includes('free')) { const d = results[i] || {}; if (Array.isArray(d.tasks)) tasksFree = d.tasks; i++; }
         filterTasks();
+    }).catch(() => {
+        if (!ydTasksFallbackActive()) return;
+        loadTasksFromDisk(labels);
     });
 }
 
@@ -141,7 +183,7 @@ function refreshCurrentTab(search) {
     params.set('sort', tabPrefs[currentTab].sort);
     params.set('dir', tabPrefs[currentTab].dir);
     const qs = params.toString() ? '?' + params.toString() : '';
-    return fetchDeduped('/api/tasks/' + currentTab + qs, undefined, 15000)
+    return fetchDeduped('/api/tasks/' + currentTab + qs, isServerOnline ? undefined : { ydQuiet: true }, 15000)
         .then(r => r instanceof Response ? r.json().catch(() => ({})) : r)
         .then(data => {
             if (Array.isArray(data.tasks)) {
@@ -149,6 +191,12 @@ function refreshCurrentTab(search) {
                 else tasksFree = data.tasks;
             }
             filterTasks();
+        })
+        .catch(() => {
+            if (!ydTasksFallbackActive()) throw new Error('server unreachable');
+            return loadTasksFromDisk([currentTab]).then(applied => {
+                if (!applied) throw new Error('no disk data');
+            });
         });
 }
 
@@ -162,9 +210,14 @@ function loadClosedTasks(search, sort) {
     params.set('dir', tabPrefs.closed.dir);
     const qs = '?' + params.toString();
 
-    return fetchDeduped('/api/tasks/closed' + qs, undefined, 15000).then(r => r instanceof Response ? r.json().catch(() => null) : r).then(data => {
+    return fetchDeduped('/api/tasks/closed' + qs, isServerOnline ? undefined : { ydQuiet: true }, 15000).then(r => r instanceof Response ? r.json().catch(() => null) : r).then(data => {
         if (data && Array.isArray(data.tasks)) tasksClosed = data.tasks;
         filterTasks();
+    }).catch(() => {
+        if (!ydTasksFallbackActive()) throw new Error('server unreachable');
+        return loadTasksFromDisk(['closed']).then(applied => {
+            if (!applied) throw new Error('no disk data');
+        });
     });
 }
 
@@ -1157,6 +1210,19 @@ function loadClients() {
         .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(data => {
             (data || []).forEach(c => { if (c.guid) clientsMap[c.guid] = c.name || c.guid; });
+        })
+        .catch(() => {
+            // офлайн: клиенты лежат в references.json.gz на Диске (тот же источник 1C)
+            if (!ydTasksFallbackActive()) return;
+            const name = YDData.DUMP_NAMES.references;
+            YDData.syncDumps([name])
+                .catch(() => YDData.loadLocal([name]))
+                .then(recs => {
+                    const rec = recs[name];
+                    const clients = rec && rec.data && Array.isArray(rec.data.clients) ? rec.data.clients : [];
+                    clients.forEach(c => { if (c && c.guid) clientsMap[c.guid] = c.name || c.guid; });
+                })
+                .catch(() => {});
         });
 }
 
