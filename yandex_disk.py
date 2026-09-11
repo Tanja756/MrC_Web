@@ -420,6 +420,14 @@ def _handle_close_task(yandex, client, username, file_path, name, data) -> bool:
     longitude = data.get("longitude", 0.0)
     attachments = data.get("attachments", [])
 
+    # Сжатие картинок — как в онлайн-пути (routes/tasks.py api_task_close):
+    # клиент кладёт в Action base64 как есть, сжимаем перед отправкой в 1С
+    try:
+        from utils import compress_attachments
+        attachments = compress_attachments(attachments)
+    except Exception as e:
+        logger.warning("Yandex Action: failed to compress attachments for %s: %s", name, e)
+
     # Rename immediately after successful read → .processing
     # (no longer ends with .json, so process_actions won't pick it up again)
     processing_path = file_path.rsplit(".", 1)[0] + ".processing"

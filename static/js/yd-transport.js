@@ -184,6 +184,21 @@ const YD = (function () {
         });
     }
 
+    // Скачать бинарный файл (например, PDF из Docs/) → ArrayBuffer; 404 → null.
+    function _downloadFile(relPath) {
+        const p = _fullPath(relPath);
+        return _api('GET', DISK_API + '/download', { path: p }).then(function (r) {
+            if (r.status === 404) return null;
+            if (!r.ok) throw new Error('Yandex.Disk: download ' + p + ' \u2192 ' + r.status);
+            return r.json().then(function (j) {
+                return fetch(j.href, { cache: 'no-store' }).then(function (resp) {
+                    if (!resp.ok) throw new Error('Yandex.Disk: storage download ' + resp.status);
+                    return resp.arrayBuffer();
+                });
+            });
+        });
+    }
+
     function _deleteFile(relPath) {
         const p = _fullPath(relPath);
         return _api('DELETE', DISK_API, { path: p }).then(function (r) {
@@ -246,7 +261,7 @@ const YD = (function () {
         isConfigured: isConfigured,
         clearCredentials: clearCredentials,
         basePath: basePath,
-        list: _list, downloadJson: _downloadJson, uploadJson: _uploadJson,
+        list: _list, downloadJson: _downloadJson, downloadFile: _downloadFile, uploadJson: _uploadJson,
         deleteFile: _deleteFile, moveFile: _moveFile,
         submitAction: _submitAction, getActionStatuses: _getActionStatuses,
         getDumpFreshness: _getDumpFreshness,

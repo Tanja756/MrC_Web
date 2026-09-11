@@ -622,6 +622,7 @@ function showTaskDetail(task, mode, guid) {
             }
             footer = `
                 <button class="btn btn-outline-secondary me-auto" onclick="showRedirectForm('${guid}','${mode}')" title="Вернуть в свободные"><i class="bi bi-arrow-return-left"></i></button>
+                ${offlineDocsBtn(guid)}
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
         } else if (mode === 'free') {
             footer = `
@@ -644,7 +645,7 @@ function showTaskDetail(task, mode, guid) {
                 body += `<hr class="my-3"><div><small class="text-muted d-block mb-1">Вложения</small><div id="closedAttachments"><button class="btn btn-outline-secondary btn-sm" onclick="loadClosedAttachments('${guid}')"><i class="bi bi-download me-1"></i>Загрузить вложения</button></div></div>`;
             }
             const showRedirect = task.status && (task.status.includes('Подтвердить') || task.status.includes('подтвердить'));
-            footer = `${showRedirect ? `<button class="btn btn-outline-secondary me-auto" onclick="showRedirectForm('${guid}','${mode}')" title="Вернуть в свободные"><i class="bi bi-arrow-return-left"></i></button>` : ''}<button class="btn btn-outline-secondary" onclick="openDocForm('${guid}')"><i class="bi bi-file-earmark-text me-1"></i>Документы</button><button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
+            footer = `${showRedirect ? `<button class="btn btn-outline-secondary me-auto" onclick="showRedirectForm('${guid}','${mode}')" title="Вернуть в свободные"><i class="bi bi-arrow-return-left"></i></button>` : ''}<button class="btn btn-outline-secondary" onclick="openDocForm('${guid}')"><i class="bi bi-file-earmark-text me-1"></i>Документы</button>${offlineDocsBtn(guid)}<button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
         }
 
     document.getElementById('taskDetailBody').innerHTML = body;
@@ -1641,6 +1642,12 @@ function generateDocForm() {
     footer.querySelectorAll('button').forEach(b => b.disabled = true);
     status.textContent = 'Запрос на генерацию...';
 
+    // Офлайн: генерация через мост (Фаза 2.5) — PDF появятся в {username}/Docs/{дата}/{SAP}/
+    if (offlineOutboxReady()) {
+        offlineEnqueueDocs(guid, includeAct, includeFn, includeM15, loading, footer, status);
+        return;
+    }
+
     const endpoints = [];
     if (includeAct) endpoints.push('/api/tasks/documents/act');
     if (includeFn) endpoints.push('/api/tasks/documents/fn');
@@ -1736,6 +1743,12 @@ function generateDocFormAndUpload() {
     footer.querySelectorAll('button').forEach(b => b.disabled = true);
     status.textContent = 'Генерация и загрузка на Я.Диск...';
 
+    // Офлайн: генерация через мост — сервер сам положит PDF в Docs/ на Я.Диске
+    if (offlineOutboxReady()) {
+        offlineEnqueueDocs(guid, includeAct, includeFn, includeM15, loading, footer, status);
+        return;
+    }
+
     fetch('/api/tasks/documents/upload-to-yandex', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1798,4 +1811,143 @@ function downloadDocuments(guid) {
             })
     );
     downloadMultiple(fetches).catch(e => showAlert('Ошибка: ' + e.message, 'danger'));
+}
+
+// ============ DOCS ON YANDEX.DISK (Фаза 2.5, офлайн) ============
+// Сформированные мостом PDF лежат в {username}/Docs/{дата}/{SAP}/
+// (мост: ГГГГ-ММ-ДД, онлайн-выгрузка: ГГГГ.ММ.ДД — листим реальные папки).
+
+function sapFromTask(task) {
+    if (!task) return '';
+    const text = (task.name || '') + '\n' + (task.description || '');
+    const m = text.match(/SAP-(\w{4})/i);
+    return m ? m[1].toUpperCase() : '';
+}
+
+// Кнопка «Файлы на Диске» — только в офлайн-режиме с мостом
+function offlineDocsBtn(guid) {
+    return ydTasksFallbackActive()
+        ? `<button class="btn btn-outline-secondary" onclick="showTaskDiskDocs('${guid}')" title="Сформированные PDF на Яндекс.Диске"><i class="bi bi-folder2-open me-1"></i>Файлы на Диске</button>`
+        : '';
+}
+
+function offlineEnqueueDocs(guid, includeAct, includeFn, includeM15, loading, footer, status) {
+    if (docSelectedItems.length > 0) {
+        loading.classList.add('d-none');
+        footer.querySelectorAll('button').forEach(b => b.disabled = false);
+        showAlert('Выбранные товары М15 нельзя включить в документ офлайн. Сформируйте документы при связи с сервером.', 'warning');
+        return;
+    }
+    YDOutbox.enqueue('generate_docs', {
+        guid: guid,
+        profile_name: savedProfileName,
+        include_act: includeAct,
+        include_m15: includeM15,
+        include_fn: includeFn
+    }, 'Сформировать документы').then(() => {
+        loading.classList.add('d-none');
+        footer.querySelectorAll('button').forEach(b => b.disabled = false);
+        bootstrap.Modal.getInstance(document.getElementById('docFormModal'))?.hide();
+        NotificationCenter.show({ icon: 'success', title: 'Документы в офлайн-очереди', subtitle: 'Сервер сформирует PDF в папку Docs на Я.Диске', actions: ['OK'], duration: 8000 });
+    }).catch(() => {
+        loading.classList.add('d-none');
+        footer.querySelectorAll('button').forEach(b => b.disabled = false);
+        showAlert('Не удалось поставить генерацию в офлайн-очередь', 'warning');
+    });
+}
+
+function showTaskDiskDocs(guid) {
+    if (!ydTasksFallbackActive() || typeof YD === 'undefined') {
+        showAlert('Список файлов на Я.Диске доступен в офлайн-режиме с включённым мостом', 'info');
+        return;
+    }
+    const task = [...tasksMy, ...tasksFree, ...tasksClosed].find(t => t.guid === guid);
+    const sap = sapFromTask(task);
+    if (!sap) {
+        showAlert('Не удалось определить SAP магазина для этой заявки', 'warning');
+        return;
+    }
+
+    const old = document.getElementById('diskDocsModal');
+    if (old) { bootstrap.Modal.getInstance(old)?.dispose(); old.remove(); }
+    const div = document.createElement('div');
+    div.id = 'diskDocsModal';
+    div.className = 'modal fade';
+    div.innerHTML = '<div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">' +
+        '<div class="modal-content">' +
+            '<div class="modal-header"><h6 class="modal-title"><i class="bi bi-folder2-open me-2"></i>Файлы на Я.Диске — SAP ' + esc(sap) + '</h6>' +
+            '<button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>' +
+            '<div class="modal-body"><div class="text-center py-3"><span class="spinner-border spinner-border-sm"></span> Ищу документы…</div></div>' +
+            '<div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button></div>' +
+        '</div></div>';
+    document.body.appendChild(div);
+    const mm = new bootstrap.Modal(div);
+    div.addEventListener('hidden.bs.modal', function () { mm.dispose(); div.remove(); });
+    mm.show();
+
+    const body = div.querySelector('.modal-body');
+    const render = function (files) {
+        if (!files.length) {
+            body.innerHTML = '<div class="text-muted small text-center py-3">PDF для этого SAP пока нет. Сформируйте документы — после обработки сервером они появятся здесь.</div>';
+            return;
+        }
+        body.innerHTML = files.map(function (f) {
+            const sizeKb = Math.max(1, Math.round((f.size || 0) / 1024));
+            return '<div class="d-flex align-items-center justify-content-between border-bottom py-2 gap-2">' +
+                '<div class="small flex-grow-1 text-break"><div class="fw-semibold">' + esc(f.name) + '</div>' +
+                '<div class="text-muted">' + sizeKb + ' КБ' + (f.modified ? ' · ' + esc(f.modified.slice(0, 16).replace('T', ' ')) : '') + '</div></div>' +
+                '<div class="d-flex gap-1 flex-shrink-0">' +
+                    '<button class="btn btn-sm btn-outline-secondary" data-dd-open="' + esc(f.rel) + '" title="Открыть"><i class="bi bi-eye"></i></button>' +
+                    '<button class="btn btn-sm btn-outline-primary" data-dd-dl="' + esc(f.rel) + '" data-dd-name="' + esc(f.name) + '" title="Скачать"><i class="bi bi-download"></i></button>' +
+                '</div></div>';
+        }).join('');
+        body.querySelectorAll('[data-dd-open]').forEach(function (b) {
+            b.addEventListener('click', function () { openDiskPdf(b.getAttribute('data-dd-open')); });
+        });
+        body.querySelectorAll('[data-dd-dl]').forEach(function (b) {
+            b.addEventListener('click', function () { downloadDiskPdf(b.getAttribute('data-dd-dl'), b.getAttribute('data-dd-name')); });
+        });
+    };
+
+    // последние 10 дат; для каждой — папка {SAP}; 404 → пропускаем
+    YD.list('Docs').then(function (dates) {
+        const folders = dates.filter(d => d.type === 'dir')
+            .map(d => d.name).sort().reverse().slice(0, 10);
+        return Promise.all(folders.map(function (date) {
+            return YD.list('Docs/' + date + '/' + sap).then(function (items) {
+                return items.filter(i => i.type === 'file' && /\.pdf$/i.test(i.name))
+                    .map(i => ({ name: i.name, size: i.size, modified: i.modified, rel: 'Docs/' + date + '/' + sap + '/' + i.name }));
+            }).catch(function () { return []; });
+        }));
+    }).then(function (groups) {
+        const files = [].concat.apply([], groups)
+            .sort(function (a, b) { return (b.modified || '') < (a.modified || '') ? -1 : 1; });
+        render(files);
+    }).catch(function (e) {
+        body.innerHTML = '<div class="text-danger small p-2">Не удалось получить список: ' + esc((e && e.message) || 'ошибка') + '</div>';
+    });
+}
+
+function downloadDiskPdf(rel, name) {
+    YD.downloadFile(rel).then(function (buf) {
+        if (!buf) { showAlert('Файл не найден на Диске', 'warning'); return; }
+        const blob = new Blob([buf], { type: 'application/pdf' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = name || rel.split('/').pop();
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(function () { URL.revokeObjectURL(a.href); }, 30000);
+    }).catch(function (e) { showAlert('Ошибка скачивания: ' + ((e && e.message) || ''), 'danger'); });
+}
+
+function openDiskPdf(rel) {
+    YD.downloadFile(rel).then(function (buf) {
+        if (!buf) { showAlert('Файл не найден на Диске', 'warning'); return; }
+        const blob = new Blob([buf], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+    }).catch(function (e) { showAlert('Ошибка открытия: ' + ((e && e.message) || ''), 'danger'); });
 }
