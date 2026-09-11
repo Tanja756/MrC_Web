@@ -1,4 +1,4 @@
-const CACHE = 'mrc-v3';
+const CACHE = 'mrc-v4';
 const ASSETS = [
   '/static/style.css',
   '/static/css/tasks.css',
@@ -13,6 +13,7 @@ const ASSETS = [
   '/static/js/references.js',
   '/static/js/route.js',
   '/static/js/fn.js',
+  '/static/js/shops-upload.js',
   '/static/icon.png',
   '/static/icon-512.png',
   '/static/fun-effects/confetti/effect.css',

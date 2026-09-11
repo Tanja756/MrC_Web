@@ -3,6 +3,7 @@
 <ul class="nav nav-pills mb-3" id="uploadTabs">
     <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#upload-ppr">График ППР</button></li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#upload-fn">График ФН</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#upload-shops">Магазины</button></li>
 </ul>
 
 <div class="tab-content">
@@ -101,11 +102,46 @@
             </div>
         </div>
     </div>
+
+    <div class="tab-pane fade" id="upload-shops" role="tabpanel">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-shop me-2"></i>Загрузка магазинов</h5>
+                <div class="form-text text-muted mt-1 mb-2">Файл без шапки: колонка A — SAP-код, B — номер магазина, C — адрес. Добавляются только новые магазины; существующие (по паре номер+SAP) не обновляются.</div>
+                <div class="filter-bar mt-2 px-0">
+                    <div class="filter-header d-md-none" onclick="toggleFilter(this)"><i class="bi bi-funnel"></i> Выбор файла</div>
+                    <div class="filter-body">
+                    <div class="row g-2 align-items-center">
+                        <div class="col-md-12">
+                            <div class="upload-dropzone" id="shopsDropzone">
+                                <input type="file" id="shopsFile" accept=".xlsx" hidden>
+                                <i class="bi bi-file-earmark-arrow-up"></i>
+                                <span class="upload-dropzone-text">Выберите файл или перетащите сюда</span>
+                            </div>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+                <div id="shopsPreview"></div>
+                <div id="shopsActions" class="d-none mt-3 d-flex align-items-center gap-3 flex-wrap">
+                    <button class="btn btn-primary" onclick="submitShopsBatch()" id="shopsSubmitBtn">
+                        <i class="bi bi-database-up me-1"></i>Загрузить в БД
+                    </button>
+                    <button class="btn btn-outline-danger" onclick="deleteSelectedShopsRows()">
+                        <i class="bi bi-trash me-1"></i>Удалить выбранные
+                    </button>
+                    <span class="text-muted small" id="shopsStats"></span>
+                </div>
+                <div id="shopsResult" class="mt-2"></div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/ppr.js') }}?v=4"></script>
 <script src="{{ url_for('static', filename='js/fn.js') }}?v=1"></script>
-<script>document.addEventListener('DOMContentLoaded', () => { initUploadTab(); initFnUploadTab(); });</script>
+<script src="{{ url_for('static', filename='js/shops-upload.js') }}?v=1"></script>
+<script>document.addEventListener('DOMContentLoaded', () => { initUploadTab(); initFnUploadTab(); initShopsUploadTab(); });</script>
 {% endblock %}

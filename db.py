@@ -187,6 +187,58 @@ def update_shop_address(sap_code, new_address):
     conn.commit()
     conn.close()
 
+def upsert_shops(items):
+    """Массовая загрузка магазинов: добавляются только НОВЫЕ.
+
+    Существующие по паре (shop_number, sap_code) магазины НЕ обновляются
+    (INSERT OR IGNORE) — ни адрес, ни контакты не трогаем.
+
+    Возвращает {'inserted', 'skipped_existing', 'skipped_invalid', 'total'}.
+    """
+    total = 0
+    inserted = 0
+    skipped_existing = 0
+    skipped_invalid = 0
+
+    entries = []
+    for item in items or []:
+        shop_number = str(item.get('shop_number') or '').strip()
+        sap_code = str(item.get('sap_code') or '').strip().upper()
+        address = str(item.get('address') or '').strip()
+        total += 1
+        if not all([shop_number, sap_code, address]):
+            skipped_invalid += 1
+            continue
+        entries.append((shop_number, sap_code, address))
+
+    if not entries:
+        return {'inserted': 0, 'skipped_existing': 0, 'skipped_invalid': skipped_invalid, 'total': total}
+
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        for entry in entries:
+            before = c.execute("SELECT COUNT(*) FROM shops WHERE shop_number = ? AND sap_code = ?", (entry[0], entry[1])).fetchone()[0]
+            if before:
+                skipped_existing += 1
+                continue
+            c.execute(
+                "INSERT OR IGNORE INTO shops (shop_number, sap_code, address) VALUES (?, ?, ?)",
+                entry
+            )
+            if c.rowcount:
+                inserted += 1
+            else:
+                skipped_existing += 1
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"upsert_shops failed (readonly?): {e}")
+        # при ошибке всё, что не вставили, считаем skipped_invalid
+        skipped_invalid += len(entries) - inserted
+
+    return {'inserted': inserted, 'skipped_existing': skipped_existing, 'skipped_invalid': skipped_invalid, 'total': total}
+
 def init_user_shops_table():
     conn = get_db_connection()
     c = conn.cursor()

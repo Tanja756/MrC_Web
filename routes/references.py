@@ -1,7 +1,7 @@
 import logging
 from flask import Blueprint, request, jsonify, session
 from .helpers import api_login_required
-from db import get_all_shops, add_shop, update_shop, delete_shop, set_user_shop_in_work, get_user_shops_status
+from db import get_all_shops, add_shop, update_shop, delete_shop, set_user_shop_in_work, get_user_shops_status, upsert_shops
 
 logger = logging.getLogger(__name__)
 references_bp = Blueprint('references', __name__, url_prefix='/api/references')
@@ -12,6 +12,22 @@ references_bp = Blueprint('references', __name__, url_prefix='/api/references')
 def api_shops_list():
     shops = get_all_shops()
     return jsonify(shops)
+
+
+@references_bp.route('/shops/upload', methods=['POST'])
+@api_login_required
+def api_shops_upload():
+    """Массовая загрузка магазинов из файла (только новые — существующие не трогаем)."""
+    try:
+        data = request.json or {}
+        rows = data.get('rows', [])
+        if not rows:
+            return jsonify({'error': 'Нет строк для загрузки'}), 400
+        result = upsert_shops(rows)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"api_shops_upload error: {e}")
+        return jsonify({'error': 'Ошибка при массовой загрузке магазинов'}), 500
 
 
 @references_bp.route('/shops', methods=['POST'])
