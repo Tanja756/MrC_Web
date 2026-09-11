@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 import requests
 
-from db import get_yandex_upload_status, save_yandex_upload_status, set_task_taken, set_task_closed
+from db import get_yandex_upload_status, save_yandex_upload_status, set_task_taken, set_task_closed, clear_task_closed
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +259,7 @@ def sync_hashes_to_yandex(username, yandex=None):
         "references.json.gz": saved.get("references_hash"),
         "ppr_list.json.gz": saved.get("ppr_hash"),
         "fn_schedule.json.gz": saved.get("fn_schedule_hash"),
+        "task_m15.json.gz": saved.get("task_m15_hash"),
     }
     hashes = {k: v for k, v in hashes.items() if v}
 
@@ -338,6 +339,45 @@ def sync_ppr_to_yandex(username, client=None, yandex=None):
         logger.info("Yandex sync: ppr_list updated for %s", username)
     except Exception as e:
         logger.error("Yandex sync: failed to upload ppr_list for %s: %s", username, e)
+
+
+def sync_task_m15_to_yandex(username, yandex=None):
+    """Дамп M15-оборудования по задачам: {task_guid: {text, code, items}}."""
+    if yandex is None:
+        yandex = YandexDiskClient()
+    if not yandex.is_authenticated():
+        return
+    try:
+        from db import get_db_connection
+        conn = get_db_connection()
+        c = conn.execute("SELECT task_guid, equipment_text, request_code, hk_code FROM task_m15_text")
+        texts = c.fetchall()
+        c = conn.execute("SELECT task_guid, product_name, series_name FROM task_m15_items")
+        items = c.fetchall()
+        conn.close()
+    except Exception as e:
+        logger.error("Yandex sync: failed to read task m15 data: %s", e)
+        return
+
+    data = {}
+    for task_guid, equipment_text, request_code, hk_code in texts:
+        data[task_guid] = {"text": equipment_text or "", "code": request_code or "", "hk_code": hk_code or "", "items": []}
+    for task_guid, product_name, series_name in items:
+        entry = data.setdefault(task_guid, {"text": "", "code": "", "hk_code": "", "items": []})
+        entry["items"].append({"name": product_name, "series": series_name})
+
+    h = compute_hash(data)
+    saved = get_yandex_upload_status(username)
+    if saved and saved.get("task_m15_hash") == h:
+        return
+
+    try:
+        yandex.ensure_folder(f"/{username}")
+        yandex.upload_json(f"/{username}", "task_m15.json", data)
+        save_yandex_upload_status(username, task_m15_hash=h)
+        logger.info("Yandex sync: task_m15 updated for %s", username)
+    except Exception as e:
+        logger.error("Yandex sync: failed to upload task_m15 for %s: %s", username, e)
 
 
 def _rename_to_error(yandex, file_path, name):
@@ -466,6 +506,105 @@ def _handle_take_task(yandex, client, username, file_path, name, data) -> bool:
     try:
         yandex.delete_file(processing_path)
         logger.info("Yandex Action: task %s taken from %s, file deleted", guid, name)
+        return True
+    except Exception as e:
+        logger.error("Yandex Action: failed to delete %s after success: %s", name, e)
+        return False
+
+
+def _handle_reject_task(yandex, client, username, file_path, name, data) -> bool:
+    """Process a single reject_task action file (отклонение заявки). Returns True on success."""
+    if data.get("action") != "reject_task":
+        logger.warning("Yandex Action: unknown action in %s", name)
+        _rename_to_error(yandex, file_path, name)
+        return False
+
+    guid = data.get("guid")
+    if not guid:
+        logger.error("Yandex Action: missing guid in %s", name)
+        _rename_to_error(yandex, file_path, name)
+        return False
+
+    comment = data.get("comment", "").strip()
+    if not comment:
+        logger.error("Yandex Action: missing comment in %s", name)
+        _rename_to_error(yandex, file_path, name)
+        return False
+
+    processing_path = file_path.rsplit(".", 1)[0] + ".processing"
+    try:
+        yandex.move_file(file_path, processing_path)
+    except Exception as e:
+        logger.error("Yandex Action: failed to rename %s: %s", name, e)
+        return False
+
+    try:
+        result = client.task_reject(guid, comment)
+    except Exception as e:
+        logger.error("Yandex Action: 1C reject failed for %s (guid=%s): %s", name, guid, e)
+        _rename_to_error(yandex, processing_path, name)
+        return False
+
+    if result and result.get("_error"):
+        logger.error("Yandex Action: 1C returned error for %s (guid=%s): %s", name, guid, result["_error"])
+        _rename_to_error(yandex, processing_path, name)
+        return False
+
+    try:
+        yandex.delete_file(processing_path)
+        logger.info("Yandex Action: task %s rejected from %s, file deleted", guid, name)
+        return True
+    except Exception as e:
+        logger.error("Yandex Action: failed to delete %s after success: %s", name, e)
+        return False
+
+
+def _handle_redirect_task(yandex, client, username, file_path, name, data) -> bool:
+    """Process a single redirect_task action file (возврат в свободные). Returns True on success."""
+    if data.get("action") != "redirect_task":
+        logger.warning("Yandex Action: unknown action in %s", name)
+        _rename_to_error(yandex, file_path, name)
+        return False
+
+    guid = data.get("guid")
+    if not guid:
+        logger.error("Yandex Action: missing guid in %s", name)
+        _rename_to_error(yandex, file_path, name)
+        return False
+
+    comment = data.get("comment", "").strip()
+    if not comment:
+        logger.error("Yandex Action: missing comment in %s", name)
+        _rename_to_error(yandex, file_path, name)
+        return False
+
+    processing_path = file_path.rsplit(".", 1)[0] + ".processing"
+    try:
+        yandex.move_file(file_path, processing_path)
+    except Exception as e:
+        logger.error("Yandex Action: failed to rename %s: %s", name, e)
+        return False
+
+    try:
+        result = client.task_redirect(guid, comment)
+    except Exception as e:
+        logger.error("Yandex Action: 1C redirect failed for %s (guid=%s): %s", name, guid, e)
+        _rename_to_error(yandex, processing_path, name)
+        return False
+
+    if result and result.get("_error"):
+        logger.error("Yandex Action: 1C returned error for %s (guid=%s): %s", name, guid, result["_error"])
+        _rename_to_error(yandex, processing_path, name)
+        return False
+
+    try:
+        clear_task_closed(username, guid)
+    except Exception as e:
+        logger.warning("Yandex Action: failed to clear_task_closed locally for %s: %s", guid, e)
+
+    try:
+        yandex.delete_file(processing_path)
+        logger.info("Yandex Action: task %s redirected from %s, file deleted", guid, name)
         return True
     except Exception as e:
         logger.error("Yandex Action: failed to delete %s after success: %s", name, e)
@@ -642,6 +781,10 @@ def process_actions(username, client, yandex=None) -> bool:
             handled = _handle_generate_docs(yandex, client, username, file_path, f["name"], data)
         elif f["name"].startswith("take_task_"):
             handled = _handle_take_task(yandex, client, username, file_path, f["name"], data)
+        elif f["name"].startswith("reject_task_"):
+            handled = _handle_reject_task(yandex, client, username, file_path, f["name"], data)
+        elif f["name"].startswith("redirect_task_"):
+            handled = _handle_redirect_task(yandex, client, username, file_path, f["name"], data)
 
         if handled:
             any_handled = True
