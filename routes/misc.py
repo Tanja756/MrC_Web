@@ -92,7 +92,13 @@ def api_profile_post():
         auto_include_act = profile.get('autoIncludeAct', 'true') == 'true'
         auto_include_m15 = profile.get('autoIncludeM15', 'true') == 'true'
         auto_include_yandex = profile.get('autoIncludeYandex', 'true') == 'true'
-        yandex_sync_data = profile.get('yandexSyncData', 'true') == 'true'
+        # yandex_sync_data: отсутствующее поле НЕ затираем сохранённое значение
+        # (выключатель «Синхронизация данных» не должен сбрасываться частичным
+        # сохранением профиля — например, автоматическим saveProfile из фильтра подразделений)
+        if 'yandexSyncData' in profile:
+            yandex_sync_data = profile.get('yandexSyncData', 'true') == 'true'
+        else:
+            yandex_sync_data = bool((existing or {}).get('yandex_sync_data', True))
         # default_department: отсутствующее поле НЕ затираем сохранённое значение
         # (обычное сохранение настроек из модалки профиля не должно сбрасывать фильтр)
         if 'defaultDepartment' in profile:

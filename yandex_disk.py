@@ -743,11 +743,22 @@ def _handle_generate_docs(yandex, client, username, file_path, name, data) -> bo
 
 def process_actions(username, client, yandex=None) -> bool:
     """Read all .json files from {username}/Action/, dispatch to handlers.
-    Returns True if at least one action was successfully handled."""
+    Returns True if at least one action was successfully handled.
+    Уважает настройку пользователя yandex_sync_data: при выключенной
+    «Синхронизации данных» ни выгрузка дампов, ни обработка действий не выполняются."""
     if yandex is None:
         yandex = YandexDiskClient()
     if not yandex.is_authenticated():
         return False
+
+    try:
+        from db import get_user_settings
+        settings = get_user_settings(username)
+        if settings and not settings.get('yandex_sync_data', True):
+            logger.debug("Yandex Action: sync disabled for %s, skipping action processing", username)
+            return False
+    except Exception as e:
+        logger.warning("Yandex Action: failed to read settings for %s: %s", username, e)
 
     action_folder = f"{username}/Action"
 
