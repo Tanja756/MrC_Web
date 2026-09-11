@@ -1,4 +1,4 @@
-const CACHE = 'mrc-v9';
+const CACHE = 'mrc-v10';
 const ASSETS = [
   '/static/style.css',
   '/static/css/tasks.css',
@@ -7,6 +7,7 @@ const ASSETS = [
   '/static/js/app.js',
   '/static/js/yd-transport.js',
   '/static/js/yd-data.js',
+  '/static/js/yd-outbox.js',
   '/static/js/tasks.js',
   '/static/js/warehouse.js',
   '/static/js/stock-transfers.js',

@@ -50,9 +50,16 @@ const YDData = (function () {
         if (typeof indexedDB === 'undefined') return Promise.reject(new Error('no indexedDB'));
         if (!_dbPromise) {
             _dbPromise = new Promise(function (resolve, reject) {
-                const req = indexedDB.open('mrc-yd', 1);
+                const req = indexedDB.open('mrc-yd', 2);
                 req.onupgradeneeded = function () {
-                    req.result.createObjectStore('dumps', { keyPath: 'name' });
+                    const db = req.result;
+                    if (!db.objectStoreNames.contains('dumps')) {
+                        db.createObjectStore('dumps', { keyPath: 'name' });
+                    }
+                    if (!db.objectStoreNames.contains('outbox')) {
+                        // стор офлайн-очереди действий (Фаза 2.4, yd-outbox.js)
+                        db.createObjectStore('outbox', { keyPath: 'id' });
+                    }
                 };
                 req.onsuccess = function () { resolve(req.result); };
                 req.onerror = function () { reject(req.error); };

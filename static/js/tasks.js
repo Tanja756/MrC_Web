@@ -89,6 +89,11 @@ function ydTasksFallbackActive() {
         typeof YDData !== 'undefined' && typeof YD !== 'undefined' && YDData.isBridgeEnabled();
 }
 
+// Готов ли офлайн-outbox (Фаза 2.4): сервер недоступен + мост включён + модуль очереди загружен
+function offlineOutboxReady() {
+    return ydTasksFallbackActive() && typeof YDOutbox !== 'undefined' && YDOutbox.available();
+}
+
 function applyDiskTasks(labels, recs) {
     if (typeof YDData === 'undefined') return false;
     const N = YDData.DUMP_NAMES;
@@ -948,6 +953,27 @@ function closeTask(guid, guidDoc) {
             const attachments = pendingAttachments;
             pendingAttachments = [];
             const taskName = task ? (task.number ? `Заявка ${task.number} — ${task.name || ''}` : (task.name || '')) : '';
+            if (offlineOutboxReady()) {
+                const label = 'Закрыть ' + (task && task.number ? 'заявку #' + cleanNumber(task.number) : (taskName || 'заявку'));
+                // Формат вложений тот же, что ждёт client.task_close; сжатие картинок
+                // на сервере для мостовых close_task пока не применяется (Фаза 2.5)
+                YDOutbox.enqueue('close_task', {
+                    guid: guid, guid_doc: guidDoc, comment: comment,
+                    latitude: lat, longitude: lng, attachments: attachments
+                }, label).then(() => {
+                    bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
+                    tasksMy = tasksMy.filter(t => t.guid !== guid);
+                    cacheDel('/api/tasks/my');
+                    cacheClearPrefix('/api/tasks/closed');
+                    filterTasks();
+                    NotificationCenter.show({ icon: 'success', title: 'Закрытие в офлайн-очереди', subtitle: label + ' — отправится при появлении связи', actions: ['OK'], duration: 6000 });
+                }).catch(() => {
+                    pendingAttachments = attachments; // вернуть вложения в форму
+                    renderPendingAttachments();
+                    showAlert('Не удалось поставить закрытие в офлайн-очередь', 'warning');
+                });
+                return;
+            }
             const body = JSON.stringify({
                 guid, guidDoc, comment,
                 latitude: lat, longitude: lng,
@@ -1037,6 +1063,17 @@ function takeTask(guid) {
 
     newBtn.addEventListener('click', () => {
         modal.hide();
+        if (offlineOutboxReady()) {
+            const label = 'Взять заявку #' + (cleanNumber(task.number) || task.guid.slice(0, 8));
+            YDOutbox.enqueue('take_task', { guid: guid }, label).then(() => {
+                // оптимистично: свободная → в работе; реальное состояние придёт из дампов
+                tasksFree = tasksFree.filter(t => t.guid !== guid);
+                if (!tasksMy.some(t => t.guid === guid)) tasksMy.push(Object.assign({}, task));
+                filterTasks();
+                NotificationCenter.show({ icon: 'success', title: 'Заявка в офлайн-очереди', subtitle: label + ' отправится при появлении связи', actions: ['OK'], duration: 6000 });
+            }).catch(() => showAlert('Не удалось поставить действие в офлайн-очередь', 'warning'));
+            return;
+        }
         fetch('/api/tasks/take', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -1068,6 +1105,25 @@ function rejectTask(guid) {
             const origHtml = btn.innerHTML;
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Отмена...';
+            if (offlineOutboxReady()) {
+                const t = [...tasksMy, ...tasksFree].find(x => x.guid === guid);
+                const label = 'Отменить заявку #' + (t ? (cleanNumber(t.number) || t.guid.slice(0, 8)) : guid.slice(0, 8));
+                YDOutbox.enqueue('reject_task', { guid: guid, comment: comment }, label).then(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = origHtml;
+                    bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
+                    clearModalStack();
+                    tasksMy = tasksMy.filter(x => x.guid !== guid);
+                    tasksFree = tasksFree.filter(x => x.guid !== guid);
+                    filterTasks();
+                    NotificationCenter.show({ icon: 'success', title: 'Отмена в офлайн-очереди', subtitle: label + ' — отправится при появлении связи', actions: ['OK'], duration: 6000 });
+                }).catch(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = origHtml;
+                    showAlert('Не удалось поставить отмену в офлайн-очередь', 'warning');
+                });
+                return;
+            }
             fetch('/api/tasks/reject', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -1140,6 +1196,26 @@ function redirectTask(guid) {
             const origHtml = btn.innerHTML;
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Возврат...';
+            if (offlineOutboxReady()) {
+                const t = tasksMy.find(x => x.guid === guid);
+                const label = 'Вернуть заявку #' + (t ? (cleanNumber(t.number) || t.guid.slice(0, 8)) : guid.slice(0, 8));
+                YDOutbox.enqueue('redirect_task', { guid: guid, comment: comment }, label).then(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = origHtml;
+                    bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
+                    clearModalStack();
+                    // оптимистично: в работе → свободные; реальное состояние придёт из дампов
+                    tasksMy = tasksMy.filter(x => x.guid !== guid);
+                    if (t && !tasksFree.some(x => x.guid === guid)) tasksFree.push(Object.assign({}, t));
+                    filterTasks();
+                    NotificationCenter.show({ icon: 'success', title: 'Возврат в офлайн-очереди', subtitle: label + ' — отправится при появлении связи', actions: ['OK'], duration: 6000 });
+                }).catch(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = origHtml;
+                    showAlert('Не удалось поставить возврат в офлайн-очередь', 'warning');
+                });
+                return;
+            }
             fetch('/api/tasks/redirect', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -1190,6 +1266,15 @@ function bulkTakeTasks() {
             if (!ok) return;
 
             const guids = Array.from(selectedGuids);
+            if (offlineOutboxReady()) {
+                Promise.all(guids.map(g => YDOutbox.enqueue('take_task', { guid: g }, 'Взять заявку')))
+                    .then(() => {
+                        cancelMultiSelect();
+                        NotificationCenter.show({ icon: 'success', title: 'Заявки в офлайн-очереди', subtitle: guids.length + ' заяв(ка/ок) отправятся при появлении связи', actions: ['OK'], duration: 6000 });
+                    })
+                    .catch(() => showAlert('Не удалось поставить заявки в офлайн-очередь', 'warning'));
+                return;
+            }
             fetch('/api/tasks/take-bulk', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},

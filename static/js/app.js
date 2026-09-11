@@ -684,6 +684,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     loadProfile().then(function() { applyMerryMilkman(); });
 
+    // Офлайн-очередь действий через Яндекс.Диск (Фаза 2.4)
+    if (typeof YDOutbox !== 'undefined' && YDOutbox.start) YDOutbox.start();
+
     loadNotifications('', true);
     loadAnnouncements();
 
