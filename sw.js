@@ -1,4 +1,4 @@
-const CACHE = 'mrc-v2';
+const CACHE = 'mrc-v3';
 const ASSETS = [
   '/static/style.css',
   '/static/css/tasks.css',
@@ -8,6 +8,7 @@ const ASSETS = [
   '/static/js/tasks.js',
   '/static/js/warehouse.js',
   '/static/js/stock-transfers.js',
+  '/static/js/item-movements.js',
   '/static/js/ppr.js',
   '/static/js/references.js',
   '/static/js/route.js',
@@ -49,14 +50,19 @@ self.addEventListener('fetch', e => {
 });
 
 async function cacheFirst(request) {
-  const cached = await caches.match(request);
-  if (cached) return cached;
+  const cache = await caches.open(CACHE);
+  const cached = await cache.match(request);
+  if (cached) {
+    // stale-while-revalidate: отдаём кеш сразу, свежую версию докачиваем в фоне
+    try {
+      const fresh = await fetch(request);
+      if (fresh.ok) cache.put(request, fresh.clone());
+    } catch {}
+    return cached;
+  }
   try {
     const response = await fetch(request);
-    if (response.ok) {
-      const cache = await caches.open(CACHE);
-      cache.put(request, response.clone());
-    }
+    if (response.ok) cache.put(request, response.clone());
     return response;
   } catch {
     return new Response(null, { status: 503, statusText: 'Service Unavailable' });

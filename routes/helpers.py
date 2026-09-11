@@ -33,6 +33,7 @@ from db import (
     get_arrival_overrides, set_arrival_override,
     sync_products, get_products_dict,
     sync_product_instances_from_balances, sync_product_instances_from_items,
+    add_item_movements,
 )
 
 logger = logging.getLogger(__name__)
@@ -103,11 +104,8 @@ def project_tasks(tasks):
 def attach_tracking(tasks, username):
     if not tasks or not username:
         return
-    import logging
-    logger = logging.getLogger(__name__)
     guids = [t.get('guid') for t in tasks if t.get('guid')]
     tracking = get_tasks_tracking(guids, username)
-    logger.info(f"[DEBUG attach_tracking] username={username}, guids={guids[:3]}..., tracking_keys={list(tracking.keys())[:3]}")
     for t in tasks:
         g = t.get('guid')
         if g in tracking:
@@ -115,9 +113,6 @@ def attach_tracking(tasks, username):
                 t['taken_at'] = tracking[g]['taken_at']
             if tracking[g].get('closed_at'):
                 t['closed_at'] = tracking[g]['closed_at']
-                logger.info(f"[DEBUG attach_tracking] Для guid={g} установлен closed_at={tracking[g]['closed_at']}")
-            else:
-                logger.info(f"[DEBUG attach_tracking] Для guid={g} closed_at отсутствует в tracking")
         if not t.get('taken_at'):
             t['taken_at'] = t.get('date')
 
@@ -361,6 +356,16 @@ def check_balance_changes(username, storage_guid, new_data, storage_name=''):
             removed.append((item.get('balance', 0) or 0, item.get('product_name', '?'),
                            item.get('series_name', ''), item.get('inventory_number', '')))
 
+    today = datetime.now().strftime('%Y-%m-%d')
+    add_item_movements(
+        [{'event_type': 'arrival', 'product_name': n, 'series_name': s, 'inventory_number': i,
+          'storage_guid': storage_guid, 'event_date': today, 'username': username, 'source': 'diff'}
+         for d, n, s, i in added]
+        + [{'event_type': 'writeoff', 'product_name': n, 'series_name': s, 'inventory_number': i,
+            'storage_guid': storage_guid, 'event_date': today, 'username': username, 'source': 'diff'}
+           for d, n, s, i in removed]
+    )
+
     def _fmt_line(sign, diff, name, series, inv):
         parts = [f'{sign} {diff} шт\t{name}']
         if series:
@@ -560,6 +565,8 @@ def auto_generate_docs_for_new_free_tasks(username, free_tasks, old_data, client
     from db import get_user_settings, create_notification
     settings = get_user_settings(username)
     if not settings or not settings.get('auto_generate_docs'):
+        return
+    if not settings.get('auto_include_yandex', True):
         return
 
     from docgen import generate_documents, extract_task_data
@@ -830,37 +837,38 @@ def background_check_user(username, force=False):
     attach_tracking(user_tasks, username)
     attach_tracking(closed_tasks, username)
 
-    yandex = YandexDiskClient()
-    sync_tasks_to_yandex(username, user_data, free_data, closed_data, yandex=yandex)
+    if settings and settings.get('yandex_sync_data', True):
+        yandex = YandexDiskClient()
+        sync_tasks_to_yandex(username, user_data, free_data, closed_data, yandex=yandex)
 
-    if not force:
-        sync_references_to_yandex(username, client, yandex=yandex)
-        sync_fn_schedule_to_yandex(username, yandex=yandex)
-        sync_ppr_to_yandex(username, client=client, yandex=yandex)
+        if not force:
+            sync_references_to_yandex(username, client, yandex=yandex)
+            sync_fn_schedule_to_yandex(username, yandex=yandex)
+            sync_ppr_to_yandex(username, client=client, yandex=yandex)
 
-        try:
-            products = client.get_products()
-            if products:
-                sync_products(products)
-        except Exception as e:
-            logger.warning("Background: failed to sync products: %s", e)
+            try:
+                products = client.get_products()
+                if products:
+                    sync_products(products)
+            except Exception as e:
+                logger.warning("Background: failed to sync products: %s", e)
 
-        auto_close_tracked_tasks(closed_tasks, username)
+            auto_close_tracked_tasks(closed_tasks, username)
 
-        try:
-            warehouse_data = {}
-            storages = client.get_storages()
-            if storages:
-                for storage in storages:
-                    guid = storage.get('guid')
-                    snap = get_snapshot(username, guid)
-                    if snap is not None:
-                        warehouse_data[guid] = snap
-            sync_warehouse_to_yandex(username, warehouse_data, yandex=yandex)
-        except Exception as e:
-            logger.warning("Background: failed to prepare warehouse data for Yandex sync: %s", e)
+            try:
+                warehouse_data = {}
+                storages = client.get_storages()
+                if storages:
+                    for storage in storages:
+                        guid = storage.get('guid')
+                        snap = get_snapshot(username, guid)
+                        if snap is not None:
+                            warehouse_data[guid] = snap
+                sync_warehouse_to_yandex(username, warehouse_data, yandex=yandex)
+            except Exception as e:
+                logger.warning("Background: failed to prepare warehouse data for Yandex sync: %s", e)
 
-        sync_hashes_to_yandex(username, yandex=yandex)
+            sync_hashes_to_yandex(username, yandex=yandex)
 
 
 def background_check_all_users():

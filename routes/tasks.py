@@ -6,7 +6,7 @@ from urllib.parse import quote
 from flask import Blueprint, request, jsonify, session
 from api_client import OneSApiClient
 
-from db import set_task_closed, clear_task_closed, update_task_closed_date, save_task_m15_items, save_task_m15_text
+from db import set_task_closed, clear_task_closed, update_task_closed_date, save_task_m15_items, save_task_m15_text, add_item_movements
 from .helpers import (
     api_login_required, get_api_client,
     project_tasks, attach_tracking, filter_tasks,
@@ -257,6 +257,7 @@ def api_tasks_documents():
 
 
 @tasks_bp.route('/documents', methods=['POST'])
+@api_login_required
 def api_task_documents_post():
     from docgen import generate_documents, extract_task_data
     guid = request.json.get('guid')
@@ -294,6 +295,14 @@ def api_task_documents_post():
             save_task_m15_items(guid, m15_items)
         text = '\n'.join(f"{item['name']} ({item['series']})" for item in m15_items)
         save_task_m15_text(guid, text, code, hk_code=hk)
+        add_item_movements([
+            {'event_type': 'm15', 'product_name': it.get('name', ''),
+             'series_name': it.get('series', ''), 'storage_guid': '',
+             'task_guid': guid, 'task_name': task.get('name') or task.get('number') or '',
+             'event_date': datetime.now().strftime('%Y-%m-%d'),
+             'username': session.get('username', ''), 'source': 'm15'}
+            for it in m15_items
+        ])
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         for path in pdfs:
@@ -339,6 +348,14 @@ def _make_doc_endpoint(include_act, include_fn, include_m15, suffix):
             save_task_m15_items(guid, m15_items)
         text = '\n'.join(f"{item['name']} ({item['series']})" for item in m15_items)
         save_task_m15_text(guid, text, code, hk_code=hk)
+        add_item_movements([
+            {'event_type': 'm15', 'product_name': it.get('name', ''),
+             'series_name': it.get('series', ''), 'storage_guid': '',
+             'task_guid': guid, 'task_name': task.get('name') or task.get('number') or '',
+             'event_date': datetime.now().strftime('%Y-%m-%d'),
+             'username': session.get('username', ''), 'source': 'm15'}
+            for it in m15_items
+        ])
     pdf_path = pdfs[0]
     with open(pdf_path, 'rb') as f:
         data = f.read()
@@ -350,21 +367,25 @@ def _make_doc_endpoint(include_act, include_fn, include_m15, suffix):
 
 
 @tasks_bp.route('/documents/act', methods=['POST'])
+@api_login_required
 def api_task_documents_act():
     return _make_doc_endpoint(True, False, False, 'AVR')
 
 
 @tasks_bp.route('/documents/fn', methods=['POST'])
+@api_login_required
 def api_task_documents_fn():
     return _make_doc_endpoint(False, True, False, 'FN')
 
 
 @tasks_bp.route('/documents/m15', methods=['POST'])
+@api_login_required
 def api_task_documents_m15():
     return _make_doc_endpoint(False, False, True, 'm15')
 
 
 @tasks_bp.route('/documents/upload-to-yandex', methods=['POST'])
+@api_login_required
 def api_task_documents_upload_yandex():
     from docgen import generate_documents, extract_task_data
     from yandex_disk import YandexDiskClient
@@ -399,11 +420,24 @@ def api_task_documents_upload_yandex():
             save_task_m15_items(guid, m15_items)
         text = '\n'.join(f"{item['name']} ({item['series']})" for item in m15_items)
         save_task_m15_text(guid, text, parsed.get('code', ''), hk_code=parsed.get('zd', ''))
+        add_item_movements([
+            {'event_type': 'm15', 'product_name': it.get('name', ''),
+             'series_name': it.get('series', ''), 'storage_guid': '',
+             'task_guid': guid, 'task_name': task.get('name') or task.get('number') or '',
+             'event_date': datetime.now().strftime('%Y-%m-%d'),
+             'username': session.get('username', ''), 'source': 'm15'}
+            for it in m15_items
+        ])
 
     hk_code = parsed.get('zd', '')
     sap = parsed.get('sap', 'unknown')
     username = session.get('username', '')
     today = datetime.now().strftime('%Y.%m.%d')
+
+    from db import get_user_settings
+    settings = get_user_settings(username)
+    if not settings or not settings.get('auto_include_yandex', True):
+        return jsonify({'success': True, 'files': [], 'skipped': True, 'message': 'Выгрузка на Я.Диск отключена в настройках'})
 
     yandex = YandexDiskClient()
     remote_dir = f"{username}/Docs/{today}/{sap}/{hk_code}/"

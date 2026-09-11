@@ -135,6 +135,12 @@ const currentStorage = () => document.getElementById('storageSelect')?.value || 
 // Modal stack for nested modal support
 let _modalStack = [];
 
+// Полный сброс стека модалок (для действий, завершающих работу с задачей,
+// чтобы confirm/alert не возвращали на экран уже закрытую модалку)
+function clearModalStack() {
+    _modalStack = [];
+}
+
 function showModalStacked(elementOrId, showFn) {
     const el = typeof elementOrId === 'string' ? document.getElementById(elementOrId) : elementOrId;
     if (!el) return;
@@ -343,7 +349,7 @@ function showToast(message, type, duration) {
     });
 }
 
-function showConfirm(message) {
+function showConfirm(message, opts) {
     return new Promise(resolve => {
         const modalEl = document.getElementById('confirmModal');
         const body = document.getElementById('confirmModalBody');
@@ -369,7 +375,13 @@ function showConfirm(message) {
         yesBtn.addEventListener('click', onYes);
         noBtn.addEventListener('click', onNo);
 
-        showModalStacked('confirmModal', () => modal.show());
+        // stacked:false — показать confirm поверх текущей модалки НЕ пряча её
+        // (нужно для действий, после которых модалка задачи закрывается навсегда)
+        if (opts && opts.stacked === false) {
+            modal.show();
+        } else {
+            showModalStacked('confirmModal', () => modal.show());
+        }
     });
 }
 

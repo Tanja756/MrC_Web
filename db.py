@@ -670,6 +670,126 @@ def get_product_instances(product_name=None, product_guid=None):
     ]
 
 
+# --- ITEM MOVEMENTS (history of product movement by serial/inventory number) ---
+
+def init_item_movements_table():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS item_movements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            product_name TEXT NOT NULL DEFAULT '',
+            series_name TEXT NOT NULL DEFAULT '',
+            inventory_number TEXT NOT NULL DEFAULT '',
+            storage_guid TEXT NOT NULL DEFAULT '',
+            task_guid TEXT NOT NULL DEFAULT '',
+            task_name TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT '',
+            event_date TEXT NOT NULL DEFAULT '',
+            comment TEXT NOT NULL DEFAULT '',
+            username TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_item_movements_series ON item_movements(series_name)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_item_movements_inventory ON item_movements(inventory_number)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_item_movements_storage_date ON item_movements(storage_guid, event_date)")
+    conn.commit()
+    conn.close()
+
+def add_item_movements(events):
+    """Insert movement events. Idempotent: skips rows that already exist for the same
+    (event_type, storage_guid, product_name, series_name, inventory_number, event_date, task_guid)."""
+    events = [e for e in events if e.get('series_name') or e.get('inventory_number')]
+    if not events:
+        return
+    conn = get_db_connection()
+    c = conn.cursor()
+    for e in events:
+        c.execute("""
+            SELECT 1 FROM item_movements
+            WHERE event_type = ? AND storage_guid = ? AND product_name = ?
+              AND series_name = ? AND inventory_number = ? AND event_date = ? AND task_guid = ?
+            LIMIT 1
+        """, (e.get('event_type', ''), e.get('storage_guid', '') or '', e.get('product_name', '') or '',
+              e.get('series_name', '') or '', e.get('inventory_number', '') or '',
+              e.get('event_date', '') or '', e.get('task_guid', '') or ''))
+        if c.fetchone():
+            continue
+        c.execute("""
+            INSERT INTO item_movements
+                (event_type, product_name, series_name, inventory_number, storage_guid,
+                 task_guid, task_name, status, event_date, comment, username, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (e.get('event_type', ''), e.get('product_name', '') or '', e.get('series_name', '') or '',
+              e.get('inventory_number', '') or '', e.get('storage_guid', '') or '',
+              e.get('task_guid', '') or '', e.get('task_name', '') or '', e.get('status', '') or '',
+              e.get('event_date', '') or '', e.get('comment', '') or '', e.get('username', '') or '',
+              e.get('source', '') or ''))
+    conn.commit()
+    conn.close()
+
+def get_item_movements(series_name='', inventory_number='', product_name='',
+                       storage_guid='', event_type='', since='', limit=200):
+    conn = get_db_connection()
+    c = conn.cursor()
+    params = []
+    where = []
+    if series_name:
+        where.append("series_name = ?")
+        params.append(series_name)
+    if inventory_number:
+        where.append("inventory_number = ?")
+        params.append(inventory_number)
+    if product_name:
+        where.append("product_name = ?")
+        params.append(product_name)
+    if storage_guid:
+        where.append("storage_guid = ?")
+        params.append(storage_guid)
+    if event_type:
+        where.append("event_type = ?")
+        params.append(event_type)
+    if since:
+        where.append("event_date >= ?")
+        params.append(since)
+    query = "SELECT id, event_type, product_name, series_name, inventory_number, storage_guid, task_guid, task_name, status, event_date, comment, username, source, created_at FROM item_movements"
+    if where:
+        query += " WHERE " + " AND ".join(where)
+    query += " ORDER BY event_date DESC, id DESC LIMIT ?"
+    params.append(limit)
+    c.execute(query, params)
+    rows = c.fetchall()
+    conn.close()
+    return [
+        {'id': r[0], 'event_type': r[1], 'product_name': r[2], 'series_name': r[3],
+         'inventory_number': r[4], 'storage_guid': r[5], 'task_guid': r[6],
+         'task_name': r[7], 'status': r[8], 'event_date': r[9], 'comment': r[10],
+         'username': r[11], 'source': r[12], 'created_at': r[13]}
+        for r in rows
+    ]
+
+def get_pending_returns(storage_guid, since):
+    """Arrival events on a storage with no return binding and no matching transfer.
+    Returns raw arrivals; caller enriches with transfer info."""
+    conn = get_db_connection()
+    c = conn.cursor()
+    rows = c.execute("""
+        SELECT id, product_name, series_name, inventory_number, event_date
+        FROM item_movements
+        WHERE event_type = 'arrival' AND storage_guid = ? AND event_date >= ?
+        ORDER BY event_date DESC, id DESC
+    """, (storage_guid, since)).fetchall()
+    conn.close()
+    return [
+        {'id': r[0], 'product_name': r[1], 'series_name': r[2],
+         'inventory_number': r[3], 'arrival_date': r[4]}
+        for r in rows
+    ]
+
+
 # --- TASK SNAPSHOTS ---
 
 def init_task_snapshots_table():
@@ -935,20 +1055,35 @@ def get_all_users_with_credentials():
 
 
 def clear_user_cache(username):
-    """Удаляет все данные пользователя из кеша, кроме таблицы shops.
-    Очищает: notifications, balance_snapshots, task_snapshots, push_subscriptions, user_credentials."""
+    """Удаляет все данные пользователя из кеша.
+    Очищает локальные таблицы и сбрасывает статус синхронизации,
+    чтобы при следующем входе все данные (заявки, справочники, остатки)
+    были перезагружены из 1C.
+    """
     if not username:
         return
     conn = get_db_connection()
     c = conn.cursor()
+    # Пользовательские таблицы (фильтрация по username)
     c.execute("DELETE FROM notifications WHERE username=?", (username,))
     c.execute("DELETE FROM balance_snapshots WHERE username=?", (username,))
     c.execute("DELETE FROM balance_item_meta WHERE username=?", (username,))
+    c.execute("DELETE FROM balance_arrival")
     c.execute("DELETE FROM task_snapshots WHERE username=?", (username,))
     c.execute("DELETE FROM task_user_snapshots WHERE username=?", (username,))
+    c.execute("DELETE FROM task_tracking WHERE username=?", (username,))
+    c.execute("DELETE FROM item_movements WHERE username=?", (username,))
     c.execute("DELETE FROM push_subscriptions WHERE username=?", (username,))
     c.execute("DELETE FROM user_credentials WHERE username=?", (username,))
     c.execute("DELETE FROM yandex_uploads WHERE username=?", (username,))
+    c.execute("DELETE FROM user_shops WHERE username=?", (username,))
+    c.execute("DELETE FROM route_sheet_cache WHERE username=?", (username,))
+    # Общие таблицы (не привязаны к username — полная перезагрузка)
+    c.execute("DELETE FROM products")
+    c.execute("DELETE FROM task_m15_items")
+    c.execute("DELETE FROM task_m15_text")
+    c.execute("DELETE FROM ppr_tasks")
+    c.execute("DELETE FROM fn_schedule")
     conn.commit()
     conn.close()
     logger.info(f"Cache cleared for user '{username}'")
@@ -1215,7 +1350,7 @@ def init_user_settings_table():
             updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
         )
     """)
-    for col in ['profile_name', 'default_warehouse']:
+    for col in ['profile_name', 'default_warehouse', 'default_department']:
         try:
             c.execute(f"ALTER TABLE user_settings ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
         except Exception:
@@ -1245,28 +1380,39 @@ def init_user_settings_table():
         c.execute("ALTER TABLE user_settings ADD COLUMN auto_include_m15 INTEGER NOT NULL DEFAULT 1")
     except Exception:
         pass
+    try:
+        c.execute("ALTER TABLE user_settings ADD COLUMN yandex_sync_data INTEGER NOT NULL DEFAULT 1")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE user_settings ADD COLUMN auto_include_yandex INTEGER NOT NULL DEFAULT 1")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
 def save_user_settings(username, notify_only_mine, my_task_keywords,
-                       profile_name='', default_warehouse='', theme='dark',
+                       profile_name='', default_warehouse='', default_department='', theme='dark',
                        mark_my_tasks=False, notify_all_warehouses=True,
                        avatar_url='', merry_milkman=False,
                        auto_generate_docs=False, auto_include_act=True,
-                       auto_include_m15=True):
+auto_include_m15=True, yandex_sync_data=True,
+                       auto_include_yandex=True):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("""
         INSERT INTO user_settings (username, notify_only_mine, my_task_keywords,
-            profile_name, default_warehouse, theme, mark_my_tasks,
+            profile_name, default_warehouse, default_department, theme, mark_my_tasks,
             notify_all_warehouses, avatar_url, merry_milkman,
-            auto_generate_docs, auto_include_act, auto_include_m15, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+            auto_generate_docs, auto_include_act, auto_include_m15,
+            yandex_sync_data, auto_include_yandex, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
         ON CONFLICT(username) DO UPDATE SET
             notify_only_mine = excluded.notify_only_mine,
             my_task_keywords = excluded.my_task_keywords,
             profile_name = excluded.profile_name,
             default_warehouse = excluded.default_warehouse,
+            default_department = excluded.default_department,
             theme = excluded.theme,
             mark_my_tasks = excluded.mark_my_tasks,
             notify_all_warehouses = excluded.notify_all_warehouses,
@@ -1275,16 +1421,20 @@ def save_user_settings(username, notify_only_mine, my_task_keywords,
             auto_generate_docs = excluded.auto_generate_docs,
             auto_include_act = excluded.auto_include_act,
             auto_include_m15 = excluded.auto_include_m15,
+            yandex_sync_data = excluded.yandex_sync_data,
+            auto_include_yandex = excluded.auto_include_yandex,
             updated_at = datetime('now', 'localtime')
     """, (username, notify_only_mine, my_task_keywords,
-          profile_name, default_warehouse, theme,
+          profile_name, default_warehouse, default_department, theme,
           1 if mark_my_tasks else 0,
           1 if notify_all_warehouses else 0,
           avatar_url,
           1 if merry_milkman else 0,
           1 if auto_generate_docs else 0,
           1 if auto_include_act else 0,
-          1 if auto_include_m15 else 0))
+          1 if auto_include_m15 else 0,
+          1 if yandex_sync_data else 0,
+          1 if auto_include_yandex else 0))
     conn.commit()
     conn.close()
 
@@ -1292,7 +1442,7 @@ def get_user_settings(username):
     conn = get_db_connection()
     c = conn.cursor()
     try:
-        c.execute("SELECT notify_only_mine, my_task_keywords, profile_name, default_warehouse, theme, mark_my_tasks, notify_all_warehouses, avatar_url, merry_milkman, auto_generate_docs, auto_include_act, auto_include_m15 FROM user_settings WHERE username = ?", (username,))
+        c.execute("SELECT notify_only_mine, my_task_keywords, profile_name, default_warehouse, theme, mark_my_tasks, notify_all_warehouses, avatar_url, merry_milkman, auto_generate_docs, auto_include_act, auto_include_m15, yandex_sync_data, auto_include_yandex, default_department FROM user_settings WHERE username = ?", (username,))
         row = c.fetchone()
         conn.close()
         if row:
@@ -1309,6 +1459,9 @@ def get_user_settings(username):
                 'auto_generate_docs': bool(int(row[9])) if row[9] else False,
                 'auto_include_act': bool(int(row[10])) if row[10] else True,
                 'auto_include_m15': bool(int(row[11])) if row[11] else True,
+                'yandex_sync_data': bool(int(row[12])) if row[12] else True,
+                'auto_include_yandex': bool(int(row[13])) if row[13] else True,
+                'default_department': row[14] or '',
             }
     except Exception:
         pass
@@ -1762,6 +1915,7 @@ try:
     init_push_subscriptions_table()
     init_products_table()
     init_product_instances_table()
+    init_item_movements_table()
     init_user_credentials_table()
     init_yandex_uploads_table()
     init_task_m15_items_table()

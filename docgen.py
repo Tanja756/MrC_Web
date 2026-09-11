@@ -149,7 +149,8 @@ def extract_task_data(task: dict) -> dict:
         result['zd'] = m.group(1)
 
     if not result['zd']:
-        m = re.search(r'([А-ЯЁ]{2}-\d{6})(?=[,\s])', text)
+        # Формат номера заявки: XX-000000 (старый) или X0-000000 (новый, вторая позиция — цифра)
+        m = re.search(r'([А-ЯЁ][А-ЯЁ\d]-\d{6})(?=[,\s]|$)', text)
         if m:
             result['zd'] = m.group(1)
 

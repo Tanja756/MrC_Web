@@ -41,6 +41,20 @@
                             <input class="form-check-input" type="checkbox" id="autoIncludeM15" checked>
                             <label class="form-check-label small" for="autoIncludeM15">Накладная М-15</label>
                         </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="autoIncludeYandex" checked>
+                            <label class="form-check-label small" for="autoIncludeYandex">Выгрузить на Яндекс Диск</label>
+                        </div>
+                    </div>
+                </div>
+                <hr>
+                <div class="settings-section">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <label class="mb-0"><i class="bi bi-cloud-arrow-up me-1"></i>Синхронизация данных (заявки, справочники, склады)</label>
+                            <div class="form-text small text-muted mt-0">Выгрузка на Яндекс Диск при фоновом обновлении</div>
+                        </div>
+                        <button class="theme-toggle" id="yandexSyncDataToggle" onclick="toggleYandexSyncData()" role="switch" aria-checked="true"></button>
                     </div>
                 </div>
                 <hr>

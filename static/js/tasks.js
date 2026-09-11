@@ -182,9 +182,63 @@ function filterTasks() {
     tabPrefs[currentTab].sort = document.getElementById('taskSort').value;
     saveTabPrefs();
 
+    populateTaskDepartments();
     renderTasks('tasksMyList', tasksMy, query, 'my');
     renderTasks('tasksFreeList', tasksFree, query, 'free');
     renderTasks('tasksClosedList', tasksClosed, query, 'closed');
+}
+
+// Обновляет список значений селекта «Подразделение» из загруженных свободных заявок.
+// Текущий выбор сохраняется; если выбранного значения нет в данных, оно всё же
+// остаётся в опциях, чтобы фильтр не «терялся».
+function populateTaskDepartments() {
+    const sel = document.getElementById('taskDepartment');
+    if (!sel) return;
+    const current = sel.value;
+    const depts = [...new Set(tasksFree.map(t => (t.name_department || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru'));
+    if (current) depts.unshift(current);
+    const seen = new Set();
+    const opts = depts.filter(d => !seen.has(d) && seen.add(d));
+    const html = '<option value="">Все подразделения</option>' + opts.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+    if (sel.innerHTML !== html) {
+        sel.innerHTML = html;
+        sel.value = current;
+    }
+}
+
+// Обработчик изменения фильтра: локально + сохранение на сервере (с debounce).
+function setTaskDepartment() {
+    const sel = document.getElementById('taskDepartment');
+    if (!sel) return;
+    const val = sel.value;
+    lsSet('defaultDepartment', val);
+    filterTasks();
+    if (typeof saveProfile === 'function') {
+        clearTimeout(window._taskDeptSyncT);
+        window._taskDeptSyncT = setTimeout(() => { try { saveProfile(); } catch (e) {} }, 500);
+    }
+}
+
+// Применение сохранённого фильтра при загрузке страницы:
+// мгновенно из localStorage (офлайн), затем фоновая синхронизация с сервером.
+// Сервер — источник истины, но пустое серверное значение не сбрасывает
+// локальный (возможно офлайн) выбор.
+function initTaskDepartment() {
+    const sel = document.getElementById('taskDepartment');
+    if (!sel) return;
+    sel.value = lsGet('defaultDepartment', '') || '';
+    fetch('/api/profile', {cache: 'no-store'})
+        .then(checkAuth)
+        .then(r => r.json())
+        .then(data => {
+            const server = (data && data.profile) ? (data.profile.defaultDepartment || '') : '';
+            if (server && server !== (lsGet('defaultDepartment', '') || '')) {
+                lsSet('defaultDepartment', server);
+                sel.value = server;
+                filterTasks();
+            }
+        })
+        .catch(() => {});
 }
 
 function resetFilters() {
@@ -196,6 +250,15 @@ function resetFilters() {
     }
     document.getElementById('taskSort').value = tabPrefs[currentTab].sort;
     document.querySelectorAll('#sortDirGroup .btn').forEach(b => b.classList.toggle('active', b.dataset.dir === 'asc'));
+    const deptSel = document.getElementById('taskDepartment');
+    if (deptSel) {
+        deptSel.value = '';
+        lsSet('defaultDepartment', '');
+    }
+    if (typeof saveProfile === 'function') {
+        clearTimeout(window._taskDeptSyncT);
+        window._taskDeptSyncT = setTimeout(() => { try { saveProfile(); } catch (e) {} }, 100);
+    }
     clearTimeout(taskSearchTimeout);
     refreshCurrentTab();
 }
@@ -276,7 +339,10 @@ function renderTasks(containerId, tasks, query, mode) {
     const defaultSort = mode === 'closed' ? 'closed_at' : 'deadline';
     const sort = tabPrefs[mode]?.sort || defaultSort;
     const dir = tabPrefs[mode]?.dir || (mode === 'closed' ? 'desc' : 'asc');
+    const deptSel = document.getElementById('taskDepartment');
+    const dept = (mode === 'free' && deptSel) ? deptSel.value : '';
     const filtered = tasks.filter(t => {
+        if (dept && (t.name_department || '').trim() !== dept) return false;
         const searchStr = [
             t.number, t.name, t.status, t.name_department, t.user,
             clientName(t.guid_client)
@@ -942,7 +1008,7 @@ function rejectTask(guid) {
         showAlert('Укажите причину отмены', 'warning');
         return;
     }
-    showConfirm('Отменить заявку?')
+    showConfirm('Отменить заявку?', {stacked: false})
         .then(ok => {
             if (!ok) return;
             const btn = document.querySelector('#taskDetailFooter .btn-danger');
@@ -958,6 +1024,7 @@ function rejectTask(guid) {
                 btn.innerHTML = origHtml;
                 if (data.success) {
                     bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
+                    clearModalStack();
                     setTimeout(() => {
                         showAlert('Заявка отменена', 'success');
                     }, 300);
@@ -1013,7 +1080,7 @@ function redirectTask(guid) {
         showAlert('Укажите причину возврата', 'warning');
         return;
     }
-    showConfirm('Вернуть заявку в свободные?')
+    showConfirm('Вернуть заявку в свободные?', {stacked: false})
         .then(ok => {
             if (!ok) return;
             const btn = document.querySelector('#taskDetailFooter .btn-warning');
@@ -1029,6 +1096,7 @@ function redirectTask(guid) {
                 btn.innerHTML = origHtml;
                 if (data.success) {
                     bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
+                    clearModalStack();
                     setTimeout(() => {
                         showAlert('Заявка возвращена в свободные', 'success');
                     }, 300);
@@ -1100,8 +1168,9 @@ function loadDocStorages(sel) {
     fetchDeduped('/api/warehouse/storages', undefined, 60000)
         .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(data => {
+            data = Array.isArray(data) ? data : [];
             sel.innerHTML = '<option value="">Выберите склад...</option>' +
-                data.map(s => `<option value="${s.guid}">${s.name}</option>`).join('');
+                data.map(s => `<option value="${esc(s.guid)}">${esc(s.name)}</option>`).join('');
             const saved = lsGet('defaultWarehouse', '');
             if (saved && [...sel.options].some(o => o.value === saved)) {
                 sel.value = saved;
@@ -1119,22 +1188,54 @@ function loadDocProducts() {
         renderDocProducts();
         return;
     }
-    fetchDeduped(`/api/warehouse/balances?storage=${guid}`, undefined, 15000)
+    docAllProducts = [];
+    list.innerHTML = '<div class="text-muted small text-center py-3"><span class="spinner-border spinner-border-sm me-1"></span>Загрузка остатков...</div>';
+    fetchDeduped(`/api/warehouse/balances?storage=${encodeURIComponent(guid)}`, undefined, 30000)
         .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(data => {
             const includeAll = document.getElementById('docIncludeAllGoods')?.checked;
-            docAllProducts = (data || []).filter(p => !p.broken && (includeAll || !!p.series_name));
+            docAllProducts = Array.isArray(data)
+                ? data.filter(p => !p.broken && (includeAll || !!p.series_name))
+                : [];
             renderDocProducts();
+            expandDocProductsSection();
+        })
+        .catch(() => {
+            docAllProducts = [];
+            renderDocProducts('<div class="text-muted small text-center py-3">Не удалось загрузить остатки. Проверьте соединение и обновите список <i class="bi bi-arrow-repeat"></i>.</div>');
         });
+}
+
+function refreshDocProducts() {
+    cacheClearPrefix('/api/warehouse/balances');
+    loadDocProducts();
+}
+
+// Раскрытие секции «Товары для М15» на мобильных (без сворачивания остальных секций)
+function expandDocProductsSection() {
+    const header = document.querySelector('#docFormModal .doc-header-goods');
+    if (!header) return;
+    const body = header.nextElementSibling;
+    if (body && body.classList.contains('d-none')) {
+        body.classList.remove('d-none');
+        const icon = header.querySelector('.bi');
+        if (icon) icon.className = 'bi bi-chevron-up ms-auto';
+    }
 }
 
 function filterDocProducts() {
     renderDocProducts();
 }
 
-function renderDocProducts() {
+function renderDocProducts(emptyMessage) {
     const query = document.getElementById('docProductSearch').value.toLowerCase().trim();
     const container = document.getElementById('docProductsList');
+
+    if (docAllProducts.length === 0) {
+        container.innerHTML = emptyMessage || '<div class="text-muted small text-center py-3">Нет товаров</div>';
+        return;
+    }
+
     const filtered = docAllProducts.filter(p =>
         (p.product_name || '').toLowerCase().includes(query) ||
         (p.series_name || '').toLowerCase().includes(query)
@@ -1154,12 +1255,18 @@ function renderDocProducts() {
 
     const maxReached = docSelectedItems.length >= 20;
     container.innerHTML = filtered.map(p => {
-            const key = p.product_name + '|' + p.series_name;
+            const key = p.product_name + '|' + (p.series_name || '');
             const checked = docSelectedItems.some(s => s.key === key);
             const disabled = !checked && maxReached;
-            return `<div class="form-check doc-product-item ${checked ? 'selected' : ''} ${disabled ? 'disabled' : ''}" data-key="${key.replace(/"/g,'&quot;')}">
+            const series = p.series_name
+                ? `<span class="text-muted">[${esc(p.series_name)}]</span>`
+                : '<span class="text-muted small">(без серийного номера)</span>';
+            return `<div class="form-check doc-product-item ${checked ? 'selected' : ''} ${disabled ? 'disabled' : ''}" data-key="${esc(key)}">
                 <input class="form-check-input" type="checkbox" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
-                <label class="form-check-label small">${(p.product_name || '—').replace(/</g,'&lt;')} ${p.series_name ? `<span class="text-muted">[${(p.series_name || '—').replace(/</g,'&lt;')}]</span>` : '<span class="text-muted small">(без серийного номера)</span>'}</label>
+                <label class="form-check-label d-flex justify-content-between align-items-start gap-2">
+                    <span class="flex-grow-1 min-w-0" style="font-size:0.8rem">${esc(p.product_name || '—')} ${series}</span>
+                    <span class="badge bg-secondary flex-shrink-0" style="font-size:0.7rem" title="Остаток">${p.balance ?? 0}</span>
+                </label>
             </div>`;
         }).join('');
 }
@@ -1282,7 +1389,8 @@ function openDocForm(guid) {
             if (m) document.getElementById('docCode').value = m[0];
         }
         if (!document.getElementById('docZd').value) {
-            const m = text.match(/[A-Za-zА-Яа-я]{2}-\d{6}/);
+            // Номер заявки: XX-000000 (старый) или X0-000000 (новый, вторая позиция — цифра)
+            const m = text.match(/[A-Za-zА-Яа-я][A-Za-zА-Яа-я\d]-\d{6}(?=[,\s]|$)/);
             if (m) document.getElementById('docZd').value = m[0];
         }
 

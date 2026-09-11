@@ -1,9 +1,11 @@
 import io
 import os
 import re
+import copy
 import uuid
 import base64
 import tempfile
+import threading
 import subprocess
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, send_file, session
@@ -14,6 +16,10 @@ from .helpers import (
     get_balance_item_meta, set_balance_item_broken,
     get_arrival_overrides, set_arrival_override,
     sync_and_enrich_products, enrich_products_to_dict,
+)
+from db import (
+    add_item_movements, get_item_movements, get_pending_returns,
+    get_task_m15_text, get_user_settings, get_snapshot,
 )
 from utils import compress_attachments, compress_image_bytes
 
@@ -27,6 +33,43 @@ _stock_transfers_history_cache = {
 STOCK_TRANSFERS_HISTORY_TTL = 4 * 3600  # 4 hours
 
 
+def _parse_dt(s):
+    if not s:
+        return datetime.min
+    for fmt in ('%d.%m.%Y %H:%M:%S', '%d.%m.%Y', '%d.%m.%y %H:%M:%S', '%d.%m.%y %H:%M', '%d.%m.%Y %H:%M', '%d.%m.%y'):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return datetime.min
+
+
+def _write_transfer_events(docs):
+    """Persist transfer events from 1C stock-transfers history into item_movements."""
+    events = []
+    for doc in docs or []:
+        src = doc.get('warehouse_source_name') or doc.get('warehouse_source') or ''
+        dst = doc.get('warehouse_dest_name') or doc.get('warehouse_dest') or ''
+        date = _parse_dt(doc.get('date', '')).strftime('%Y-%m-%d')
+        if not date or date == '0001-01-01':
+            continue
+        for item in doc.get('items', []):
+            series = item.get('series') or {}
+            series_name = (series.get('name') or '').strip()
+            inventory_number = (series.get('inventory_number') or '').strip()
+            if not series_name and not inventory_number:
+                continue
+            events.append({
+                'event_type': 'transfer', 'product_name': item.get('product_name') or item.get('product_guid') or '',
+                'series_name': series_name, 'inventory_number': inventory_number,
+                'storage_guid': doc.get('warehouse_dest') or '', 'event_date': date,
+                'comment': f"{src} → {dst}" if src and dst else '',
+                'username': session.get('username', ''), 'source': '1c',
+            })
+    if events:
+        add_item_movements(events)
+
+
 @warehouse_bp.route('/storages')
 @api_login_required
 def api_storages():
@@ -35,25 +78,18 @@ def api_storages():
     return jsonify(data)
 
 
-@warehouse_bp.route('/balances')
-@api_login_required
-def api_balances():
-    client = get_api_client()
-    storage_guid = request.args.get('storage')
-    if not storage_guid or not client:
-        return jsonify([])
-    data = client.get_balances(storage_guid)
-    storage_name = get_storage_name(client, storage_guid)
-    check_balance_changes(session.get('username', ''), storage_guid, data, storage_name)
-    username = session.get('username', '')
+def _enrich_balances(items, username, storage_guid):
+    """Форматирование дат, разметка broken и arrival-overrides для остатков."""
+    if not items:
+        return items
     meta = get_balance_item_meta(username, storage_guid) if username else {}
-    for item in data:
+    for item in items:
         item['date_arrival'] = short_date(item.get('date_arrival'))
         item['date_writeoff'] = short_date(item.get('date_writeoff'))
         key = f"{item.get('product_name','')}|{item.get('series_name','') or ''}|{item.get('inventory_number','') or ''}"
         item['broken'] = meta.get(key, {}).get('broken', False)
     overrides = get_arrival_overrides(storage_guid)
-    for item in data:
+    for item in items:
         key = f"{item.get('product_name','')}|{item.get('series_name','') or ''}|{item.get('inventory_number','') or ''}"
         if key in overrides:
             item['date_arrival'] = short_date(overrides[key])
@@ -65,8 +101,34 @@ def api_balances():
             return datetime.strptime(d, '%d.%m.%Y')
         except ValueError:
             return datetime.min
-    data.sort(key=_sort_date, reverse=True)
-    return jsonify(data)
+    items.sort(key=_sort_date, reverse=True)
+    return items
+
+
+@warehouse_bp.route('/balances')
+@api_login_required
+def api_balances():
+    client = get_api_client()
+    storage_guid = request.args.get('storage')
+    if not storage_guid or not client:
+        return jsonify([])
+    username = session.get('username', '')
+    data = client.get_balances(storage_guid)
+    if data is None:
+        # 1С недоступна — отдаём локальный кеш остатков (снапшот), если он есть
+        cached = get_snapshot(username, storage_guid) if username else None
+        if cached:
+            return jsonify(_enrich_balances(cached, username, storage_guid))
+        return jsonify([])
+    storage_name = get_storage_name(client, storage_guid)
+    if username:
+        # Сверка снапшота и push-уведомления — в фоне, чтобы не тормозить запрос с мобильного
+        threading.Thread(
+            target=check_balance_changes,
+            args=(username, storage_guid, copy.deepcopy(data), storage_name),
+            daemon=True,
+        ).start()
+    return jsonify(_enrich_balances(data, username, storage_guid))
 
 
 @warehouse_bp.route('/balances/toggle-broken', methods=['POST'])
@@ -350,13 +412,12 @@ def api_update_arrival_from_transfers():
 
 # ─────── Stock Transfers History (Archive) ───────
 
-@warehouse_bp.route('/stock-transfers-history')
-@api_login_required
-def api_stock_transfers_history():
+def _load_stock_transfers_history():
+    """Return stock-transfers-history (from cache or 1C), enriched and sorted.
+    Also persists transfer events into item_movements."""
     global _stock_transfers_history_cache
     now = datetime.now()
 
-    # Check in-memory cache (4-hour TTL)
     cached = _stock_transfers_history_cache["data"]
     updated = _stock_transfers_history_cache["updated_at"]
     if cached is not None and updated is not None:
@@ -375,15 +436,15 @@ def api_stock_transfers_history():
                 ) for item in doc.get('items', [])]
                 if items_to_enrich:
                     sync_and_enrich_products(items_to_enrich, client=client_for_enrich)
-            return jsonify(cached)
+            return cached, None
 
     client = get_api_client()
     if not client:
-        return jsonify([])
+        return [], None
 
     data = client.get_stock_transfers_history()
     if data is None:
-        return jsonify({'error': 'Upstream error'}), 502
+        return None, 'Upstream error'
 
     # Enrich with storage names and product names
     storages = {s['guid']: s['name'] for s in (client.get_storages() or [])}
@@ -396,25 +457,24 @@ def api_stock_transfers_history():
     )
 
     # Sort by date DESC (from new to old) — parse as datetime
-    def _parse_dt(s):
-        if not s:
-            return datetime.min
-        for fmt in ('%d.%m.%Y %H:%M:%S', '%d.%m.%Y', '%d.%m.%y %H:%M:%S', '%d.%m.%y %H:%M', '%d.%m.%Y %H:%M', '%d.%m.%y'):
-            try:
-                return datetime.strptime(s, fmt)
-            except ValueError:
-                continue
-        return datetime.min
+    data.sort(key=lambda doc: _parse_dt(doc.get('date', '')), reverse=True)
 
-    def _sort_dt(doc):
-        return _parse_dt(doc.get('date', ''))
-    data.sort(key=_sort_dt, reverse=True)
+    _write_transfer_events(data)
 
     # Update cache (only cache non-empty results)
     if data:
         _stock_transfers_history_cache["data"] = data
         _stock_transfers_history_cache["updated_at"] = now
 
+    return data, None
+
+
+@warehouse_bp.route('/stock-transfers-history')
+@api_login_required
+def api_stock_transfers_history():
+    data, error = _load_stock_transfers_history()
+    if error:
+        return jsonify({'error': error}), 502
     return jsonify(data)
 
 
@@ -497,3 +557,130 @@ def _send_attachment(att):
         as_attachment=False,
         download_name=filename,
     )
+
+
+@warehouse_bp.route('/item-movements')
+@api_login_required
+def api_item_movements():
+    client = get_api_client()
+    series = request.args.get('series', '').strip()
+    inventory = request.args.get('inventory', '').strip()
+    product_name = request.args.get('product_name', '').strip()
+    storage_guid = request.args.get('storage', '').strip()
+    if not any([series, inventory, product_name]):
+        return jsonify([])
+    events = []
+    if series:
+        events = get_item_movements(series_name=series)
+    elif inventory:
+        events = get_item_movements(inventory_number=inventory)
+    elif product_name:
+        events = get_item_movements(product_name=product_name)
+    if storage_guid:
+        events = [e for e in events if e.get('storage_guid') == storage_guid or e.get('event_type') in ('m15', 'return')]
+    storage_names = {}
+    if client:
+        try:
+            storage_names = {s['guid']: s['name'] for s in (client.get_storages() or [])}
+        except Exception:
+            storage_names = {}
+    m15_text_cache = {}
+    for e in events:
+        e['storage_name'] = storage_names.get(e.get('storage_guid', ''), '')
+        e['display_date'] = short_date(e.get('event_date') or (e.get('created_at') or '')[:10])
+        e['task_label'] = ''
+        if e.get('event_type') == 'm15' and e.get('task_guid'):
+            if e['task_guid'] not in m15_text_cache:
+                m15_text_cache[e['task_guid']] = get_task_m15_text(task_guid=e['task_guid'])
+            info = m15_text_cache[e['task_guid']]
+            e['task_label'] = info.get('code', '') if info else ''
+        elif e.get('task_name'):
+            e['task_label'] = e['task_name']
+    return jsonify(events)
+
+
+@warehouse_bp.route('/returns-pending')
+@api_login_required
+def api_returns_pending():
+    client = get_api_client()
+    username = session.get('username', '')
+    storage_guid = request.args.get('storage', '').strip()
+    if not storage_guid:
+        settings = get_user_settings(username)
+        storage_guid = (settings or {}).get('default_warehouse', '')
+    if not storage_guid:
+        return jsonify({'error': 'Storage required'}), 400
+    try:
+        days = int(request.args.get('days', '7'))
+    except ValueError:
+        days = 7
+    since = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+    arrivals = get_pending_returns(storage_guid, since)
+
+    transfer_keys = set()
+    docs, _ = _load_stock_transfers_history()
+    for doc in docs or []:
+        if doc.get('warehouse_dest') != storage_guid:
+            continue
+        for item in doc.get('items', []):
+            series = item.get('series') or {}
+            name = (series.get('name') or '').strip()
+            inv = (series.get('inventory_number') or '').strip()
+            if name or inv:
+                transfer_keys.add(f"{item.get('product_name') or ''}|{name}|{inv}")
+    for e in get_item_movements(event_type='transfer', storage_guid=storage_guid, since=since, limit=5000):
+        transfer_keys.add(f"{e['product_name']}|{e['series_name']}|{e['inventory_number']}")
+    return_keys = set()
+    for e in get_item_movements(event_type='return', storage_guid=storage_guid, since=since, limit=5000):
+        return_keys.add(f"{e['product_name']}|{e['series_name']}|{e['inventory_number']}")
+
+    result = []
+    for a in arrivals:
+        key = f"{a['product_name']}|{a['series_name']}|{a['inventory_number']}"
+        result.append({
+            'product_name': a['product_name'], 'series_name': a['series_name'],
+            'inventory_number': a['inventory_number'], 'arrival_date': short_date(a['arrival_date']),
+            'has_transfer': key in transfer_keys, 'bound': key in return_keys,
+        })
+    result.sort(key=lambda x: (x['has_transfer'], x['bound']))
+    return jsonify(result)
+
+
+@warehouse_bp.route('/returns/bind', methods=['POST'])
+@api_login_required
+def api_returns_bind():
+    data = request.get_json(silent=True) or {}
+    storage_guid = (data.get('storage') or '').strip()
+    if not storage_guid:
+        username = session.get('username', '')
+        settings = get_user_settings(username)
+        storage_guid = (settings or {}).get('default_warehouse', '')
+    if not storage_guid:
+        return jsonify({'error': 'Storage required'}), 400
+    items = data.get('items') or []
+    today = datetime.now().strftime('%Y-%m-%d')
+    username = session.get('username', '')
+    events = []
+    for it in items:
+        if not it or not (it.get('series_name') or it.get('inventory_number')):
+            continue
+        mode = it.get('mode', 'task')
+        task_guid = (it.get('task_guid') or '').strip() if mode == 'task' else ''
+        arrival_date = (it.get('arrival_date') or '').strip()
+        if not arrival_date:
+            arrival_date = today
+        events.append({
+            'event_type': 'return',
+            'product_name': it.get('product_name', ''),
+            'series_name': it.get('series_name', ''),
+            'inventory_number': it.get('inventory_number', ''),
+            'storage_guid': storage_guid,
+            'task_guid': task_guid,
+            'task_name': (it.get('task_name') or '').strip() if mode == 'task' else '',
+            'status': mode,
+            'event_date': arrival_date,
+            'comment': (it.get('comment') or '').strip(),
+            'username': username, 'source': 'manual',
+        })
+    add_item_movements(events)
+    return jsonify({'ok': True, 'bound': len(events)})

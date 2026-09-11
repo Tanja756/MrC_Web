@@ -1,3 +1,4 @@
+import os
 import requests
 import logging
 from flask import Blueprint, request, jsonify
@@ -6,11 +7,12 @@ from .helpers import api_login_required
 logger = logging.getLogger(__name__)
 
 FIAS_API_URL = "https://fias-public-service.nalog.ru/api/spas/v2.0/GetAddressHint"
-MASTER_TOKEN = "bfa2407b-1dc4-4714-9346-b678408eb099"
+# TODO: секрет закоммичен в историю (bfa2407b-...). Вынесен в env, старый оставлен как fallback — ротировать.
+FIAS_MASTER_TOKEN = os.environ.get('FIAS_MASTER_TOKEN', 'bfa2407b-1dc4-4714-9346-b678408eb099')
 
 FIAS_HEADERS = {
     "Content-Type": "application/json",
-    "master-token": MASTER_TOKEN,
+    "master-token": FIAS_MASTER_TOKEN,
     "Origin": "https://fias.nalog.ru",
     "Referer": "https://fias.nalog.ru/",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"

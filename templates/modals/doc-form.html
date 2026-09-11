@@ -27,7 +27,7 @@
                 <label class="fw-semibold small d-block mb-1"><i class="bi bi-box-seam me-1"></i>Товары для М15</label>
                 <div class="row g-2 align-items-center">
                     <div class="col-8 col-md-6"><select class="form-select form-select-sm" id="docStorageSelect" onchange="loadDocProducts()"><option value="">Выберите склад...</option></select></div>
-                    <div class="col-4 col-md-2"><button class="btn btn-outline-secondary btn-sm w-100" onclick="loadDocProducts()"><i class="bi bi-arrow-repeat"></i></button></div>
+                    <div class="col-4 col-md-2"><button class="btn btn-outline-secondary btn-sm w-100" onclick="refreshDocProducts()" title="Обновить остатки"><i class="bi bi-arrow-repeat"></i></button></div>
                     <div class="col-12 col-md-4"><input type="text" class="form-control form-control-sm" id="docProductSearch" placeholder="Поиск товара..." oninput="filterDocProducts()" autocomplete="off" autocorrect="off" spellcheck="false"></div>
                 </div>
                 <div id="docProductsList" class="mt-2" style="max-height:180px;overflow-y:auto"><div class="text-muted small text-center py-3">Выберите склад</div></div>
