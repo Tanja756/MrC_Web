@@ -1256,7 +1256,7 @@ def init_yandex_uploads_table():
             hashes_hash TEXT
         )
     """)
-    for col in ('references_hash', 'hashes_hash', 'tasks_user_hash', 'tasks_free_hash', 'tasks_closed_hash', 'ppr_hash', 'fn_schedule_hash', 'references_synced_at'):
+    for col in ('references_hash', 'hashes_hash', 'tasks_user_hash', 'tasks_free_hash', 'tasks_closed_hash', 'ppr_hash', 'fn_schedule_hash', 'references_synced_at', 'task_m15_hash'):
         try:
             c.execute(f"ALTER TABLE yandex_uploads ADD COLUMN {col} TEXT")
         except Exception:
@@ -1267,18 +1267,18 @@ def init_yandex_uploads_table():
 def get_yandex_upload_status(username):
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT tasks_hash, warehouse_hash, references_hash, hashes_hash, tasks_user_hash, tasks_free_hash, tasks_closed_hash, ppr_hash, fn_schedule_hash, references_synced_at FROM yandex_uploads WHERE username=?", (username,))
+    c.execute("SELECT tasks_hash, warehouse_hash, references_hash, hashes_hash, tasks_user_hash, tasks_free_hash, tasks_closed_hash, ppr_hash, fn_schedule_hash, references_synced_at, task_m15_hash FROM yandex_uploads WHERE username=?", (username,))
     row = c.fetchone()
     conn.close()
     if row:
         return {"tasks_hash": row[0], "warehouse_hash": row[1], "references_hash": row[2], "hashes_hash": row[3],
                 "tasks_user_hash": row[4], "tasks_free_hash": row[5], "tasks_closed_hash": row[6], "ppr_hash": row[7],
-                "fn_schedule_hash": row[8], "references_synced_at": row[9]}
+                "fn_schedule_hash": row[8], "references_synced_at": row[9], "task_m15_hash": row[10]}
     return None
 
 def save_yandex_upload_status(username, tasks_hash=None, warehouse_hash=None, references_hash=None, hashes_hash=None,
                                 tasks_user_hash=None, tasks_free_hash=None, tasks_closed_hash=None, ppr_hash=None,
-                                fn_schedule_hash=None, references_synced_at=None):
+                                fn_schedule_hash=None, references_synced_at=None, task_m15_hash=None):
     def _write():
         conn = get_db_connection()
         c = conn.cursor()
@@ -1286,8 +1286,8 @@ def save_yandex_upload_status(username, tasks_hash=None, warehouse_hash=None, re
         c.execute("""
             INSERT OR REPLACE INTO yandex_uploads (username, tasks_hash, warehouse_hash, references_hash, hashes_hash,
                                                    tasks_user_hash, tasks_free_hash, tasks_closed_hash, ppr_hash,
-                                                   fn_schedule_hash, references_synced_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                                   fn_schedule_hash, references_synced_at, task_m15_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             username,
             tasks_hash if tasks_hash is not None else existing.get("tasks_hash"),
@@ -1300,6 +1300,7 @@ def save_yandex_upload_status(username, tasks_hash=None, warehouse_hash=None, re
             ppr_hash if ppr_hash is not None else existing.get("ppr_hash"),
             fn_schedule_hash if fn_schedule_hash is not None else existing.get("fn_schedule_hash"),
             references_synced_at if references_synced_at is not None else existing.get("references_synced_at"),
+            task_m15_hash if task_m15_hash is not None else existing.get("task_m15_hash"),
         ))
         conn.commit()
         conn.close()
