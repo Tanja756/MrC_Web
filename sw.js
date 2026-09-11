@@ -1,4 +1,4 @@
-const CACHE = 'mrc-v4';
+const CACHE = 'mrc-v5';
 const ASSETS = [
   '/static/style.css',
   '/static/css/tasks.css',
