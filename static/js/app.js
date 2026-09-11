@@ -86,6 +86,11 @@ function toggleYandexSyncData() {
     el.classList.toggle('active', on);
     el.setAttribute('aria-checked', on);
     saveProfile();
+    // Фаза 2: включили — сразу получили токен моста; выключили — забыли его
+    if (typeof YD !== 'undefined') {
+        if (on) YD.refreshTokenFromServer();
+        else YD.clearCredentials();
+    }
 }
 
 var __currentMerryEffect = null;
@@ -214,6 +219,13 @@ function loadProfile() {
             updateProfileAvatar();
             const menuName = document.getElementById('menuProfileName');
             if (menuName && savedProfileName) menuName.textContent = savedProfileName;
+            // Фаза 2: поддерживаем токен офлайн-моста Яндекс.Диск в актуальном
+            // состоянии, пока сервер доступен (при блокировке провайдера токен
+            // уже будет в localStorage — PWA переживёт офлайн)
+            if (typeof YD !== 'undefined') {
+                if (p.yandexSyncData === 'true') YD.refreshTokenFromServer();
+                else YD.clearCredentials();
+            }
         })
         .catch(() => {});
 }

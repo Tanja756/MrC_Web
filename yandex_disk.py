@@ -38,6 +38,18 @@ class YandexDiskClient:
     def is_authenticated(self):
         return bool(self._refresh_token)
 
+    def get_access_token(self):
+        """Текущий access-токен (обновляет при необходимости).
+
+        Используется эндпоинтом выдачи токена PWA-клиенту (Фаза 2,
+        GET /api/yandex/token): клиент работает с Диском напрямую,
+        когда сервер недоступен."""
+        self._ensure_token()
+        return self._access_token
+
+    def get_token_expires_at(self):
+        return self._expires_at.isoformat() if self._expires_at else None
+
     def _ensure_token(self):
         if self._access_token and self._expires_at and datetime.now() < self._expires_at:
             return

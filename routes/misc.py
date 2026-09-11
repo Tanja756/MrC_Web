@@ -171,6 +171,40 @@ def api_profile_avatar():
     return jsonify({'avatarUrl': avatar_url})
 
 
+# --- Yandex.Disk offline bridge (Фаза 2): выдача access-токена PWA-клиенту ---
+@misc_bp.route('/api/yandex/token')
+@api_login_required
+def api_yandex_token():
+    username = session.get('username', '')
+    if not username:
+        return jsonify({'error': 'Not authenticated'}), 401
+    # Токен выдаём только тем, у кого включена «Синхронизация данных»:
+    # иначе клиент не сможет ни читать дампы, ни ставить действия
+    try:
+        from db import get_user_settings
+        settings = get_user_settings(username) or {}
+        if not settings.get('yandex_sync_data', True):
+            return jsonify({'error': 'yandex_sync_disabled'}), 403
+    except Exception as e:
+        logger.warning(f"yandex token: settings check failed: {e}")
+    try:
+        from yandex_disk import YandexDiskClient
+        yd = YandexDiskClient()
+        if not yd.is_authenticated():
+            return jsonify({'error': 'yandex_not_configured'}), 503
+        token = yd.get_access_token()
+        if not token:
+            return jsonify({'error': 'yandex_not_configured'}), 503
+        return jsonify({
+            'accessToken': token,
+            'expiresAt': yd.get_token_expires_at(),
+            'basePath': username,
+        })
+    except Exception as e:
+        logger.error(f"yandex token: refresh failed: {e}")
+        return jsonify({'error': 'yandex_unavailable'}), 503
+
+
 # --- Announcements ---
 @misc_bp.route('/api/ping')
 def api_ping():
