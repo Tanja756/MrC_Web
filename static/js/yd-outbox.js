@@ -271,9 +271,13 @@ const YDOutbox = (function () {
     function statusView(rec) {
         if (rec.status === 'error') return ['text-danger', 'bi-x-octagon', 'Ошибка 1С'];
         if (rec.status === 'sent') {
-            return rec.lastError
-                ? ['text-warning', 'bi-arrow-repeat', 'Ошибка отправки — повторим автоматически']
-                : ['text-primary', 'bi-cloud-arrow-up', 'Отправлено — сервер обрабатывает'];
+            if (rec.lastError) return ['text-warning', 'bi-arrow-repeat', 'Ошибка отправки — повторим автоматически'];
+            // Диагностика «заявка не закрылась»: файл лежит на Диске, но воркер
+            // офисного сервера его не обрабатывает дольше 15 минут
+            if (rec.sentAt && Date.now() - rec.sentAt > 15 * 60 * 1000) {
+                return ['text-warning', 'bi-hourglass-split', 'Отправлено, но сервер не обрабатывает дольше 15 минут — проверьте рабочий сервер (логи «Yandex Action», токен Я.Диска, «Синхронизация данных»)'];
+            }
+            return ['text-primary', 'bi-cloud-arrow-up', 'Отправлено — сервер обрабатывает'];
         }
         return ['text-warning', 'bi-hourglass-split', 'В очереди — отправится при появлении связи'];
     }

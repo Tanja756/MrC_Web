@@ -437,15 +437,24 @@ def _handle_close_task(yandex, client, username, file_path, name, data) -> bool:
         logger.error("Yandex Action: failed to rename %s: %s", name, e)
         return False
 
-    # Guard: check with 1C if task is already closed
+    # Guard: check with 1C if task is already closed.
+    # Строгая проверка: только явно "true" (булево True или строка 'true').
+    # Строка 'False'/'0' и пр. НЕ считается закрытой — иначе 1С, вернувшая
+    # закрытие строкой, приводила бы к тихому скипу без реального закрытия.
     status = client.task_is_closed(guid)
-    if status is not None and status.get("closed"):
+    already_closed = isinstance(status, dict) and (
+        status.get("closed") is True
+        or (isinstance(status.get("closed"), str) and status.get("closed").strip().lower() == "true")
+    )
+    if already_closed:
         logger.info("Yandex Action: task %s already closed in 1C, skipping", guid)
         try:
             yandex.delete_file(processing_path)
         except Exception as e:
             logger.error("Yandex Action: failed to delete %s: %s", name, e)
         return True
+    elif status is not None:
+        logger.info("Yandex Action: task %s not closed yet (is_closed=%r), proceeding", guid, str(status)[:120])
 
     # Fetch task details before close to store ХК-код locally
     task_name = ''
@@ -467,10 +476,32 @@ def _handle_close_task(yandex, client, username, file_path, name, data) -> bool:
         _rename_to_error(yandex, processing_path, name)
         return False
 
+    logger.info("Yandex Action: 1C close result for %s (guid=%s): %s", name, guid, str(result)[:300])
+
+    # Пустой ответ (None) — 1С не дала внятного результата: трактуем как сбой,
+    # иначе файл был бы удалён как «успех», а заявка осталась бы открытой.
+    if result is None:
+        logger.error("Yandex Action: 1C close returned None for %s (guid=%s)", name, guid)
+        _rename_to_error(yandex, processing_path, name)
+        return False
+
     if result and result.get("_error"):
         logger.error("Yandex Action: 1C returned error for %s (guid=%s): %s", name, guid, result["_error"])
         _rename_to_error(yandex, processing_path, name)
         return False
+
+    # «Пустой успех» ({}): не содержится ни признаков успеха, ни ошибки —
+    # перепроверяем фактическое состояние заявки в 1С, прежде чем удалять файл.
+    if result == {}:
+        verify = client.task_is_closed(guid)
+        confirmed = isinstance(verify, dict) and (
+            verify.get("closed") is True
+            or (isinstance(verify.get("closed"), str) and verify.get("closed").strip().lower() == "true")
+        )
+        if verify is not None and not confirmed:
+            logger.error("Yandex Action: 1C close NOT confirmed for %s (guid=%s): is_closed=%r", name, guid, str(verify)[:200])
+            _rename_to_error(yandex, processing_path, name)
+            return False
 
     try:
         set_task_closed(username, guid, task_name)
@@ -792,7 +823,8 @@ def process_actions(username, client, yandex=None) -> bool:
     if not json_files:
         return False
 
-    logger.info("Yandex Action: found %d file(s) for %s", len(json_files), username)
+    logger.info("Yandex Action: found %d file(s) for %s: %s", len(json_files), username,
+                ", ".join(f["name"] for f in json_files)[:500])
 
     any_handled = False
     for f in json_files:
@@ -816,6 +848,11 @@ def process_actions(username, client, yandex=None) -> bool:
             handled = _handle_reject_task(yandex, client, username, file_path, f["name"], data)
         elif f["name"].startswith("redirect_task_"):
             handled = _handle_redirect_task(yandex, client, username, file_path, f["name"], data)
+        else:
+            # Файл с неизвестным действием не должен зависать в Action/ навсегда:
+            # переименовываем в .error, клиент увидит сбой и сможет повторить.
+            logger.warning("Yandex Action: unknown action in %s — no handler, renaming to .error", f["name"])
+            _rename_to_error(yandex, file_path, f["name"])
 
         if handled:
             any_handled = True
