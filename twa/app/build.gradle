@@ -1,0 +1,41 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'ru.mrcheck.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "ru.mrcheck.app"
+        minSdk 23
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    signingConfigs {
+        release {
+            // Параметры keystore берутся из окружения (см. twa/README.md, шаг 2)
+            storeFile file(System.getenv('TWA_KEYSTORE') ?: '../release.keystore')
+            storePassword System.getenv('TWA_KEYSTORE_PASSWORD') ?: 'changeme'
+            keyAlias System.getenv('TWA_KEY_ALIAS') ?: 'mrcheck'
+            keyPassword System.getenv('TWA_KEY_PASSWORD') ?: 'changeme'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    // Trusted Web Activity (Custom Tabs с полным экраном, без адресной строки)
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.2'
+}

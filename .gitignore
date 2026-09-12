@@ -233,3 +233,9 @@ templates_docs/
 static/avatars/*
 api.map
 1c-api.map
+# TWA (Android) — ключи подписи и артефакты сборки
+twa/release.keystore
+twa/*.jks
+twa/local.properties
+twa/.gradle/
+twa/app/build/

@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.MrCheck" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/themeColor</item>
+        <item name="android:navigationBarColor">@color/navigationColor</item>
+    </style>
+
+    <style name="Theme.MrCheck.Launcher" parent="Theme.MrCheck">
+        <item name="android:windowBackground">@drawable/splash</item>
+    </style>
+</resources>

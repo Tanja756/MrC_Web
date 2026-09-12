@@ -1,4 +1,5 @@
 import logging
+import os
 from flask import Blueprint, request, jsonify, session, Response
 from db import get_subscriptions, save_subscription, delete_subscription, get_announcements
 from .helpers import (
@@ -330,3 +331,30 @@ def service_worker():
 @misc_bp.route('/manifest.json')
 def manifest():
     return Response(open('templates/manifest.json', 'rb').read(), mimetype='application/manifest+json')
+
+
+# --- TWA (Android Play Store): Digital Asset Links ---
+# Верификация ссылки приложения: Google запрашивает этот URL с домена приложения.
+# Приоритет: готовый файл assetlinks.json в корне приложения (кладётся вручную);
+# иначе JSON собирается из env TWA_PACKAGE_NAME + TWA_CERT_FINGERPRINT (SHA-256 отпечаток).
+@misc_bp.route('/.well-known/assetlinks.json')
+def assetlinks_json():
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assetlinks.json')
+    try:
+        if os.path.exists(path):
+            with open(path, 'rb') as f:
+                return Response(f.read(), mimetype='application/json')
+    except Exception as e:
+        logger.warning("assetlinks.json read failed: %s", e)
+    package = os.environ.get('TWA_PACKAGE_NAME', '').strip()
+    fingerprint = os.environ.get('TWA_CERT_FINGERPRINT', '').replace(':', '').strip().lower()
+    if package and fingerprint:
+        return jsonify([{
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": package,
+                "sha256_cert_fingerprints": [fingerprint],
+            },
+        }])
+    return jsonify({"error": "assetlinks.json is not configured on the server"}), 404

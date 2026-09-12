@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "ru.mrcheck.app",
+      "sha256_cert_fingerprints": [
+        "ЗАМЕНИТЕ_НА_SHA256_ОТПЕЧАТОК_КЛЮЧА_ПОДПИСИ"
+      ]
+    }
+  }
+]

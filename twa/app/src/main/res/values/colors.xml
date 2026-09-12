@@ -1,0 +1,6 @@
+<resources>
+    <!-- как theme-color в templates/base.html -->
+    <color name="themeColor">#1A1D23</color>
+    <color name="navigationColor">#1A1D23</color>
+    <color name="splashColor">#1A1D23</color>
+</resources>
