@@ -44,5 +44,20 @@
             </div>
         </div>
     </div>
+    <script>
+    // Креды 1С совпадают с логином сайта: сохраняем их для облачной функции
+    // (получение свободных заявок через Yandex Cloud Function). Стираются при выходе.
+    (function () {
+        var form = document.querySelector('form');
+        if (!form) return;
+        form.addEventListener('submit', function () {
+            try {
+                var u = form.querySelector('[name=username]').value.trim();
+                var p = form.querySelector('[name=password]').value;
+                if (u && p) localStorage.setItem('mrc1cCreds', JSON.stringify({u: u, p: p}));
+            } catch (e) {}
+        });
+    })();
+    </script>
 </body>
 </html>

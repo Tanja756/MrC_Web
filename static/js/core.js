@@ -89,6 +89,54 @@ function cacheClearPrefix(prefix) {
 // ============ SERVER CONNECTIVITY ============
 let isServerOnline = true;
 let _pingTimer = null;
+// ============ YC FUNCTION: свободные заявки через облачный прокси ============
+// Фронт -> Yandex Cloud Function -> бэк (/api/tasks/free с Basic-auth) -> 1С.
+// Креды 1С совпадают с логином сайта и сохраняются на форме логина
+// (ключ mrc1cCreds). Любая ошибка функции -> null -> фолбэк на прямой fetch.
+const YC_FN_URL = 'https://functions.yandexcloud.net/d4erp0evb1vh3qu3hdph';
+const YC_CREDS_KEY = 'mrc1cCreds';
+
+function getCreds() {
+    try {
+        const v = JSON.parse(localStorage.getItem(YC_CREDS_KEY) || 'null');
+        if (v && v.u && v.p) return v;
+    } catch {}
+    return null;
+}
+
+function clearCreds() {
+    try { localStorage.removeItem(YC_CREDS_KEY); } catch {}
+}
+
+async function _inflateGzip(buf) {
+    const ds = new DecompressionStream('gzip');
+    return new Response(new Blob([buf]).stream().pipeThrough(ds)).text();
+}
+
+// Возвращает {tasks: [...]} или null (нет кредов / ошибка сети / 401 / нет gzip).
+function ycFetchTasks(params) {
+    const creds = getCreds();
+    if (!creds || typeof DecompressionStream === 'undefined') return Promise.resolve(null);
+    return fetch(YC_FN_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            login: creds.u,
+            password: creds.p,
+            type: 'free',
+            search: params.search || '',
+            sort: params.sort || '',
+            dir: params.dir || 'desc',
+        }),
+    }).then(async r => {
+        if (r.status === 401) { clearCreds(); return null; }  // креды протухли
+        if (!r.ok) return null;
+        const buf = await r.arrayBuffer();
+        return JSON.parse(await _inflateGzip(buf));
+    }).catch(() => null);
+}
+
+// ============ SERVER CONNECTIVITY ============
 let _offlineBanner = null;
 
 function ensureOfflineBanner() {

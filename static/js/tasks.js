@@ -82,23 +82,37 @@ function setSortDir(dir) {
     filterTasks();
 }
 
+function fetchTasksDirect(label, params, ttl) {
+    const p = new URLSearchParams();
+    if (params.search) p.set('search', params.search);
+    p.set('sort', params.sort);
+    p.set('dir', params.dir);
+    const qs = p.toString() ? '?' + p.toString() : '';
+    return fetchDeduped('/api/tasks/' + label + qs, undefined, ttl)
+        .then(r => r instanceof Response ? r.json().catch(() => ({})) : r);
+}
+
+function fetchTasksList(label, search, ttl) {
+    const params = {search: search || '', sort: tabPrefs[label].sort, dir: tabPrefs[label].dir};
+    if (label === 'free') {
+        return ycFetchTasks(params).then(d => (d && Array.isArray(d.tasks)) ? d : fetchTasksDirect(label, params, ttl));
+    }
+    return fetchTasksDirect(label, params, ttl);
+}
+
 function loadTasks(search, types) {
-    const fetches = [];
     const labels = types || ['my', 'free'];
     const ttl = document.hidden ? 0 : 15000;
-    for (const label of labels) {
-        const params = new URLSearchParams();
-        if (search) params.set('search', search);
-        params.set('sort', tabPrefs[label].sort);
-        params.set('dir', tabPrefs[label].dir);
-        const qs = params.toString() ? '?' + params.toString() : '';
-        fetches.push(fetchDeduped('/api/tasks/' + label + qs, undefined, ttl).then(r => { if (r instanceof Response) return r.json().catch(() => ({})); return r; }));
-    }
+    const fetches = labels.map(label => fetchTasksList(label, search, ttl));
     if (fetches.length === 0) return;
     Promise.all(fetches).then(results => {
-        let i = 0;
-        if (labels.includes('my')) { const d = results[i] || {}; if (Array.isArray(d.tasks)) { checkNewTaskNotifications(d.tasks); checkDeadlineNotifications(d.tasks); tasksMy = d.tasks; } i++; }
-        if (labels.includes('free')) { const d = results[i] || {}; if (Array.isArray(d.tasks)) tasksFree = d.tasks; i++; }
+        results.forEach((d, i) => {
+            const label = labels[i];
+            if (d && Array.isArray(d.tasks)) {
+                if (label === 'my') { checkNewTaskNotifications(d.tasks); checkDeadlineNotifications(d.tasks); tasksMy = d.tasks; }
+                else if (label === 'free') tasksFree = d.tasks;
+            }
+        });
         filterTasks();
     }).catch(() => {});
 }
@@ -136,20 +150,13 @@ function refreshCurrentTab(search) {
     if (currentTab === 'closed') {
         return loadClosedTasks(s || '', tabPrefs.closed.sort);
     }
-    const params = new URLSearchParams();
-    if (s) params.set('search', s);
-    params.set('sort', tabPrefs[currentTab].sort);
-    params.set('dir', tabPrefs[currentTab].dir);
-    const qs = params.toString() ? '?' + params.toString() : '';
-    return fetchDeduped('/api/tasks/' + currentTab + qs, undefined, 15000)
-        .then(r => r instanceof Response ? r.json().catch(() => ({})) : r)
-        .then(data => {
-            if (Array.isArray(data.tasks)) {
-                if (currentTab === 'my') { checkNewTaskNotifications(data.tasks); checkDeadlineNotifications(data.tasks); tasksMy = data.tasks; }
-                else tasksFree = data.tasks;
-            }
-            filterTasks();
-        });
+    return fetchTasksList(currentTab, s, 15000).then(data => {
+        if (data && Array.isArray(data.tasks)) {
+            if (currentTab === 'my') { checkNewTaskNotifications(data.tasks); checkDeadlineNotifications(data.tasks); tasksMy = data.tasks; }
+            else tasksFree = data.tasks;
+        }
+        filterTasks();
+    });
 }
 
 function loadClosedTasks(search, sort) {

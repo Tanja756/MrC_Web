@@ -1,4 +1,4 @@
-const CACHE = 'mrc-v14';
+const CACHE = 'mrc-v15';
 const ASSETS = [
   '/static/style.css',
   '/static/css/tasks.css',
@@ -43,6 +43,8 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
+  // Запросы к облачной функции (свободные заявки) не перехватываем
+  if (url.hostname === 'functions.yandexcloud.net') return;
   if (url.hostname === 'cdn.jsdelivr.net' || url.pathname.startsWith('/static/')) {
     e.respondWith(cacheFirst(e.request));
   } else {
