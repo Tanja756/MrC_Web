@@ -94,8 +94,9 @@ function fetchTasksDirect(label, params, ttl) {
 
 function fetchTasksList(label, search, ttl) {
     const params = {search: search || '', sort: tabPrefs[label].sort, dir: tabPrefs[label].dir};
-    if (label === 'free') {
-        return ycFetchTasks(params).then(d => (d && Array.isArray(d.tasks)) ? d : fetchTasksDirect(label, params, ttl));
+    if (label === 'free' || label === 'my') {
+        return ycFetchTasks(label, params)
+            .then(d => (d && Array.isArray(d.tasks)) ? d : fetchTasksDirect(label, params, ttl));
     }
     return fetchTasksDirect(label, params, ttl);
 }
@@ -1499,23 +1500,32 @@ function generateDocForm() {
         return;
     }
 
-    const body = JSON.stringify({
+    const payload = {
         guid,
         profile_name: savedProfileName,
-        fields: Object.keys(fields).length > 0 ? fields : undefined,
-    });
+    };
+    if (Object.keys(fields).length > 0) payload.fields = fields;
 
     status.textContent = 'Генерация документов...';
 
-    const fetches = endpoints.map(url =>
-        fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body})
-            .then(checkAuth)
-            .then(r => {
-                if (!r.ok) return r.json().then(t => { throw new Error(t.error || 'Ошибка генерации') });
-                const filename = getFilenameFromHeaders(r.headers);
-                return r.blob().then(blob => ({blob, filename}));
-            })
-    );
+    const ycTypes = {'/api/tasks/documents/act': 'doc-act',
+                     '/api/tasks/documents/fn': 'doc-fn',
+                     '/api/tasks/documents/m15': 'doc-m15'};
+
+    const fetches = endpoints.map(url => {
+        // Сначала через облачную функцию, при неудаче — прямой fetch (cookie-сессия)
+        return ycGenerateDoc(ycTypes[url], payload)
+            .then(ycRes => {
+                if (ycRes) return ycRes;
+                return fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)})
+                    .then(checkAuth)
+                    .then(r => {
+                        if (!r.ok) return r.json().then(t => { throw new Error(t.error || 'Ошибка генерации') });
+                        const filename = getFilenameFromHeaders(r.headers);
+                        return r.blob().then(blob => ({blob, filename}));
+                    });
+            });
+    });
 
     downloadMultiple(fetches, (done, total) => {
         status.textContent = `Загрузка... (${done}/${total})`;

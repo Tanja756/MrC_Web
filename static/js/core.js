@@ -89,8 +89,8 @@ function cacheClearPrefix(prefix) {
 // ============ SERVER CONNECTIVITY ============
 let isServerOnline = true;
 let _pingTimer = null;
-// ============ YC FUNCTION: свободные заявки через облачный прокси ============
-// Фронт -> Yandex Cloud Function -> бэк (/api/tasks/free с Basic-auth) -> 1С.
+// ============ YC FUNCTION: заявки и документы через облачный прокси ============
+// Фронт -> Yandex Cloud Function -> бэк (/api/... с Basic-auth) -> 1С.
 // Креды 1С совпадают с логином сайта и сохраняются на форме логина
 // (ключ mrc1cCreds). Любая ошибка функции -> null -> фолбэк на прямой fetch.
 const YC_FN_URL = 'https://functions.yandexcloud.net/d4erp0evb1vh3qu3hdph';
@@ -109,31 +109,64 @@ function clearCreds() {
 }
 
 async function _inflateGzip(buf) {
+    // Бинарно-безопасная распаковка (подходит и для PDF, и для JSON)
     const ds = new DecompressionStream('gzip');
-    return new Response(new Blob([buf]).stream().pipeThrough(ds)).text();
+    return new Response(new Blob([buf]).stream().pipeThrough(ds)).arrayBuffer();
 }
 
-// Возвращает {tasks: [...]} или null (нет кредов / ошибка сети / 401 / нет gzip).
-function ycFetchTasks(params) {
+// Базовый вызов функции. payload: {login, password, type, ...}.
+// Возвращает {status, headers, arrayBuffer()} (как fetch-Response, тело
+// уже распаковано из gzip) или null (нет кредов / сеть / нет gzip).
+async function ycRequest(payload) {
     const creds = getCreds();
-    if (!creds || typeof DecompressionStream === 'undefined') return Promise.resolve(null);
-    return fetch(YC_FN_URL, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            login: creds.u,
-            password: creds.p,
-            type: 'free',
-            search: params.search || '',
-            sort: params.sort || '',
-            dir: params.dir || 'desc',
-        }),
+    if (!creds || typeof DecompressionStream === 'undefined') return null;
+    payload.login = creds.u;
+    payload.password = creds.p;
+    let r;
+    try {
+        r = await fetch(YC_FN_URL, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        });
+    } catch { return null; }
+    if (r.status === 401) { clearCreds(); return null; }  // креды протухли
+    if (r.status === 304 || r.status !== 200) return {status: r.status, headers: r.headers, arrayBuffer: async () => new ArrayBuffer(0)};
+    const buf = await r.arrayBuffer();
+    if (r.headers.get('Content-Encoding') !== 'gzip') {
+        // Неожиданный формат (например, старая версия функции) — тело как есть
+        return {status: r.status, headers: r.headers, arrayBuffer: async () => buf};
+    }
+    const inflated = await _inflateGzip(buf);
+    return {status: r.status, headers: r.headers, arrayBuffer: async () => inflated};
+}
+
+// Список заявок: {tasks: [...]} или null.
+function ycFetchTasks(type, params) {
+    return ycRequest({
+        type: type || 'free',
+        search: params.search || '',
+        sort: params.sort || '',
+        dir: params.dir || 'desc',
     }).then(async r => {
-        if (r.status === 401) { clearCreds(); return null; }  // креды протухли
-        if (!r.ok) return null;
-        const buf = await r.arrayBuffer();
-        return JSON.parse(await _inflateGzip(buf));
+        if (!r || r.status !== 200) return null;
+        return JSON.parse(new TextDecoder().decode(await r.arrayBuffer()));
     }).catch(() => null);
+}
+
+// Генерация документа (type: doc-act|doc-fn|doc-m15). Возвращает
+// {blob, filename} или null -> вызывающий код делает фолбэк на прямой fetch.
+async function ycGenerateDoc(type, body) {
+    const r = await ycRequest(Object.assign({type}, body));
+    if (!r || r.status !== 200) return null;
+    const buf = await r.arrayBuffer();
+    if (buf.byteLength === 0) return null;
+    let filename = getFilenameFromHeaders(r.headers) || '';
+    if (!filename) {
+        const t = ({'doc-act': 'AVR', 'doc-fn': 'FN', 'doc-m15': 'm15'})[type] || 'doc';
+        filename = t + '-' + Date.now() + '.pdf';
+    }
+    return {blob: new Blob([buf], {type: r.headers.get('Content-Type') || 'application/pdf'}), filename};
 }
 
 // ============ SERVER CONNECTIVITY ============
