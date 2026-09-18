@@ -82,48 +82,6 @@ function setSortDir(dir) {
     filterTasks();
 }
 
-// ---- Офлайн-фолбэк через Яндекс.Диск (Фаза 2.3) ----
-// Активен только когда сервер недоступен и мост включён с токеном на устройстве
-function ydTasksFallbackActive() {
-    return typeof isServerOnline !== 'undefined' && !isServerOnline &&
-        typeof YDData !== 'undefined' && typeof YD !== 'undefined' && YDData.isBridgeEnabled();
-}
-
-// Готов ли офлайн-outbox (Фаза 2.4): сервер недоступен + мост включён + модуль очереди загружен
-function offlineOutboxReady() {
-    return ydTasksFallbackActive() && typeof YDOutbox !== 'undefined' && YDOutbox.available();
-}
-
-function applyDiskTasks(labels, recs) {
-    if (typeof YDData === 'undefined') return false;
-    const N = YDData.DUMP_NAMES;
-    recs = recs || {};
-    let applied = false;
-    if (labels.includes('my') && recs[N.my] && Array.isArray(recs[N.my].data)) {
-        checkNewTaskNotifications(recs[N.my].data);
-        checkDeadlineNotifications(recs[N.my].data);
-        tasksMy = recs[N.my].data;
-        applied = true;
-    }
-    if (labels.includes('free') && recs[N.free] && Array.isArray(recs[N.free].data)) { tasksFree = recs[N.free].data; applied = true; }
-    if (labels.includes('closed') && recs[N.closed] && Array.isArray(recs[N.closed].data)) { tasksClosed = recs[N.closed].data; applied = true; }
-    if (applied) {
-        filterTasks();
-        YDData.updateOfflineBanner();
-    }
-    return applied;
-}
-
-function loadTasksFromDisk(labels) {
-    if (typeof YDData === 'undefined') return Promise.resolve(false);
-    const names = labels.map(l => YDData.DUMP_NAMES[l]).filter(Boolean);
-    if (!names.length) return Promise.resolve(false);
-    return YDData.syncDumps(names)
-        .catch(() => YDData.loadLocal(names))
-        .then(recs => applyDiskTasks(labels, recs))
-        .catch(() => false);
-}
-
 function loadTasks(search, types) {
     const fetches = [];
     const labels = types || ['my', 'free'];
@@ -134,9 +92,7 @@ function loadTasks(search, types) {
         params.set('sort', tabPrefs[label].sort);
         params.set('dir', tabPrefs[label].dir);
         const qs = params.toString() ? '?' + params.toString() : '';
-        // при офлайне глушим аларм fetchDeduped — страницу спасает Диск
-        const opts = isServerOnline ? undefined : { ydQuiet: true };
-        fetches.push(fetchDeduped('/api/tasks/' + label + qs, opts, ttl).then(r => { if (r instanceof Response) return r.json().catch(() => ({})); return r; }));
+        fetches.push(fetchDeduped('/api/tasks/' + label + qs, undefined, ttl).then(r => { if (r instanceof Response) return r.json().catch(() => ({})); return r; }));
     }
     if (fetches.length === 0) return;
     Promise.all(fetches).then(results => {
@@ -144,10 +100,7 @@ function loadTasks(search, types) {
         if (labels.includes('my')) { const d = results[i] || {}; if (Array.isArray(d.tasks)) { checkNewTaskNotifications(d.tasks); checkDeadlineNotifications(d.tasks); tasksMy = d.tasks; } i++; }
         if (labels.includes('free')) { const d = results[i] || {}; if (Array.isArray(d.tasks)) tasksFree = d.tasks; i++; }
         filterTasks();
-    }).catch(() => {
-        if (!ydTasksFallbackActive()) return;
-        loadTasksFromDisk(labels);
-    });
+    }).catch(() => {});
 }
 
 function autoRefreshTasks() {
@@ -188,7 +141,7 @@ function refreshCurrentTab(search) {
     params.set('sort', tabPrefs[currentTab].sort);
     params.set('dir', tabPrefs[currentTab].dir);
     const qs = params.toString() ? '?' + params.toString() : '';
-    return fetchDeduped('/api/tasks/' + currentTab + qs, isServerOnline ? undefined : { ydQuiet: true }, 15000)
+    return fetchDeduped('/api/tasks/' + currentTab + qs, undefined, 15000)
         .then(r => r instanceof Response ? r.json().catch(() => ({})) : r)
         .then(data => {
             if (Array.isArray(data.tasks)) {
@@ -196,12 +149,6 @@ function refreshCurrentTab(search) {
                 else tasksFree = data.tasks;
             }
             filterTasks();
-        })
-        .catch(() => {
-            if (!ydTasksFallbackActive()) throw new Error('server unreachable');
-            return loadTasksFromDisk([currentTab]).then(applied => {
-                if (!applied) throw new Error('no disk data');
-            });
         });
 }
 
@@ -215,14 +162,9 @@ function loadClosedTasks(search, sort) {
     params.set('dir', tabPrefs.closed.dir);
     const qs = '?' + params.toString();
 
-    return fetchDeduped('/api/tasks/closed' + qs, isServerOnline ? undefined : { ydQuiet: true }, 15000).then(r => r instanceof Response ? r.json().catch(() => null) : r).then(data => {
+    return fetchDeduped('/api/tasks/closed' + qs, undefined, 15000).then(r => r instanceof Response ? r.json().catch(() => null) : r).then(data => {
         if (data && Array.isArray(data.tasks)) tasksClosed = data.tasks;
         filterTasks();
-    }).catch(() => {
-        if (!ydTasksFallbackActive()) throw new Error('server unreachable');
-        return loadTasksFromDisk(['closed']).then(applied => {
-            if (!applied) throw new Error('no disk data');
-        });
     });
 }
 
@@ -609,7 +551,6 @@ function showTaskDetail(task, mode, guid) {
             }
             footer = `
                 <button class="btn btn-outline-secondary me-auto" onclick="showRedirectForm('${guid}','${mode}')" title="Вернуть в свободные"><i class="bi bi-arrow-return-left"></i></button>
-                ${offlineDocsBtn(guid)}
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
         } else if (mode === 'free') {
             footer = `
@@ -632,7 +573,7 @@ function showTaskDetail(task, mode, guid) {
                 body += `<hr class="my-3"><div><small class="text-muted d-block mb-1">Вложения</small><div id="closedAttachments"><button class="btn btn-outline-secondary btn-sm" onclick="loadClosedAttachments('${guid}')"><i class="bi bi-download me-1"></i>Загрузить вложения</button></div></div>`;
             }
             const showRedirect = task.status && (task.status.includes('Подтвердить') || task.status.includes('подтвердить'));
-            footer = `${showRedirect ? `<button class="btn btn-outline-secondary me-auto" onclick="showRedirectForm('${guid}','${mode}')" title="Вернуть в свободные"><i class="bi bi-arrow-return-left"></i></button>` : ''}<button class="btn btn-outline-secondary" onclick="openDocForm('${guid}')"><i class="bi bi-file-earmark-text me-1"></i>Документы</button>${offlineDocsBtn(guid)}<button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
+            footer = `${showRedirect ? `<button class="btn btn-outline-secondary me-auto" onclick="showRedirectForm('${guid}','${mode}')" title="Вернуть в свободные"><i class="bi bi-arrow-return-left"></i></button>` : ''}<button class="btn btn-outline-secondary" onclick="openDocForm('${guid}')"><i class="bi bi-file-earmark-text me-1"></i>Документы</button><button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>`;
         }
 
     document.getElementById('taskDetailBody').innerHTML = body;
@@ -941,27 +882,6 @@ function closeTask(guid, guidDoc) {
             const attachments = pendingAttachments;
             pendingAttachments = [];
             const taskName = task ? (task.number ? `Заявка ${task.number} — ${task.name || ''}` : (task.name || '')) : '';
-            if (offlineOutboxReady()) {
-                const label = 'Закрыть ' + (task && task.number ? 'заявку #' + cleanNumber(task.number) : (taskName || 'заявку'));
-                // Формат вложений тот же, что ждёт client.task_close; сжатие картинок
-                // на сервере для мостовых close_task пока не применяется (Фаза 2.5)
-                YDOutbox.enqueue('close_task', {
-                    guid: guid, guid_doc: guidDoc, comment: comment,
-                    latitude: lat, longitude: lng, attachments: attachments
-                }, label).then(() => {
-                    bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
-                    tasksMy = tasksMy.filter(t => t.guid !== guid);
-                    cacheDel('/api/tasks/my');
-                    cacheClearPrefix('/api/tasks/closed');
-                    filterTasks();
-                    NotificationCenter.show({ icon: 'success', title: 'Закрытие в офлайн-очереди', subtitle: label + ' — отправится при появлении связи', actions: ['OK'], duration: 6000 });
-                }).catch(() => {
-                    pendingAttachments = attachments; // вернуть вложения в форму
-                    renderPendingAttachments();
-                    showAlert('Не удалось поставить закрытие в офлайн-очередь', 'warning');
-                });
-                return;
-            }
             const body = JSON.stringify({
                 guid, guidDoc, comment,
                 latitude: lat, longitude: lng,
@@ -1051,17 +971,6 @@ function takeTask(guid) {
 
     newBtn.addEventListener('click', () => {
         modal.hide();
-        if (offlineOutboxReady()) {
-            const label = 'Взять заявку #' + (cleanNumber(task.number) || task.guid.slice(0, 8));
-            YDOutbox.enqueue('take_task', { guid: guid }, label).then(() => {
-                // оптимистично: свободная → в работе; реальное состояние придёт из дампов
-                tasksFree = tasksFree.filter(t => t.guid !== guid);
-                if (!tasksMy.some(t => t.guid === guid)) tasksMy.push(Object.assign({}, task));
-                filterTasks();
-                NotificationCenter.show({ icon: 'success', title: 'Заявка в офлайн-очереди', subtitle: label + ' отправится при появлении связи', actions: ['OK'], duration: 6000 });
-            }).catch(() => showAlert('Не удалось поставить действие в офлайн-очередь', 'warning'));
-            return;
-        }
         fetch('/api/tasks/take', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -1093,25 +1002,6 @@ function rejectTask(guid) {
             const origHtml = btn.innerHTML;
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Отмена...';
-            if (offlineOutboxReady()) {
-                const t = [...tasksMy, ...tasksFree].find(x => x.guid === guid);
-                const label = 'Отменить заявку #' + (t ? (cleanNumber(t.number) || t.guid.slice(0, 8)) : guid.slice(0, 8));
-                YDOutbox.enqueue('reject_task', { guid: guid, comment: comment }, label).then(() => {
-                    btn.disabled = false;
-                    btn.innerHTML = origHtml;
-                    bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
-                    clearModalStack();
-                    tasksMy = tasksMy.filter(x => x.guid !== guid);
-                    tasksFree = tasksFree.filter(x => x.guid !== guid);
-                    filterTasks();
-                    NotificationCenter.show({ icon: 'success', title: 'Отмена в офлайн-очереди', subtitle: label + ' — отправится при появлении связи', actions: ['OK'], duration: 6000 });
-                }).catch(() => {
-                    btn.disabled = false;
-                    btn.innerHTML = origHtml;
-                    showAlert('Не удалось поставить отмену в офлайн-очередь', 'warning');
-                });
-                return;
-            }
             fetch('/api/tasks/reject', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -1184,26 +1074,6 @@ function redirectTask(guid) {
             const origHtml = btn.innerHTML;
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Возврат...';
-            if (offlineOutboxReady()) {
-                const t = tasksMy.find(x => x.guid === guid);
-                const label = 'Вернуть заявку #' + (t ? (cleanNumber(t.number) || t.guid.slice(0, 8)) : guid.slice(0, 8));
-                YDOutbox.enqueue('redirect_task', { guid: guid, comment: comment }, label).then(() => {
-                    btn.disabled = false;
-                    btn.innerHTML = origHtml;
-                    bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'))?.hide();
-                    clearModalStack();
-                    // оптимистично: в работе → свободные; реальное состояние придёт из дампов
-                    tasksMy = tasksMy.filter(x => x.guid !== guid);
-                    if (t && !tasksFree.some(x => x.guid === guid)) tasksFree.push(Object.assign({}, t));
-                    filterTasks();
-                    NotificationCenter.show({ icon: 'success', title: 'Возврат в офлайн-очереди', subtitle: label + ' — отправится при появлении связи', actions: ['OK'], duration: 6000 });
-                }).catch(() => {
-                    btn.disabled = false;
-                    btn.innerHTML = origHtml;
-                    showAlert('Не удалось поставить возврат в офлайн-очередь', 'warning');
-                });
-                return;
-            }
             fetch('/api/tasks/redirect', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -1254,15 +1124,6 @@ function bulkTakeTasks() {
             if (!ok) return;
 
             const guids = Array.from(selectedGuids);
-            if (offlineOutboxReady()) {
-                Promise.all(guids.map(g => YDOutbox.enqueue('take_task', { guid: g }, 'Взять заявку')))
-                    .then(() => {
-                        cancelMultiSelect();
-                        NotificationCenter.show({ icon: 'success', title: 'Заявки в офлайн-очереди', subtitle: guids.length + ' заяв(ка/ок) отправятся при появлении связи', actions: ['OK'], duration: 6000 });
-                    })
-                    .catch(() => showAlert('Не удалось поставить заявки в офлайн-очередь', 'warning'));
-                return;
-            }
             fetch('/api/tasks/take-bulk', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -1284,19 +1145,7 @@ function loadClients() {
         .then(data => {
             (data || []).forEach(c => { if (c.guid) clientsMap[c.guid] = c.name || c.guid; });
         })
-        .catch(() => {
-            // офлайн: клиенты лежат в references.json.gz на Диске (тот же источник 1C)
-            if (!ydTasksFallbackActive()) return;
-            const name = YDData.DUMP_NAMES.references;
-            YDData.syncDumps([name])
-                .catch(() => YDData.loadLocal([name]))
-                .then(recs => {
-                    const rec = recs[name];
-                    const clients = rec && rec.data && Array.isArray(rec.data.clients) ? rec.data.clients : [];
-                    clients.forEach(c => { if (c && c.guid) clientsMap[c.guid] = c.name || c.guid; });
-                })
-                .catch(() => {});
-        });
+        .catch(() => {});
 }
 
 // ============ DOCUMENT FORM (tasks page) ============
@@ -1629,12 +1478,6 @@ function generateDocForm() {
     footer.querySelectorAll('button').forEach(b => b.disabled = true);
     status.textContent = 'Запрос на генерацию...';
 
-    // Офлайн: генерация через мост (Фаза 2.5) — PDF появятся в {username}/Docs/{дата}/{SAP}/
-    if (offlineOutboxReady()) {
-        offlineEnqueueDocs(guid, includeAct, includeFn, includeM15, loading, footer, status);
-        return;
-    }
-
     const endpoints = [];
     if (includeAct) endpoints.push('/api/tasks/documents/act');
     if (includeFn) endpoints.push('/api/tasks/documents/fn');
@@ -1693,248 +1536,4 @@ function generateDocForm() {
         errDiv.querySelector('span').textContent = e.message;
         body.prepend(errDiv);
     });
-}
-
-function generateDocFormAndUpload() {
-    const guid = document.getElementById('docFormGuid').value;
-    if (!guid) return;
-
-    const fields = {};
-    const shop = document.getElementById('docShop').value.trim();
-    const sap = document.getElementById('docSap').value.trim();
-    const addr = document.getElementById('docAddr').value.trim();
-    const desc = document.getElementById('docDesc').value.trim();
-    const code = document.getElementById('docCode').value.trim();
-    const zd = document.getElementById('docZd').value.trim();
-    const docDate = document.getElementById('docDate').value;
-    if (shop) fields.shop = shop;
-    if (sap) fields.sap = sap;
-    if (addr) fields.addr = addr;
-    fields.desc = desc;
-    fields.code = code;
-    fields.zd = zd;
-    if (docDate) Object.assign(fields, {doc_date: docDate});
-    if (docSelectedItems.length > 0) {
-        fields.items = docSelectedItems.map(item => ({name: item.name, series: item.series}));
-    }
-
-    const includeAct = document.getElementById('docIncludeAct').checked;
-    const includeFn = document.getElementById('docIncludeFn').checked;
-    const includeM15 = document.getElementById('docIncludeM15').checked;
-
-    const loading = document.getElementById('docFormLoading');
-    const footer = document.getElementById('docFormFooter');
-    const status = document.getElementById('docFormStatus');
-
-    loading.classList.remove('d-none');
-    footer.querySelectorAll('button').forEach(b => b.disabled = true);
-    status.textContent = 'Генерация и загрузка на Я.Диск...';
-
-    // Офлайн: генерация через мост — сервер сам положит PDF в Docs/ на Я.Диске
-    if (offlineOutboxReady()) {
-        offlineEnqueueDocs(guid, includeAct, includeFn, includeM15, loading, footer, status);
-        return;
-    }
-
-    fetch('/api/tasks/documents/upload-to-yandex', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            guid,
-            profile_name: savedProfileName,
-            fields: Object.keys(fields).length > 0 ? fields : undefined,
-            include_act: includeAct,
-            include_fn: includeFn,
-            include_m15: includeM15,
-        })
-    }).then(checkAuth).then(r => r.json()).then(data => {
-        loading.classList.add('d-none');
-        footer.querySelectorAll('button').forEach(b => b.disabled = false);
-        if (data.success) {
-            bootstrap.Modal.getInstance(document.getElementById('docFormModal'))?.hide();
-            showAlert('Документы сформированы и загружены на Я.Диск', 'success');
-        } else {
-            showAlert(data.error || 'Ошибка при загрузке на Я.Диск', 'danger');
-        }
-    }).catch(e => {
-        loading.classList.add('d-none');
-        footer.querySelectorAll('button').forEach(b => b.disabled = false);
-        showAlert('Ошибка сети: ' + e.message, 'danger');
-    });
-}
-
-// ============ SWIPE TABS ============
-function initSwipeTabs() {
-    const el = document.querySelector('.tab-content');
-    if (!el) return;
-    let startX = 0, startY = 0;
-    el.addEventListener('touchstart', e => {
-        startX = e.touches[0].clientX;
-        startY = e.touches[0].clientY;
-    }, { passive: true });
-    el.addEventListener('touchend', e => {
-        const dx = e.changedTouches[0].clientX - startX;
-        const dy = e.changedTouches[0].clientY - startY;
-        if (Math.abs(dx) < 50 || Math.abs(dy) > Math.abs(dx) * 0.5) return;
-        const pills = document.querySelectorAll('#taskTabs .nav-link');
-        const active = document.querySelector('#taskTabs .nav-link.active');
-        const idx = Array.from(pills).indexOf(active);
-        if (idx === -1) return;
-        const next = dx < 0 ? idx + 1 : idx - 1;
-        if (next >= 0 && next < pills.length) pills[next].click();
-    }, { passive: true });
-}
-
-function downloadDocuments(guid) {
-    const body = JSON.stringify({guid, profile_name: savedProfileName});
-    const endpoints = ['/api/tasks/documents/act', '/api/tasks/documents/fn', '/api/tasks/documents/m15'];
-    const fetches = endpoints.map(url =>
-        fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body})
-            .then(checkAuth)
-            .then(r => {
-                if (!r.ok) return null;
-                const filename = getFilenameFromHeaders(r.headers);
-                return r.blob().then(blob => ({blob, filename}));
-            })
-    );
-    downloadMultiple(fetches).catch(e => showAlert('Ошибка: ' + e.message, 'danger'));
-}
-
-// ============ DOCS ON YANDEX.DISK (Фаза 2.5, офлайн) ============
-// Сформированные мостом PDF лежат в {username}/Docs/{дата}/{SAP}/
-// (мост: ГГГГ-ММ-ДД, онлайн-выгрузка: ГГГГ.ММ.ДД — листим реальные папки).
-
-function sapFromTask(task) {
-    if (!task) return '';
-    const text = (task.name || '') + '\n' + (task.description || '');
-    const m = text.match(/SAP-(\w{4})/i);
-    return m ? m[1].toUpperCase() : '';
-}
-
-// Кнопка «Файлы на Диске» — только в офлайн-режиме с мостом
-function offlineDocsBtn(guid) {
-    return ydTasksFallbackActive()
-        ? `<button class="btn btn-outline-secondary" onclick="showTaskDiskDocs('${guid}')" title="Сформированные PDF на Яндекс.Диске"><i class="bi bi-folder2-open me-1"></i>Файлы на Диске</button>`
-        : '';
-}
-
-function offlineEnqueueDocs(guid, includeAct, includeFn, includeM15, loading, footer, status) {
-    if (docSelectedItems.length > 0) {
-        loading.classList.add('d-none');
-        footer.querySelectorAll('button').forEach(b => b.disabled = false);
-        showAlert('Выбранные товары М15 нельзя включить в документ офлайн. Сформируйте документы при связи с сервером.', 'warning');
-        return;
-    }
-    YDOutbox.enqueue('generate_docs', {
-        guid: guid,
-        profile_name: savedProfileName,
-        include_act: includeAct,
-        include_m15: includeM15,
-        include_fn: includeFn
-    }, 'Сформировать документы').then(() => {
-        loading.classList.add('d-none');
-        footer.querySelectorAll('button').forEach(b => b.disabled = false);
-        bootstrap.Modal.getInstance(document.getElementById('docFormModal'))?.hide();
-        NotificationCenter.show({ icon: 'success', title: 'Документы в офлайн-очереди', subtitle: 'Сервер сформирует PDF в папку Docs на Я.Диске', actions: ['OK'], duration: 8000 });
-    }).catch(() => {
-        loading.classList.add('d-none');
-        footer.querySelectorAll('button').forEach(b => b.disabled = false);
-        showAlert('Не удалось поставить генерацию в офлайн-очередь', 'warning');
-    });
-}
-
-function showTaskDiskDocs(guid) {
-    if (!ydTasksFallbackActive() || typeof YD === 'undefined') {
-        showAlert('Список файлов на Я.Диске доступен в офлайн-режиме с включённым мостом', 'info');
-        return;
-    }
-    const task = [...tasksMy, ...tasksFree, ...tasksClosed].find(t => t.guid === guid);
-    const sap = sapFromTask(task);
-    if (!sap) {
-        showAlert('Не удалось определить SAP магазина для этой заявки', 'warning');
-        return;
-    }
-
-    const old = document.getElementById('diskDocsModal');
-    if (old) { bootstrap.Modal.getInstance(old)?.dispose(); old.remove(); }
-    const div = document.createElement('div');
-    div.id = 'diskDocsModal';
-    div.className = 'modal fade';
-    div.innerHTML = '<div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">' +
-        '<div class="modal-content">' +
-            '<div class="modal-header"><h6 class="modal-title"><i class="bi bi-folder2-open me-2"></i>Файлы на Я.Диске — SAP ' + esc(sap) + '</h6>' +
-            '<button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>' +
-            '<div class="modal-body"><div class="text-center py-3"><span class="spinner-border spinner-border-sm"></span> Ищу документы…</div></div>' +
-            '<div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button></div>' +
-        '</div></div>';
-    document.body.appendChild(div);
-    const mm = new bootstrap.Modal(div);
-    div.addEventListener('hidden.bs.modal', function () { mm.dispose(); div.remove(); });
-    mm.show();
-
-    const body = div.querySelector('.modal-body');
-    const render = function (files) {
-        if (!files.length) {
-            body.innerHTML = '<div class="text-muted small text-center py-3">PDF для этого SAP пока нет. Сформируйте документы — после обработки сервером они появятся здесь.</div>';
-            return;
-        }
-        body.innerHTML = files.map(function (f) {
-            const sizeKb = Math.max(1, Math.round((f.size || 0) / 1024));
-            return '<div class="d-flex align-items-center justify-content-between border-bottom py-2 gap-2">' +
-                '<div class="small flex-grow-1 text-break"><div class="fw-semibold">' + esc(f.name) + '</div>' +
-                '<div class="text-muted">' + sizeKb + ' КБ' + (f.modified ? ' · ' + esc(f.modified.slice(0, 16).replace('T', ' ')) : '') + '</div></div>' +
-                '<div class="d-flex gap-1 flex-shrink-0">' +
-                    '<button class="btn btn-sm btn-outline-secondary" data-dd-open="' + esc(f.rel) + '" title="Открыть"><i class="bi bi-eye"></i></button>' +
-                    '<button class="btn btn-sm btn-outline-primary" data-dd-dl="' + esc(f.rel) + '" data-dd-name="' + esc(f.name) + '" title="Скачать"><i class="bi bi-download"></i></button>' +
-                '</div></div>';
-        }).join('');
-        body.querySelectorAll('[data-dd-open]').forEach(function (b) {
-            b.addEventListener('click', function () { openDiskPdf(b.getAttribute('data-dd-open')); });
-        });
-        body.querySelectorAll('[data-dd-dl]').forEach(function (b) {
-            b.addEventListener('click', function () { downloadDiskPdf(b.getAttribute('data-dd-dl'), b.getAttribute('data-dd-name')); });
-        });
-    };
-
-    // последние 10 дат; для каждой — папка {SAP}; 404 → пропускаем
-    YD.list('Docs').then(function (dates) {
-        const folders = dates.filter(d => d.type === 'dir')
-            .map(d => d.name).sort().reverse().slice(0, 10);
-        return Promise.all(folders.map(function (date) {
-            return YD.list('Docs/' + date + '/' + sap).then(function (items) {
-                return items.filter(i => i.type === 'file' && /\.pdf$/i.test(i.name))
-                    .map(i => ({ name: i.name, size: i.size, modified: i.modified, rel: 'Docs/' + date + '/' + sap + '/' + i.name }));
-            }).catch(function () { return []; });
-        }));
-    }).then(function (groups) {
-        const files = [].concat.apply([], groups)
-            .sort(function (a, b) { return (b.modified || '') < (a.modified || '') ? -1 : 1; });
-        render(files);
-    }).catch(function (e) {
-        body.innerHTML = '<div class="text-danger small p-2">Не удалось получить список: ' + esc((e && e.message) || 'ошибка') + '</div>';
-    });
-}
-
-function downloadDiskPdf(rel, name) {
-    YD.downloadFile(rel).then(function (buf) {
-        if (!buf) { showAlert('Файл не найден на Диске', 'warning'); return; }
-        const blob = new Blob([buf], { type: 'application/pdf' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = name || rel.split('/').pop();
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(function () { URL.revokeObjectURL(a.href); }, 30000);
-    }).catch(function (e) { showAlert('Ошибка скачивания: ' + ((e && e.message) || ''), 'danger'); });
-}
-
-function openDiskPdf(rel) {
-    YD.downloadFile(rel).then(function (buf) {
-        if (!buf) { showAlert('Файл не найден на Диске', 'warning'); return; }
-        const blob = new Blob([buf], { type: 'application/pdf' });
-        const url = URL.createObjectURL(blob);
-        window.open(url, '_blank');
-        setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
-    }).catch(function (e) { showAlert('Ошибка открытия: ' + ((e && e.message) || ''), 'danger'); });
 }

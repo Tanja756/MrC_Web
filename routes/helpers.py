@@ -16,7 +16,6 @@ from functools import wraps
 from flask import session, request, jsonify, redirect, url_for, Response, send_file
 
 from api_client import OneSApiClient
-from yandex_disk import YandexDiskClient, sync_tasks_to_yandex, sync_warehouse_to_yandex, sync_references_to_yandex, sync_hashes_to_yandex, sync_fn_schedule_to_yandex, sync_ppr_to_yandex, sync_task_m15_to_yandex, process_actions
 from db import (
     create_notification, get_active_notifications, dismiss_notification, dismiss_all_notifications,
     get_snapshot, save_snapshot, get_snapshot_updated_at,
@@ -48,7 +47,6 @@ VAPID_CLAIM_EMAIL = os.environ.get('VAPID_CLAIM_EMAIL', 'admin@example.com')
 
 BACKGROUND_CHECK_INTERVAL = int(os.environ.get('BACKGROUND_CHECK_INTERVAL', '600'))
 BALANCE_STALE_THRESHOLD = int(os.environ.get('BALANCE_STALE_THRESHOLD', '600'))
-ACTION_CHECK_INTERVAL = int(os.environ.get('ACTION_CHECK_INTERVAL', '60'))
 BACKGROUND_LOCK_PATH = "/tmp/mrcheck_background.lock"
 _background_timer = None
 _background_stop = threading.Event()
@@ -553,72 +551,6 @@ def check_new_free_tasks(username, free_tasks, old_data, notify_only_mine=False,
     save_task_snapshot(username, list(current_free_guids))
 
 
-def auto_generate_docs_for_new_free_tasks(username, free_tasks, old_data, client):
-    current_free_guids = {t.get('guid', '') for t in free_tasks if t.get('guid')}
-    if old_data is None:
-        return
-    old_free_guids = set(old_data)
-    new_guids = current_free_guids - old_free_guids
-    if not new_guids:
-        return
-
-    from db import get_user_settings, create_notification
-    settings = get_user_settings(username)
-    if not settings or not settings.get('auto_generate_docs'):
-        return
-    if not settings.get('auto_include_yandex', True):
-        return
-
-    from docgen import generate_documents, extract_task_data
-    from yandex_disk import YandexDiskClient
-
-    profile_name = settings.get('profile_name', '')
-    include_act = settings.get('auto_include_act', True)
-    include_m15 = settings.get('auto_include_m15', True)
-
-    for task in free_tasks:
-        if task.get('guid') not in new_guids:
-            continue
-        try:
-            parsed = extract_task_data(task)
-            sap = parsed.get('sap', '')
-            if not sap:
-                logger.info("Auto-docs: skipped task %s (%s) — SAP not found", task.get('guid'), task.get('number', ''))
-                continue
-
-            pdfs = generate_documents(task, profile_name=profile_name,
-                                      include_act=include_act,
-                                      include_fn=False,
-                                      include_m15=include_m15,
-                                      field_overrides={'doc_date': ''})
-            if not pdfs:
-                continue
-
-            hk_code = parsed.get('zd', '')
-            today = datetime.now().strftime('%Y.%m.%d')
-            remote_dir = f"{username}/Docs/{today}/{sap}/{hk_code}/"
-
-            yandex = YandexDiskClient()
-            yandex.ensure_folder(remote_dir)
-            for pdf_path in pdfs:
-                fname = os.path.basename(pdf_path)
-                with open(pdf_path, 'rb') as f:
-                    data = f.read()
-                yandex.upload_file(remote_dir, fname, data)
-                if os.path.exists(pdf_path):
-                    os.unlink(pdf_path)
-
-            desc = f'Заявка {task.get("number", "")} — документы сформированы и загружены на Я.Диск'
-            create_notification(username, 'docs_generated', 'Документы сформированы', desc, task.get('guid'))
-            send_push_notification(username, 'Документы сформированы', desc)
-            logger.info("Auto-docs: generated for task %s (%s), SAP=%s, uploaded to %s",
-                        task.get('guid'), task.get('number', ''), sap, remote_dir)
-
-        except Exception as e:
-            logger.error("Auto-docs: failed for task %s (%s): %s",
-                         task.get('guid'), task.get('number', ''), e)
-
-
 _1C_NOTIFICATION_TITLES = {
     'new_task': 'Новое уведомление от 1С',
 }
@@ -830,46 +762,21 @@ def background_check_user(username, force=False):
     check_deadlines(user_tasks + free_tasks, username, now, notify_only_mine, my_task_keywords, in_work_saps)
     _track_task_transitions(username, user_tasks, free_tasks, closed_tasks, old_data)
     check_new_free_tasks(username, free_tasks, old_data, notify_only_mine, my_task_keywords, in_work_saps)
-    auto_generate_docs_for_new_free_tasks(username, free_tasks, old_data, client)
     check_1c_notifications(client, username)
     background_check_balances(client, username)
 
     attach_tracking(user_tasks, username)
     attach_tracking(closed_tasks, username)
 
-    if settings and settings.get('yandex_sync_data', True):
-        yandex = YandexDiskClient()
-        sync_tasks_to_yandex(username, user_data, free_data, closed_data, yandex=yandex)
+    if not force:
+        try:
+            products = client.get_products()
+            if products:
+                sync_products(products)
+        except Exception as e:
+            logger.warning("Background: failed to sync products: %s", e)
 
-        if not force:
-            sync_references_to_yandex(username, client, yandex=yandex)
-            sync_fn_schedule_to_yandex(username, yandex=yandex)
-            sync_ppr_to_yandex(username, client=client, yandex=yandex)
-            sync_task_m15_to_yandex(username, yandex=yandex)
-
-            try:
-                products = client.get_products()
-                if products:
-                    sync_products(products)
-            except Exception as e:
-                logger.warning("Background: failed to sync products: %s", e)
-
-            auto_close_tracked_tasks(closed_tasks, username)
-
-            try:
-                warehouse_data = {}
-                storages = client.get_storages()
-                if storages:
-                    for storage in storages:
-                        guid = storage.get('guid')
-                        snap = get_snapshot(username, guid)
-                        if snap is not None:
-                            warehouse_data[guid] = snap
-                sync_warehouse_to_yandex(username, warehouse_data, yandex=yandex)
-            except Exception as e:
-                logger.warning("Background: failed to prepare warehouse data for Yandex sync: %s", e)
-
-            sync_hashes_to_yandex(username, yandex=yandex)
+        auto_close_tracked_tasks(closed_tasks, username)
 
 
 def background_check_all_users():
@@ -907,19 +814,17 @@ def _try_background_lock():
         return None
 
 def background_check_loop():
-    last_action_check = 0.0
     last_full_check = 0.0
     while not _background_stop.is_set():
         if _is_working_hours():
             now = time.time()
-            action_due = (now - last_action_check) >= ACTION_CHECK_INTERVAL
             full_due = (now - last_full_check) >= BACKGROUND_CHECK_INTERVAL
 
-            if action_due or full_due:
+            if full_due:
                 lock_fd = _try_background_lock()
                 if not lock_fd:
                     logger.debug("Background: another worker holds the lock, skipping cycle")
-                    _background_stop.wait(min(ACTION_CHECK_INTERVAL, BACKGROUND_CHECK_INTERVAL))
+                    _background_stop.wait(BACKGROUND_CHECK_INTERVAL)
                     continue
                 try:
                     all_users = set()
@@ -928,28 +833,16 @@ def background_check_loop():
                     for uname in get_all_task_snapshot_users():
                         all_users.add(uname)
 
-                    actions_found = set()
-                    if action_due:
-                        for username in sorted(all_users):
-                            client = get_background_api_client(username)
-                            if client and process_actions(username, client):
-                                actions_found.add(username)
-                        last_action_check = time.time()
-
-                    if full_due or actions_found:
-                        users_to_check = all_users if full_due else actions_found
-                        for username in sorted(users_to_check):
-                            force = username in actions_found
-                            try:
-                                background_check_user(username, force=force)
-                            except Exception as e:
-                                logger.warning(f"Background check failed for {username}: {e}")
-                        last_full_check = time.time()
+                    for username in sorted(all_users):
+                        try:
+                            background_check_user(username)
+                        except Exception as e:
+                            logger.warning(f"Background check failed for {username}: {e}")
+                    last_full_check = time.time()
                 finally:
                     os.close(lock_fd)
 
-        sleep_interval = min(ACTION_CHECK_INTERVAL, BACKGROUND_CHECK_INTERVAL)
-        _background_stop.wait(sleep_interval)
+        _background_stop.wait(BACKGROUND_CHECK_INTERVAL)
 
 
 def make_etag_response(data):

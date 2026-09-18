@@ -1127,7 +1127,6 @@ def clear_user_cache(username):
     c.execute("DELETE FROM item_movements WHERE username=?", (username,))
     c.execute("DELETE FROM push_subscriptions WHERE username=?", (username,))
     c.execute("DELETE FROM user_credentials WHERE username=?", (username,))
-    c.execute("DELETE FROM yandex_uploads WHERE username=?", (username,))
     c.execute("DELETE FROM user_shops WHERE username=?", (username,))
     c.execute("DELETE FROM route_sheet_cache WHERE username=?", (username,))
     # Общие таблицы (не привязаны к username — полная перезагрузка)
@@ -1240,71 +1239,6 @@ def get_tasks_tracking(guids, username):
     rows = c.fetchall()
     conn.close()
     return {r[0]: {'taken_at': r[1], 'closed_at': r[2]} for r in rows}
-
-
-# --- YANDEX DISK UPLOAD TRACKING ---
-
-def init_yandex_uploads_table():
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS yandex_uploads (
-            username TEXT NOT NULL PRIMARY KEY,
-            tasks_hash TEXT,
-            warehouse_hash TEXT,
-            references_hash TEXT,
-            hashes_hash TEXT
-        )
-    """)
-    for col in ('references_hash', 'hashes_hash', 'tasks_user_hash', 'tasks_free_hash', 'tasks_closed_hash', 'ppr_hash', 'fn_schedule_hash', 'references_synced_at', 'task_m15_hash'):
-        try:
-            c.execute(f"ALTER TABLE yandex_uploads ADD COLUMN {col} TEXT")
-        except Exception:
-            pass
-    conn.commit()
-    conn.close()
-
-def get_yandex_upload_status(username):
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("SELECT tasks_hash, warehouse_hash, references_hash, hashes_hash, tasks_user_hash, tasks_free_hash, tasks_closed_hash, ppr_hash, fn_schedule_hash, references_synced_at, task_m15_hash FROM yandex_uploads WHERE username=?", (username,))
-    row = c.fetchone()
-    conn.close()
-    if row:
-        return {"tasks_hash": row[0], "warehouse_hash": row[1], "references_hash": row[2], "hashes_hash": row[3],
-                "tasks_user_hash": row[4], "tasks_free_hash": row[5], "tasks_closed_hash": row[6], "ppr_hash": row[7],
-                "fn_schedule_hash": row[8], "references_synced_at": row[9], "task_m15_hash": row[10]}
-    return None
-
-def save_yandex_upload_status(username, tasks_hash=None, warehouse_hash=None, references_hash=None, hashes_hash=None,
-                                tasks_user_hash=None, tasks_free_hash=None, tasks_closed_hash=None, ppr_hash=None,
-                                fn_schedule_hash=None, references_synced_at=None, task_m15_hash=None):
-    def _write():
-        conn = get_db_connection()
-        c = conn.cursor()
-        existing = get_yandex_upload_status(username) or {}
-        c.execute("""
-            INSERT OR REPLACE INTO yandex_uploads (username, tasks_hash, warehouse_hash, references_hash, hashes_hash,
-                                                   tasks_user_hash, tasks_free_hash, tasks_closed_hash, ppr_hash,
-                                                   fn_schedule_hash, references_synced_at, task_m15_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            username,
-            tasks_hash if tasks_hash is not None else existing.get("tasks_hash"),
-            warehouse_hash if warehouse_hash is not None else existing.get("warehouse_hash"),
-            references_hash if references_hash is not None else existing.get("references_hash"),
-            hashes_hash if hashes_hash is not None else existing.get("hashes_hash"),
-            tasks_user_hash if tasks_user_hash is not None else existing.get("tasks_user_hash"),
-            tasks_free_hash if tasks_free_hash is not None else existing.get("tasks_free_hash"),
-            tasks_closed_hash if tasks_closed_hash is not None else existing.get("tasks_closed_hash"),
-            ppr_hash if ppr_hash is not None else existing.get("ppr_hash"),
-            fn_schedule_hash if fn_schedule_hash is not None else existing.get("fn_schedule_hash"),
-            references_synced_at if references_synced_at is not None else existing.get("references_synced_at"),
-            task_m15_hash if task_m15_hash is not None else existing.get("task_m15_hash"),
-        ))
-        conn.commit()
-        conn.close()
-    _retry_on_locked(_write)
 
 
 # --- TASK M15 TEXT ---
@@ -1421,45 +1355,20 @@ def init_user_settings_table():
         c.execute("ALTER TABLE user_settings ADD COLUMN merry_milkman TEXT NOT NULL DEFAULT '0'")
     except Exception:
         pass
-    try:
-        c.execute("ALTER TABLE user_settings ADD COLUMN auto_generate_docs INTEGER NOT NULL DEFAULT 0")
-    except Exception:
-        pass
-    try:
-        c.execute("ALTER TABLE user_settings ADD COLUMN auto_include_act INTEGER NOT NULL DEFAULT 1")
-    except Exception:
-        pass
-    try:
-        c.execute("ALTER TABLE user_settings ADD COLUMN auto_include_m15 INTEGER NOT NULL DEFAULT 1")
-    except Exception:
-        pass
-    try:
-        c.execute("ALTER TABLE user_settings ADD COLUMN yandex_sync_data INTEGER NOT NULL DEFAULT 1")
-    except Exception:
-        pass
-    try:
-        c.execute("ALTER TABLE user_settings ADD COLUMN auto_include_yandex INTEGER NOT NULL DEFAULT 1")
-    except Exception:
-        pass
     conn.commit()
     conn.close()
 
 def save_user_settings(username, notify_only_mine, my_task_keywords,
                        profile_name='', default_warehouse='', default_department='', theme='dark',
                        mark_my_tasks=False, notify_all_warehouses=True,
-                       avatar_url='', merry_milkman=False,
-                       auto_generate_docs=False, auto_include_act=True,
-auto_include_m15=True, yandex_sync_data=True,
-                       auto_include_yandex=True):
+                       avatar_url='', merry_milkman=False):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("""
         INSERT INTO user_settings (username, notify_only_mine, my_task_keywords,
             profile_name, default_warehouse, default_department, theme, mark_my_tasks,
-            notify_all_warehouses, avatar_url, merry_milkman,
-            auto_generate_docs, auto_include_act, auto_include_m15,
-            yandex_sync_data, auto_include_yandex, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+            notify_all_warehouses, avatar_url, merry_milkman, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
         ON CONFLICT(username) DO UPDATE SET
             notify_only_mine = excluded.notify_only_mine,
             my_task_keywords = excluded.my_task_keywords,
@@ -1471,23 +1380,13 @@ auto_include_m15=True, yandex_sync_data=True,
             notify_all_warehouses = excluded.notify_all_warehouses,
             avatar_url = excluded.avatar_url,
             merry_milkman = excluded.merry_milkman,
-            auto_generate_docs = excluded.auto_generate_docs,
-            auto_include_act = excluded.auto_include_act,
-            auto_include_m15 = excluded.auto_include_m15,
-            yandex_sync_data = excluded.yandex_sync_data,
-            auto_include_yandex = excluded.auto_include_yandex,
             updated_at = datetime('now', 'localtime')
     """, (username, notify_only_mine, my_task_keywords,
           profile_name, default_warehouse, default_department, theme,
           1 if mark_my_tasks else 0,
           1 if notify_all_warehouses else 0,
           avatar_url,
-          1 if merry_milkman else 0,
-          1 if auto_generate_docs else 0,
-          1 if auto_include_act else 0,
-          1 if auto_include_m15 else 0,
-          1 if yandex_sync_data else 0,
-          1 if auto_include_yandex else 0))
+          1 if merry_milkman else 0))
     conn.commit()
     conn.close()
 
@@ -1495,7 +1394,7 @@ def get_user_settings(username):
     conn = get_db_connection()
     c = conn.cursor()
     try:
-        c.execute("SELECT notify_only_mine, my_task_keywords, profile_name, default_warehouse, theme, mark_my_tasks, notify_all_warehouses, avatar_url, merry_milkman, auto_generate_docs, auto_include_act, auto_include_m15, yandex_sync_data, auto_include_yandex, default_department FROM user_settings WHERE username = ?", (username,))
+        c.execute("SELECT notify_only_mine, my_task_keywords, profile_name, default_warehouse, theme, mark_my_tasks, notify_all_warehouses, avatar_url, merry_milkman, default_department FROM user_settings WHERE username = ?", (username,))
         row = c.fetchone()
         conn.close()
         if row:
@@ -1509,12 +1408,7 @@ def get_user_settings(username):
                 'notify_all_warehouses': bool(int(row[6])) if row[6] else True,
                 'avatar_url': row[7] or '',
                 'merry_milkman': bool(int(row[8])) if row[8] else False,
-                'auto_generate_docs': bool(int(row[9])) if row[9] else False,
-                'auto_include_act': bool(int(row[10])) if row[10] else True,
-                'auto_include_m15': bool(int(row[11])) if row[11] else True,
-                'yandex_sync_data': bool(int(row[12])) if row[12] else True,
-                'auto_include_yandex': bool(int(row[13])) if row[13] else True,
-                'default_department': row[14] or '',
+                'default_department': row[9] or '',
             }
     except Exception:
         pass
@@ -1957,6 +1851,35 @@ def delete_route_cache_entries(username, month):
     _retry_on_locked(_write)
 
 
+# --- Очистка схемы от интеграции с Яндекс.Диском ---
+
+def _migrate_drop_yandex():
+    """Разовая идемпотентная чистка схемы.
+
+    Интеграция с Яндекс.Диском и авто-генерация документов больше не
+    используются: таблица yandex_uploads и связанные настройки удаляются
+    физически (SQLite >= 3.35 поддерживает DROP COLUMN).
+    """
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_settings'")
+        if c.fetchone():
+            existing = {row[1] for row in c.execute("PRAGMA table_info(user_settings)")}
+            for col in ('auto_generate_docs', 'auto_include_act', 'auto_include_m15',
+                        'yandex_sync_data', 'yandex_sync_docs', 'auto_include_yandex'):
+                if col in existing:
+                    try:
+                        c.execute(f"ALTER TABLE user_settings DROP COLUMN {col}")
+                    except Exception:
+                        pass
+        c.execute("DROP TABLE IF EXISTS yandex_uploads")
+        conn.commit()
+    except Exception as e:
+        logger.warning(f"_migrate_drop_yandex failed: {e}")
+    conn.close()
+
+
 # Инициализация БД при импорте модуля
 try:
     init_db()
@@ -1970,7 +1893,6 @@ try:
     init_product_instances_table()
     init_item_movements_table()
     init_user_credentials_table()
-    init_yandex_uploads_table()
     init_task_m15_items_table()
     init_task_m15_text_table()
     init_user_settings_table()
@@ -1978,5 +1900,6 @@ try:
     init_fn_schedule_table()
     init_ppr_tasks_table()
     init_route_sheet_cache_table()
+    _migrate_drop_yandex()
 except Exception as e:
     logger.warning(f"init_db failed (readonly?): {e}")
