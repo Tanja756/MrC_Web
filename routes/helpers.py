@@ -77,11 +77,73 @@ def login_required(f):
     return decorated
 
 
+def _establish_session(username, password, login_data=None):
+    """Поднять серверную сессию по проверенным кредам (как в auth.login)."""
+    session['authenticated'] = True
+    session['server_host'] = SERVER_HOST
+    session['server_port'] = SERVER_PORT
+    session['db_name'] = SERVER_DB
+    session['username'] = username
+    session['password'] = password
+    session['last_login'] = datetime.now().isoformat()
+    session.permanent = True
+    if login_data is not None:
+        session['priorities'] = login_data.get('priorities', [])
+        session['divisions'] = login_data.get('divisions', [])
+
+
+def _auth_via_basic():
+    """Basic-auth для API: вернуть True, если сессия поднята.
+
+    Быстрый путь — сверка с кредами, сохранёнными в БД (без обращения к 1С).
+    Медленный — пробный логин в 1С с последующим сохранением кредов.
+    """
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Basic '):
+        return False
+    try:
+        decoded = base64.b64decode(auth_header[6:].strip()).decode('utf-8')
+        username, _, password = decoded.partition(':')
+        username = username.strip()
+    except Exception:
+        return False
+    if not username or not password:
+        return False
+
+    # Быстрый путь: креды уже сохранены на сервере
+    try:
+        if get_user_credentials(username) == password:
+            _establish_session(username, password)
+            return True
+    except Exception as e:
+        logger.warning(f"basic auth db lookup failed for {username}: {e}")
+
+    # Медленный путь: проверяем креды напрямую в 1С
+    try:
+        client = OneSApiClient(
+            host=SERVER_HOST, port=SERVER_PORT, db_name=SERVER_DB,
+            username=username, password=password,
+        )
+        data = client.login()
+        _establish_session(username, password, login_data=data)
+        try:
+            save_user_credentials(username, password)
+        except Exception as e:
+            logger.warning(f"basic auth: failed to save credentials for {username}: {e}")
+        return True
+    except Exception:
+        logger.warning(f"basic auth: 1C login failed for {username}")
+        return False
+
+
 def api_login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if not session.get('authenticated'):
-            return jsonify({'error': 'Session expired'}), 401
+            if request.headers.get('Authorization', '').startswith('Basic '):
+                if _auth_via_basic():
+                    return f(*args, **kwargs)
+            return jsonify({'error': 'Unauthorized'}), 401
         return f(*args, **kwargs)
     return decorated
 
