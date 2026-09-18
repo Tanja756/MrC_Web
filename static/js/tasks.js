@@ -278,25 +278,12 @@ function setTaskDepartment() {
 }
 
 // Применение сохранённого фильтра при загрузке страницы:
-// мгновенно из localStorage (офлайн), затем фоновая синхронизация с сервером.
-// Сервер — источник истины, но пустое серверное значение не сбрасывает
-// локальный (возможно офлайн) выбор.
+// фильтр подразделений — локальная настройка устройства, хранится
+// только в localStorage (на сервер не отправляется и с него не читается).
 function initTaskDepartment() {
     const sel = document.getElementById('taskDepartment');
     if (!sel) return;
     sel.value = lsGet('defaultDepartment', '') || '';
-    fetch('/api/profile', {cache: 'no-store'})
-        .then(checkAuth)
-        .then(r => r.json())
-        .then(data => {
-            const server = (data && data.profile) ? (data.profile.defaultDepartment || '') : '';
-            if (server && server !== (lsGet('defaultDepartment', '') || '')) {
-                lsSet('defaultDepartment', server);
-                sel.value = server;
-                filterTasks();
-            }
-        })
-        .catch(() => {});
 }
 
 function resetFilters() {
