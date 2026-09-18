@@ -2,6 +2,8 @@ import os
 import re
 import uuid
 import zipfile
+import fcntl
+import time
 import xml.etree.ElementTree as ET
 import tempfile
 import logging
@@ -10,6 +12,38 @@ from typing import Optional
 from pypdf import PdfReader, PdfWriter
 
 logger = logging.getLogger(__name__)
+
+# LibreOffice прожорлив по памяти (~200-400 МБ на процесс): ограничиваем
+# число одновременных конвертаций через межпроцессные flock-слоты
+# (работает и между воркерами gunicorn). Остальные запросы ждут до
+# _LO_SLOT_TIMEOUT, при таймауте — отказ "сервер занят".
+_LO_SLOTS = 2
+_LO_SLOT_DIR = '/tmp/mrc_lo_slots'
+_LO_SLOT_TIMEOUT = 150  # сек (LO сам живёт до 180)
+
+
+def _acquire_lo_slot():
+    """Захватить слот LibreOffice (межпроцессно). None — все слоты заняты."""
+    os.makedirs(_LO_SLOT_DIR, exist_ok=True)
+    deadline = time.time() + _LO_SLOT_TIMEOUT
+    while True:
+        for i in range(_LO_SLOTS):
+            fd = open(os.path.join(_LO_SLOT_DIR, 'slot%d.lock' % i), 'w')
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return fd
+            except OSError:
+                fd.close()
+        if time.time() >= deadline:
+            return None
+        time.sleep(0.5)
+
+
+def _release_lo_slot(fd):
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        fd.close()
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), 'templates_docs')
 OUT_DIR = os.path.join(os.path.dirname(__file__), 'out_doc')
@@ -43,12 +77,19 @@ class ODSFiller:
         import subprocess
         env = os.environ.copy()
         env['HOME'] = lo_dir
-        result = subprocess.run(
-            ['libreoffice', '--headless', '--norestore',
-             f'-env:UserInstallation=file:///{lo_dir}',
-             '--convert-to', 'pdf', '--outdir', os.path.dirname(pdf_path), ods_path],
-            capture_output=True, text=True, timeout=180, env=env
-        )
+
+        slot = _acquire_lo_slot()
+        if slot is None:
+            raise RuntimeError('Сервер занят генерацией других документов, повторите через минуту')
+        try:
+            result = subprocess.run(
+                ['libreoffice', '--headless', '--norestore',
+                 f'-env:UserInstallation=file:///{lo_dir}',
+                 '--convert-to', 'pdf', '--outdir', os.path.dirname(pdf_path), ods_path],
+                capture_output=True, text=True, timeout=180, env=env
+            )
+        finally:
+            _release_lo_slot(slot)
         if result.returncode != 0:
             msg = (result.stderr or '').strip() or (result.stdout or '').strip() or f'LibreOffice exit code {result.returncode}'
             raise RuntimeError(f"LibreOffice error: {msg}")

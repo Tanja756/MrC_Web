@@ -115,8 +115,9 @@ async function _inflateGzip(buf) {
 }
 
 // Базовый вызов функции. payload: {login, password, type, ...}.
-// Возвращает {status, headers, arrayBuffer()} (как fetch-Response, тело
-// уже распаковано из gzip) или null (нет кредов / сеть / нет gzip).
+// Возвращает {status, headers, arrayBuffer(), error} — error заполнен для
+// JSON-ошибок функции (ошибки не gzip'уются); 401 дополнительно чистит
+// креды. null — нет кредов / нет DecompressionStream / сеть недоступна.
 async function ycRequest(payload) {
     const creds = getCreds();
     if (!creds || typeof DecompressionStream === 'undefined') return null;
@@ -130,18 +131,21 @@ async function ycRequest(payload) {
             body: JSON.stringify(payload),
         });
     } catch { return null; }
-    if (r.status === 401) { clearCreds(); return null; }  // креды протухли
-    if (r.status === 304 || r.status !== 200) return {status: r.status, headers: r.headers, arrayBuffer: async () => new ArrayBuffer(0)};
     const buf = await r.arrayBuffer();
-    if (r.headers.get('Content-Encoding') !== 'gzip') {
-        // Неожиданный формат (например, старая версия функции) — тело как есть
-        return {status: r.status, headers: r.headers, arrayBuffer: async () => buf};
+    const res = {status: r.status, headers: r.headers, arrayBuffer: async () => buf, error: ''};
+    if (r.status !== 200) {
+        if (r.status === 401) clearCreds();
+        try { res.error = (JSON.parse(new TextDecoder().decode(buf)) || {}).error || ''; } catch {}
+        return res;
     }
+    if (r.headers.get('Content-Encoding') !== 'gzip') return res;
     const inflated = await _inflateGzip(buf);
-    return {status: r.status, headers: r.headers, arrayBuffer: async () => inflated};
+    res.arrayBuffer = async () => inflated;
+    return res;
 }
 
-// Список заявок: {tasks: [...]} или null.
+// Список заявок: {tasks: [...]} или null (любая неудача -> фолбэк на прямой
+// запрос — списки дешёвые).
 function ycFetchTasks(type, params) {
     return ycRequest({
         type: type || 'free',
@@ -154,13 +158,19 @@ function ycFetchTasks(type, params) {
     }).catch(() => null);
 }
 
-// Генерация документа (type: doc-act|doc-fn|doc-m15). Возвращает
-// {blob, filename} или null -> вызывающий код делает фолбэк на прямой fetch.
+// Генерация документа (type: doc-act|doc-fn|doc-m15). Возвращает:
+//   {blob, filename}   — успех;
+//   {status, error}    — бэк ОТВЕТИЛ ошибкой: НЕ повторять генерацию
+//                        (иначе она пойдёт параллельно второй раз и
+//                        завалит сервер LibreOffice-процессами);
+//   null               — функция недоступна/нет кредов -> фолбэк на прямой
+//                        запрос по cookie-сессии.
 async function ycGenerateDoc(type, body) {
     const r = await ycRequest(Object.assign({type}, body));
-    if (!r || r.status !== 200) return null;
+    if (!r) return null;
+    if (r.status !== 200) return {status: r.status, error: r.error || ''};
     const buf = await r.arrayBuffer();
-    if (buf.byteLength === 0) return null;
+    if (buf.byteLength === 0) return {status: r.status, error: 'Пустой ответ функции'};
     let filename = getFilenameFromHeaders(r.headers) || '';
     if (!filename) {
         const t = ({'doc-act': 'AVR', 'doc-fn': 'FN', 'doc-m15': 'm15'})[type] || 'doc';

@@ -1512,19 +1512,25 @@ function generateDocForm() {
                      '/api/tasks/documents/fn': 'doc-fn',
                      '/api/tasks/documents/m15': 'doc-m15'};
 
-    const fetches = endpoints.map(url => {
-        // Сначала через облачную функцию, при неудаче — прямой fetch (cookie-сессия)
-        return ycGenerateDoc(ycTypes[url], payload)
-            .then(ycRes => {
-                if (ycRes) return ycRes;
-                return fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)})
-                    .then(checkAuth)
-                    .then(r => {
-                        if (!r.ok) return r.json().then(t => { throw new Error(t.error || 'Ошибка генерации') });
-                        const filename = getFilenameFromHeaders(r.headers);
-                        return r.blob().then(blob => ({blob, filename}));
-                    });
+    const fetchDirect = u =>
+        fetch(u, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)})
+            .then(checkAuth)
+            .then(r => {
+                if (!r.ok) return r.json().then(t => { throw new Error(t.error || 'Ошибка генерации') });
+                const filename = getFilenameFromHeaders(r.headers);
+                return r.blob().then(blob => ({blob, filename}));
             });
+
+    const fetches = endpoints.map(url => {
+        // Через облачную функцию; бэк ответил ошибкой -> показываем её,
+        // НЕ повторяя генерацию (иначе LibreOffice пойдёт вторым потоком);
+        // функция недоступна / неверные креды 1С -> прямой запрос по cookie-сессии.
+        return ycGenerateDoc(ycTypes[url], payload).then(ycRes => {
+            if (ycRes && ycRes.blob) return ycRes;
+            if (ycRes && ycRes.status === 401) return fetchDirect(url);
+            if (ycRes) throw new Error(ycRes.error || 'Ошибка генерации (HTTP ' + ycRes.status + ')');
+            return fetchDirect(url);
+        });
     });
 
     downloadMultiple(fetches, (done, total) => {
