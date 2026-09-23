@@ -11,8 +11,7 @@ logger = logging.getLogger(__name__)
 def _retry_on_locked(fn, max_retries=5):
     for attempt in range(max_retries):
         try:
-            fn()
-            return
+            return fn()
         except sqlite3.OperationalError as e:
             if 'locked' in str(e) and attempt < max_retries - 1:
                 time.sleep(0.3 * (attempt + 1))
@@ -28,9 +27,9 @@ def upper_ru(text):
     return text.upper() if text else None
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_NAME, timeout=5)
+    conn = sqlite3.connect(DB_NAME, timeout=10)
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA busy_timeout=10000")
     conn.create_function("LOWER_RU", 1, lower_ru)
     conn.create_function("UPPER_RU", 1, upper_ru)
     return conn
@@ -81,47 +80,72 @@ def add_shop_if_not_exists(shop_number, sap_code, address):
 def get_all_shops():
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT rowid, shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone FROM shops ORDER BY shop_number")
+    c.execute("SELECT rowid, shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone FROM shops")
     rows = c.fetchall()
     conn.close()
+    # Естественная сортировка: числовые номера по возрастанию числа (1, 2, 10,
+    # а не 1, 10, 2), прочие — в конце по алфавиту.
+    def _sort_key(r):
+        num = (r[1] or '').strip()
+        if num.isdigit():
+            return (0, int(num), '')
+        return (1, 0, num)
+    rows.sort(key=_sort_key)
     return [{'id': r[0], 'shop_number': r[1], 'sap_code': r[2], 'address': r[3],
              'dm_name': r[4], 'dm_phone': r[5], 'adm1_name': r[6], 'adm1_phone': r[7],
              'adm2_name': r[8], 'adm2_phone': r[9]} for r in rows]
 
 def add_shop(shop_number, sap_code, address, dm_name='', dm_phone='', adm1_name='', adm1_phone='', adm2_name='', adm2_phone=''):
+    """Добавить магазин. Возвращает rowid или None, если такой (номер, SAP) уже есть.
+    ВАЖНО: соединение закрывается в finally — при IntegrityError открытая
+    транзакция удерживала бы блокировку БД до сборки мусора."""
     if not all([shop_number, sap_code, address]):
         return None
     conn = get_db_connection()
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO shops (shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone)
-    )
-    rowid = c.lastrowid
-    conn.commit()
-    conn.close()
-    return rowid
+    try:
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO shops (shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone)
+        )
+        rowid = c.lastrowid
+        conn.commit()
+        return rowid
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        return None
+    finally:
+        conn.close()
 
 def update_shop(rowid, shop_number, sap_code, address, dm_name='', dm_phone='', adm1_name='', adm1_phone='', adm2_name='', adm2_phone=''):
+    """Обновить магазин. True — ок, False — не найден, None — дубликат (номер+SAP).
+    Соединение закрывается в finally (см. add_shop)."""
     conn = get_db_connection()
-    c = conn.cursor()
-    c.execute(
-        "UPDATE shops SET shop_number = ?, sap_code = ?, address = ?, dm_name = ?, dm_phone = ?, adm1_name = ?, adm1_phone = ?, adm2_name = ?, adm2_phone = ? WHERE rowid = ?",
-        (shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone, rowid)
-    )
-    affected = c.rowcount
-    conn.commit()
-    conn.close()
-    return affected > 0
+    try:
+        c = conn.cursor()
+        c.execute(
+            "UPDATE shops SET shop_number = ?, sap_code = ?, address = ?, dm_name = ?, dm_phone = ?, adm1_name = ?, adm1_phone = ?, adm2_name = ?, adm2_phone = ? WHERE rowid = ?",
+            (shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone, rowid)
+        )
+        affected = c.rowcount
+        conn.commit()
+        return affected > 0
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        return None
+    finally:
+        conn.close()
 
 def delete_shop(rowid):
     conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("DELETE FROM shops WHERE rowid = ?", (rowid,))
-    affected = c.rowcount
-    conn.commit()
-    conn.close()
-    return affected > 0
+    try:
+        c = conn.cursor()
+        c.execute("DELETE FROM shops WHERE rowid = ?", (rowid,))
+        affected = c.rowcount
+        conn.commit()
+        return affected > 0
+    finally:
+        conn.close()
 
 def find_shop_by_number(number):
     if not number:
@@ -256,8 +280,8 @@ def init_user_shops_table():
 def set_user_shop_in_work(username, sap_code, in_work):
     if not username or not sap_code:
         return
+    conn = get_db_connection()
     try:
-        conn = get_db_connection()
         c = conn.cursor()
         c.execute("""
             INSERT INTO user_shops (username, sap_code, in_work)
@@ -265,9 +289,14 @@ def set_user_shop_in_work(username, sap_code, in_work):
             ON CONFLICT(username, sap_code) DO UPDATE SET in_work = excluded.in_work
         """, (username, sap_code, 1 if in_work else 0))
         conn.commit()
-        conn.close()
     except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         logger.warning(f"set_user_shop_in_work failed: {e}")
+    finally:
+        conn.close()
 
 def get_user_in_work_saps(username):
     if not username:
@@ -748,35 +777,56 @@ def init_item_movements_table():
     c.execute("CREATE INDEX IF NOT EXISTS idx_item_movements_series ON item_movements(series_name)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_item_movements_inventory ON item_movements(inventory_number)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_item_movements_storage_date ON item_movements(storage_guid, event_date)")
+    # Защита от дублей при параллельной записи (несколько документов разом):
+    # уникальный индекс по ключу движения + чистка исторических дублей.
+    try:
+        c.execute("""
+            DELETE FROM item_movements
+            WHERE id NOT IN (
+                SELECT MIN(id) FROM item_movements
+                GROUP BY event_type, storage_guid, product_name, series_name,
+                         inventory_number, event_date, task_guid
+            )
+        """)
+        c.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_item_movements_dedup
+            ON item_movements(event_type, storage_guid, product_name, series_name,
+                              inventory_number, event_date, task_guid)
+        """)
+    except sqlite3.Error as e:
+        logger.warning(f"item_movements dedup index skipped: {e}")
     conn.commit()
     conn.close()
 
 def add_item_movements(events):
     """Insert movement events. Idempotent: skips rows that already exist for the same
-    (event_type, storage_guid, product_name, series_name, inventory_number, event_date, task_guid)."""
-    events = [e for e in events if e.get('series_name') or e.get('inventory_number')]
-    if not events:
+    (event_type, storage_guid, product_name, series_name, inventory_number, event_date, task_guid).
+    Дубли внутри пачки и гонка между процессами отсекаются уникальным индексом
+    uq_item_movements_dedup (INSERT OR IGNORE)."""
+    seen = set()
+    unique_events = []
+    for e in events:
+        if not (e.get('series_name') or e.get('inventory_number')):
+            continue
+        k = (e.get('event_type', ''), e.get('storage_guid', '') or '',
+             e.get('product_name', '') or '', e.get('series_name', '') or '',
+             e.get('inventory_number', '') or '', e.get('event_date', '') or '',
+             e.get('task_guid', '') or '')
+        if k in seen:
+            continue
+        seen.add(k)
+        unique_events.append(e)
+    if not unique_events:
         return
     conn = get_db_connection()
     c = conn.cursor()
-    for e in events:
+    for e in unique_events:
         c.execute("""
-            SELECT 1 FROM item_movements
-            WHERE event_type = ? AND storage_guid = ? AND product_name = ?
-              AND series_name = ? AND inventory_number = ? AND event_date = ? AND task_guid = ?
-            LIMIT 1
-        """, (e.get('event_type', ''), e.get('storage_guid', '') or '', e.get('product_name', '') or '',
-              e.get('series_name', '') or '', e.get('inventory_number', '') or '',
-              e.get('event_date', '') or '', e.get('task_guid', '') or ''))
-        if c.fetchone():
-            continue
-        c.execute("""
-            INSERT INTO item_movements
+            INSERT OR IGNORE INTO item_movements
                 (event_type, product_name, series_name, inventory_number, storage_guid,
                  task_guid, task_name, status, event_date, comment, username, source)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (e.get('event_type', ''), e.get('product_name', '') or '', e.get('series_name', '') or '',
-              e.get('inventory_number', '') or '', e.get('storage_guid', '') or '',
+        """, (e.get('event_type', ''), e.get('product_name', '') or '', e.get('series_name', '') or '', e.get('inventory_number', '') or '', e.get('storage_guid', '') or '',
               e.get('task_guid', '') or '', e.get('task_name', '') or '', e.get('status', '') or '',
               e.get('event_date', '') or '', e.get('comment', '') or '', e.get('username', '') or '',
               e.get('source', '') or ''))
@@ -1851,35 +1901,6 @@ def delete_route_cache_entries(username, month):
     _retry_on_locked(_write)
 
 
-# --- Очистка схемы от интеграции с Яндекс.Диском ---
-
-def _migrate_drop_yandex():
-    """Разовая идемпотентная чистка схемы.
-
-    Интеграция с Яндекс.Диском и авто-генерация документов больше не
-    используются: таблица yandex_uploads и связанные настройки удаляются
-    физически (SQLite >= 3.35 поддерживает DROP COLUMN).
-    """
-    conn = get_db_connection()
-    c = conn.cursor()
-    try:
-        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_settings'")
-        if c.fetchone():
-            existing = {row[1] for row in c.execute("PRAGMA table_info(user_settings)")}
-            for col in ('auto_generate_docs', 'auto_include_act', 'auto_include_m15',
-                        'yandex_sync_data', 'yandex_sync_docs', 'auto_include_yandex'):
-                if col in existing:
-                    try:
-                        c.execute(f"ALTER TABLE user_settings DROP COLUMN {col}")
-                    except Exception:
-                        pass
-        c.execute("DROP TABLE IF EXISTS yandex_uploads")
-        conn.commit()
-    except Exception as e:
-        logger.warning(f"_migrate_drop_yandex failed: {e}")
-    conn.close()
-
-
 # Инициализация БД при импорте модуля
 try:
     init_db()
@@ -1900,6 +1921,5 @@ try:
     init_fn_schedule_table()
     init_ppr_tasks_table()
     init_route_sheet_cache_table()
-    _migrate_drop_yandex()
 except Exception as e:
     logger.warning(f"init_db failed (readonly?): {e}")

@@ -15,10 +15,23 @@ const SERVER_PROFILE_KEYS = [
 ];
 // Параметры, которые сервер только отдаёт (файл аватара хранится на сервере).
 const SERVER_READONLY_PROFILE_KEYS = ['avatarUrl'];
-// Все остальные параметры (theme, markMyTasks, merryMilkman, defaultDepartment
-// и т.д.) — настройки конкретного устройства: живут только в localStorage,
-// на сервер не отправляются и с него не читаются, поэтому не конфликтуют
-// при входе под одним пользователем с разных устройств.
+// Настройки конкретного устройства (theme, markMyTasks, merryMilkman,
+// defaultDepartment): живут в localStorage и при обычной работе с сервера не
+// перезаписываются, поэтому не конфликтуют при входе под одним пользователем
+// с разных устройств. Сервер хранит их как резервную копию: она применяется
+// только когда на устройстве настройки ещё нет (первый вход, очистка данных
+// браузера) — см. loadProfile().
+const SERVER_BACKUP_LOCAL_KEYS = ['theme', 'markMyTasks', 'merryMilkman', 'defaultDepartment'];
+// Из настроек-резервных копий строковые параметры восстанавливаем и когда
+// локальное значение пустое ('' = «не настроено»), а переключатели — только
+// когда ключа нет вовсе (у них '' означает «выключено»).
+const SERVER_BACKUP_STRING_KEYS = ['profileName', 'myTaskKeywords', 'defaultWarehouse', 'defaultDepartment'];
+// Переключатели хранятся в localStorage как 'true' (включено) или '' (выключено).
+const LOCAL_BOOLEAN_KEYS = ['markMyTasks', 'merryMilkman', 'notifyOnlyMine', 'notifyAllWarehouses'];
+
+function lsRaw(key) {
+    try { return localStorage.getItem(key); } catch { return null; }
+}
 
 function applyTheme(theme) {
     currentTheme = theme;
@@ -180,16 +193,37 @@ function loadProfile() {
         .then(data => {
             const p = data.profile;
             if (!p) return;
-            // Применяем только синхронизируемые с сервером параметры.
-            // Локальные настройки устройства (theme, markMyTasks, merryMilkman,
-            // defaultDepartment и т.д.) с сервера НЕ перезаписываются — у каждого
-            // устройства свои значения, конфликтов между устройствами нет.
-            for (const key of SERVER_PROFILE_KEYS.concat(SERVER_READONLY_PROFILE_KEYS)) {
+            // Синхронизируемые с сервером параметры + настройки устройства:
+            // применяем значение с сервера ТОЛЬКО если на этом устройстве ключа
+            // ещё нет (первый вход на устройстве, очистка данных браузера).
+            // Уже сохранённые на устройстве значения не перезаписываются —
+            // у каждого устройства свои настройки, конфликтов между
+            // устройствами при входе под одним пользователем нет.
+            const restoreKeys = SERVER_PROFILE_KEYS.concat(SERVER_BACKUP_LOCAL_KEYS);
+            let themeRestored = false;
+            for (const key of restoreKeys) {
+                if (p[key] === undefined || p[key] === null) continue;
+                const localVal = lsRaw(key);
+                // Пустое значение строковой настройки считаем «не настроено»
+                // и тоже восстанавливаем; '' у переключателя — это «выключено».
+                const canRestore = localVal === null ||
+                    (localVal === '' && SERVER_BACKUP_STRING_KEYS.includes(key));
+                if (!canRestore) continue;
+                const val = LOCAL_BOOLEAN_KEYS.includes(key)
+                    ? (p[key] === 'true' || p[key] === true ? 'true' : '')
+                    : String(p[key]);
+                lsSet(key, val);
+                if (key === 'theme') themeRestored = true;
+            }
+            // Параметры, которые сервер только отдаёт (avatarUrl): источник
+            // истины — сервер, значение всегда берём оттуда.
+            for (const key of SERVER_READONLY_PROFILE_KEYS) {
                 if (p[key] !== undefined && p[key] !== null) lsSet(key, p[key]);
             }
             if (p.profileName && p.profileName !== savedProfileName) {
                 savedProfileName = p.profileName;
             }
+            if (themeRestored) applyTheme(lsGet('theme', 'dark'));
             updateProfileAvatar();
             const menuName = document.getElementById('menuProfileName');
             if (menuName && savedProfileName) menuName.textContent = savedProfileName;
@@ -217,15 +251,18 @@ function saveProfile() {
     if (mmEl) lsSet('merryMilkman', mmEl.classList.contains('active') ? 'true' : '');
     updateProfileAvatar();
 
-    // На сервер отправляем только параметры, важные для его работы.
-    // Локальные настройки устройства (theme, markMyTasks, merryMilkman,
-    // defaultDepartment и т.д.) остаются только в localStorage.
+    // На сервер отправляем параметры, важные для его работы, и настройки
+    // устройства — сервер хранит их как резервную копию, чтобы восстановить
+    // на новом устройстве (см. loadProfile).
     const prof = {
         profileName: savedProfileName,
         defaultWarehouse: lsGet('defaultWarehouse', ''),
         myTaskKeywords: lsGet('myTaskKeywords', ''),
         notifyOnlyMine: lsGet('notifyOnlyMine', ''),
         notifyAllWarehouses: lsGet('notifyAllWarehouses', ''),
+        theme: lsGet('theme', 'dark'),
+        markMyTasks: lsGet('markMyTasks', ''),
+        merryMilkman: lsGet('merryMilkman', ''),
     };
 
     return fetch('/api/profile', {
@@ -575,20 +612,121 @@ function requestPermissions() {
 }
 
 // ============ STARTUP ============
+// Заставка «приёмка смены»: пока грузится приложение, Mr.Check подшучивает,
+// прогресс бодро бежит до 92%, «зависает» (секундочку...), затем добегает и
+// шлёпает печать «ПРОВЕРЕНО» с искрами. В «молочном режиме» (merryMilkman)
+// строки и искры — молочные.
+var STARTUP_TIPS = [
+    'Считаю пломбы…',
+    'Договариваюсь с 1С…',
+    'Проверяю, не убежало ли молоко…',
+    'Натираю склад до блеска…',
+    'Ищу свободные заявки…',
+    'Сверяюсь с холодильником…',
+    'Расставляю приоритеты…',
+    'Почти готово. Ну, почти…'
+];
+var STARTUP_MERRY_TIPS = [
+    'Молочный режим: ВКЛ 🥛',
+    'Надоил на 300%…'
+];
+
+function startupReducedMotion() {
+    try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+    catch (e) { return false; }
+}
+
+// Искры от печати; в молочном режиме их больше и часть — эмодзи молока.
+function startupSparks(merry) {
+    var ov = document.getElementById('startupOverlay');
+    if (!ov) return;
+    // Сыплем из печати (центр «героя»), иначе — из центра оверлея.
+    var host = document.querySelector('.startup-hero') || ov;
+    var total = merry ? 26 : 10;
+    for (var i = 0; i < total; i++) {
+        var spark = document.createElement('span');
+        var isMilk = merry && i % 4 === 0;
+        spark.className = 'startup-spark' + (isMilk ? ' startup-spark-milk' : '');
+        if (isMilk) spark.textContent = '🥛';
+        spark.style.setProperty('--dx', (Math.random() - 0.5) * 340 + 'px');
+        spark.style.setProperty('--dy', (Math.random() * -260 - 60) + 'px');
+        spark.style.setProperty('--r', Math.random() * 720 + 'deg');
+        host.appendChild(spark);
+        (function (el) { setTimeout(function () { el.remove(); }, 1400); })(spark);
+    }
+}
+
 function runStartup() {
     const ov = document.getElementById('startupOverlay');
     if (!ov) return;
-    if (sessionStorage.getItem('startupDone')) {
-        ov.style.display = 'none';
-        return;
-    }
-    setTimeout(() => {
-        ov.classList.add('hide');
-        sessionStorage.setItem('startupDone', '1');
-        setTimeout(() => {
+
+    try {
+        if (sessionStorage.getItem('startupDone')) {
             ov.style.display = 'none';
-        }, 600);
-    }, 1600);
+            return;
+        }
+    } catch (e) {}
+
+    const finish = (immediate) => {
+        try { sessionStorage.setItem('startupDone', '1'); } catch (e) {}
+        ov.classList.add('hide');
+        if (immediate) { ov.style.display = 'none'; return; }
+        setTimeout(() => { ov.style.display = 'none'; }, 600);
+    };
+
+    // Пользователь просил меньше движения — не мучаем его анимацией.
+    if (startupReducedMotion()) { finish(true); return; }
+
+    const statusEl = document.getElementById('startupStatus');
+    const fillEl = document.getElementById('startupBarFill');
+    const pctEl = document.getElementById('startupPct');
+
+    let merry = false;
+    try { merry = lsGet('merryMilkman', '') === 'true'; } catch (e) {}
+    const tips = (merry ? STARTUP_MERRY_TIPS : []).concat(STARTUP_TIPS);
+
+    const setTip = text => {
+        if (!statusEl) return;
+        statusEl.textContent = text;
+        statusEl.classList.remove('startup-tip-in');
+        void statusEl.offsetWidth; // перезапуск анимации появления
+        statusEl.classList.add('startup-tip-in');
+    };
+    setTip(tips[0]);
+
+    let tipIdx = 0;
+    const tipTimer = setInterval(() => {
+        tipIdx++;
+        if (tipIdx >= tips.length) { clearInterval(tipTimer); return; }
+        setTip(tips[tipIdx]);
+    }, 330);
+
+    // Прогресс: 0→92% за STALL_FROM мс, пауза-интрига, потом финиш.
+    const DURATION = 1500, STALL_FROM = 780, STALL_TO = 1080;
+    const t0 = Date.now();
+    let finished = false;
+
+    const paint = () => {
+        const elapsed = Date.now() - t0;
+        let pct;
+        if (elapsed <= STALL_FROM) pct = (elapsed / STALL_FROM) * 92;
+        else if (elapsed <= STALL_TO) pct = 92;
+        else pct = 92 + ((elapsed - STALL_TO) / Math.max(1, DURATION - STALL_TO)) * 8;
+        pct = Math.max(0, Math.min(100, Math.round(pct)));
+        if (fillEl) fillEl.style.width = pct + '%';
+        if (pctEl) pctEl.textContent = pct + '%';
+        if (pct < 100 || finished) return;
+        finished = true;
+        clearInterval(barTimer);
+        clearInterval(tipTimer);
+        setTip('Смена принята. Работаем!');
+        ov.classList.add('stamped');
+        startupSparks(merry);
+        setTimeout(finish, 220);
+    };
+
+    const barTimer = setInterval(paint, 40);
+    paint();
 }
 
 // ============ INIT ============

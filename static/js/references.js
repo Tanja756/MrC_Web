@@ -2,10 +2,15 @@ let shopModalInstance = null;
 let fiasDebounceTimer = null;
 let fiasHideTimer = null;
 let shopContacts = {};
+let fiasItems = [];
 
 document.addEventListener('DOMContentLoaded', () => {
     shopModalInstance = new bootstrap.Modal(document.getElementById('shopFormModal'));
     document.getElementById('shopFormModal').addEventListener('hidden.bs.modal', hideFiasSuggestions);
+    document.getElementById('fiasSuggestions').addEventListener('click', e => {
+        const btn = e.target.closest('[data-fias-index]');
+        if (btn) selectFiasSuggestion(parseInt(btn.dataset.fiasIndex, 10));
+    });
     loadShops();
 });
 
@@ -13,7 +18,7 @@ function loadShops() {
     const tbody = document.getElementById('shopsTableBody');
     tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4"><div class="spinner-border spinner-border-sm text-muted"></div></td></tr>';
     Promise.all([
-        fetch('/api/references/shops').then(r => r.json()),
+        fetch('/api/references/shops').then(checkAuth).then(r => r.json()),
         fetch('/api/references/shops/user-status').then(r => r.json()).catch(() => ({}))
     ])
         .then(([shops, userStatus]) => {
@@ -33,7 +38,7 @@ function loadShops() {
                     <td>${escHtml(s.shop_number)}</td>
                     <td>${escHtml(s.sap_code)}</td>
                     <td class="shop-address">${escHtml(s.address)}</td>
-                    <td><input type="checkbox" class="form-check-input" ${checked ? 'checked' : ''} onchange="toggleInWork('${escHtml(s.sap_code)}', this.checked)"></td>
+                    <td><input type="checkbox" class="form-check-input" ${checked ? 'checked' : ''} onchange="toggleInWork(${jsAttr(s.sap_code)}, this.checked)"></td>
                     <td>
                         <button class="btn btn-sm btn-outline-primary me-1" onclick="openShopModal(${s.id})" title="Редактировать"><i class="bi bi-pencil"></i></button>
                         <button class="btn btn-sm btn-outline-danger" onclick="deleteShop(${s.id})" title="Удалить"><i class="bi bi-trash"></i></button>
@@ -126,16 +131,18 @@ function fetchFiasSuggestions(q) {
                 list.style.display = 'block';
                 return;
             }
-            list.innerHTML = items.map(s =>
-                `<button class="dropdown-item" type="button" onclick="selectFiasSuggestion('${escHtml(s.value)}')">${escHtml(s.value)}</button>`
+            list.innerHTML = items.map((s, i) =>
+                `<button class="dropdown-item" type="button" data-fias-index="${i}">${escHtml(s.value)}</button>`
             ).join('');
+            fiasItems = items;
             list.style.display = 'block';
         })
         .catch(() => {});
 }
 
-function selectFiasSuggestion(value) {
-    document.getElementById('shopAddress').value = value;
+function selectFiasSuggestion(idx) {
+    const item = fiasItems[idx];
+    if (item) document.getElementById('shopAddress').value = item.value;
     hideFiasSuggestions();
 }
 
@@ -159,6 +166,8 @@ function onAddressFocus() {
 }
 
 function saveShop() {
+    const saveBtn = document.getElementById('shopFormSaveBtn');
+    if (saveBtn.disabled) return; // защита от двойного клика
     const id = document.getElementById('shopId').value;
     const data = {
         shop_number: document.getElementById('shopNumber').value.trim(),
@@ -172,26 +181,49 @@ function saveShop() {
         adm2_phone: document.getElementById('adm2Phone').value.trim(),
     };
     if (!data.shop_number || !data.sap_code || !data.address) {
-        showAlert('Заполните все поля');
+        showAlert('Заполните номер магазина, SAP-код и адрес');
         return;
     }
     const url = id ? `/api/references/shops/${id}` : '/api/references/shops';
     const method = id ? 'PUT' : 'POST';
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Сохранение...';
+    saveShopRetry(url, method, data, 2);
+}
+
+function saveShopRetry(url, method, data, attemptsLeft) {
+    const saveBtn = document.getElementById('shopFormSaveBtn');
     fetch(url, { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) })
+        .then(checkAuth)
         .then(r => {
-            if (!r.ok) return r.json().then(e => { throw new Error(e.error || 'Ошибка сохранения'); });
+            if (!r.ok) {
+                return r.json().catch(() => ({})).then(e => {
+                    // 503 — база занята: тихо повторяем пару раз, потом показываем ошибку
+                    if (r.status === 503 && attemptsLeft > 0) {
+                        setTimeout(() => saveShopRetry(url, method, data, attemptsLeft - 1), 1500);
+                        return null;
+                    }
+                    throw new Error(e.error || 'Ошибка сохранения');
+                });
+            }
             return r.json();
         })
-        .then(() => {
+        .then(res => {
+            if (res === null) return; // пошёл автоматический повтор
             shopModalInstance.hide();
             loadShops();
         })
-        .catch(err => showAlert(err.message));
+        .catch(err => showAlert(err.message))
+        .finally(() => {
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Сохранить';
+        });
 }
 
 function deleteShop(id) {
     if (!confirm('Удалить магазин?')) return;
     fetch(`/api/references/shops/${id}`, { method: 'DELETE' })
+        .then(checkAuth)
         .then(r => {
             if (!r.ok) return r.json().then(e => { throw new Error(e.error || 'Ошибка удаления'); });
             loadShops();
@@ -201,6 +233,7 @@ function deleteShop(id) {
 
 function escHtml(s) {
     const d = document.createElement('div');
-    d.textContent = s;
-    return d.innerHTML;
+    d.textContent = s == null ? '' : s;
+    // кавычки экранируем дополнительно — escHtml используется и в HTML-атрибутах
+    return d.innerHTML.replace(/"/g, '&quot;');
 }

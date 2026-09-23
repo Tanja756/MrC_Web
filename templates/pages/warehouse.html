@@ -76,7 +76,7 @@
 {% include "modals/transfer-create.html" %}
 {% include "modals/archive-detail.html" %}
 {% include "modals/return-bind.html" %}
-<script src="{{ url_for('static', filename='js/warehouse.js') }}?v=5"></script>
+<script src="{{ url_for('static', filename='js/warehouse.js') }}?v=6"></script>
 <script src="{{ url_for('static', filename='js/stock-transfers.js') }}?v=6"></script>
 <script src="{{ url_for('static', filename='js/item-movements.js') }}?v=1"></script>
 <script>document.addEventListener('DOMContentLoaded',()=>{loadStorages();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&isWorkingHours()){loadBalances();}});const sel=document.getElementById('storageSelect');const saved=lsGet('defaultWarehouse','');if(saved&&sel&&sel.options.length>1){if([...sel.options].some(o=>o.value===saved))sel.value=saved;loadBalances();}});</script>

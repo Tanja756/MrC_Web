@@ -78,12 +78,28 @@ def api_profile_post():
         my_task_keywords = profile.get('myTaskKeywords', '')
         profile_name = profile.get('profileName', '')
         default_warehouse = profile.get('defaultWarehouse', '')
-        theme = profile.get('theme', 'dark')
-        mark_my_tasks = profile.get('markMyTasks') == 'true'
-        notify_all_warehouses = profile.get('notifyAllWarehouses') == 'true'
-        merry_milkman = profile.get('merryMilkman') == 'true'
         existing = get_user_settings(username) or {}
         avatar_url = existing.get('avatar_url', '')
+        if 'notifyAllWarehouses' in profile:
+            notify_all_warehouses = profile.get('notifyAllWarehouses') == 'true'
+        else:
+            notify_all_warehouses = bool(existing.get('notify_all_warehouses', True))
+        # Локальные настройки устройства (theme, markMyTasks, merryMilkman):
+        # клиент может их не присылать — отсутствующее поле НЕ затирает
+        # сохранённое в БД значение (иначе каждое сохранение профиля
+        # сбрасывало бы тему/подсветку/пасхалку в дефолты).
+        if 'theme' in profile:
+            theme = profile.get('theme') or 'dark'
+        else:
+            theme = existing.get('theme') or 'dark'
+        if 'markMyTasks' in profile:
+            mark_my_tasks = profile.get('markMyTasks') == 'true'
+        else:
+            mark_my_tasks = bool(existing.get('mark_my_tasks'))
+        if 'merryMilkman' in profile:
+            merry_milkman = profile.get('merryMilkman') == 'true'
+        else:
+            merry_milkman = bool(existing.get('merry_milkman'))
         # default_department: отсутствующее поле НЕ затираем сохранённое значение
         # (обычное сохранение настроек из модалки профиля не должно сбрасывать фильтр)
         if 'defaultDepartment' in profile:

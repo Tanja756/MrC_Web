@@ -114,7 +114,20 @@ def _logout_page():
 <div style="text-align:center"><p>Очистка кеша...</p></div>
 <script>
 (function(){{
-  try{{localStorage.clear();sessionStorage.clear();}}catch(e){{}}
+  // Чистим ТОЛЬКО одноразовые данные: кеш запросов (fc:*) и устаревшие
+  // креды 1С в localStorage (остались от удалённой облачной интеграции,
+  // больше не используются и не должны храниться открытым текстом).
+  // Настройки пользователя (theme, defaultWarehouse, profileName,
+  // уведомления, закрепления задач и т.д.) остаются в localStorage и
+  // переживают выход/повторный вход.
+  try{{
+    sessionStorage.clear();
+    localStorage.removeItem('mrc1cCreds');
+    for(var i=localStorage.length-1;i>=0;i--){{
+      var k=localStorage.key(i);
+      if(k && k.indexOf('fc:')===0) localStorage.removeItem(k);
+    }}
+  }}catch(e){{}}
   if('caches' in window){{
     caches.keys().then(function(keys){{
       return Promise.all(keys.map(function(k){{return caches.delete(k);}}));

@@ -89,97 +89,7 @@ function cacheClearPrefix(prefix) {
 // ============ SERVER CONNECTIVITY ============
 let isServerOnline = true;
 let _pingTimer = null;
-// ============ YC FUNCTION: заявки и документы через облачный прокси ============
-// Фронт -> Yandex Cloud Function -> бэк (/api/... с Basic-auth) -> 1С.
-// Креды 1С совпадают с логином сайта и сохраняются на форме логина
-// (ключ mrc1cCreds). Любая ошибка функции -> null -> фолбэк на прямой fetch.
-const YC_FN_URL = 'https://functions.yandexcloud.net/d4erp0evb1vh3qu3hdph';
-const YC_CREDS_KEY = 'mrc1cCreds';
 
-function getCreds() {
-    try {
-        const v = JSON.parse(localStorage.getItem(YC_CREDS_KEY) || 'null');
-        if (v && v.u && v.p) return v;
-    } catch {}
-    return null;
-}
-
-function clearCreds() {
-    try { localStorage.removeItem(YC_CREDS_KEY); } catch {}
-}
-
-async function _inflateGzip(buf) {
-    // Бинарно-безопасная распаковка (подходит и для PDF, и для JSON)
-    const ds = new DecompressionStream('gzip');
-    return new Response(new Blob([buf]).stream().pipeThrough(ds)).arrayBuffer();
-}
-
-// Базовый вызов функции. payload: {login, password, type, ...}.
-// Возвращает {status, headers, arrayBuffer(), error} — error заполнен для
-// JSON-ошибок функции (ошибки не gzip'уются); 401 дополнительно чистит
-// креды. null — нет кредов / нет DecompressionStream / сеть недоступна.
-async function ycRequest(payload) {
-    const creds = getCreds();
-    if (!creds || typeof DecompressionStream === 'undefined') return null;
-    payload.login = creds.u;
-    payload.password = creds.p;
-    let r;
-    try {
-        r = await fetch(YC_FN_URL, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload),
-        });
-    } catch { return null; }
-    const buf = await r.arrayBuffer();
-    const res = {status: r.status, headers: r.headers, arrayBuffer: async () => buf, error: ''};
-    if (r.status !== 200) {
-        if (r.status === 401) clearCreds();
-        try { res.error = (JSON.parse(new TextDecoder().decode(buf)) || {}).error || ''; } catch {}
-        return res;
-    }
-    if (r.headers.get('Content-Encoding') !== 'gzip') return res;
-    const inflated = await _inflateGzip(buf);
-    res.arrayBuffer = async () => inflated;
-    return res;
-}
-
-// Список заявок: {tasks: [...]} или null (любая неудача -> фолбэк на прямой
-// запрос — списки дешёвые).
-function ycFetchTasks(type, params) {
-    return ycRequest({
-        type: type || 'free',
-        search: params.search || '',
-        sort: params.sort || '',
-        dir: params.dir || 'desc',
-    }).then(async r => {
-        if (!r || r.status !== 200) return null;
-        return JSON.parse(new TextDecoder().decode(await r.arrayBuffer()));
-    }).catch(() => null);
-}
-
-// Генерация документа (type: doc-act|doc-fn|doc-m15). Возвращает:
-//   {blob, filename}   — успех;
-//   {status, error}    — бэк ОТВЕТИЛ ошибкой: НЕ повторять генерацию
-//                        (иначе она пойдёт параллельно второй раз и
-//                        завалит сервер LibreOffice-процессами);
-//   null               — функция недоступна/нет кредов -> фолбэк на прямой
-//                        запрос по cookie-сессии.
-async function ycGenerateDoc(type, body) {
-    const r = await ycRequest(Object.assign({type}, body));
-    if (!r) return null;
-    if (r.status !== 200) return {status: r.status, error: r.error || ''};
-    const buf = await r.arrayBuffer();
-    if (buf.byteLength === 0) return {status: r.status, error: 'Пустой ответ функции'};
-    let filename = getFilenameFromHeaders(r.headers) || '';
-    if (!filename) {
-        const t = ({'doc-act': 'AVR', 'doc-fn': 'FN', 'doc-m15': 'm15'})[type] || 'doc';
-        filename = t + '-' + Date.now() + '.pdf';
-    }
-    return {blob: new Blob([buf], {type: r.headers.get('Content-Type') || 'application/pdf'}), filename};
-}
-
-// ============ SERVER CONNECTIVITY ============
 let _offlineBanner = null;
 
 function ensureOfflineBanner() {
@@ -577,6 +487,13 @@ function esc(str) {
     return div.innerHTML;
 }
 
+// Значение для inline-обработчиков в HTML-атрибуте (onclick="fn(ARGS)"):
+// JS-литерал + HTML-экранирование (включая кавычки, иначе они закроют атрибут).
+// Защищает от поломки при апострофах/кавычках в названиях товаров и от XSS.
+function jsAttr(value) {
+    return esc(JSON.stringify(String(value ?? ''))).replace(/"/g, '&quot;');
+}
+
 function timeAgo(iso) {
     const diff = Date.now() - new Date(iso).getTime();
     const mins = Math.floor(diff / 60000);
@@ -657,20 +574,3 @@ function fetchPriorities() {
         })
         .catch(() => {});
 }
-
-// ============ РАЗОВАЯ ОЧИСТКА ДАННЫХ ЯНДЕКС.ДИСКА ============
-// Интеграция с Яндекс.Диском удалена: убираем с устройства оставшиеся
-// токен моста, флаги офлайн-настроек и IndexedDB-хранилище дампов/очереди.
-(function purgeYandexDiskState() {
-    try {
-        if (localStorage.getItem('ydPurged') === 'v1') return;
-    } catch { return; }
-    ['ydToken', 'ydBasePath', 'ydTokenAt', 'yandexSyncData', 'autoGenerateDocs',
-     'autoIncludeAct', 'autoIncludeM15', 'autoIncludeYandex'].forEach(function (k) {
-        try { localStorage.removeItem(k); } catch {}
-    });
-    try {
-        if (typeof indexedDB !== 'undefined') indexedDB.deleteDatabase('mrc-yd');
-    } catch {}
-    try { localStorage.setItem('ydPurged', 'v1'); } catch {}
-})();

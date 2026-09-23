@@ -94,10 +94,6 @@ function fetchTasksDirect(label, params, ttl) {
 
 function fetchTasksList(label, search, ttl) {
     const params = {search: search || '', sort: tabPrefs[label].sort, dir: tabPrefs[label].dir};
-    if (label === 'free' || label === 'my') {
-        return ycFetchTasks(label, params)
-            .then(d => (d && Array.isArray(d.tasks)) ? d : fetchTasksDirect(label, params, ttl));
-    }
     return fetchTasksDirect(label, params, ttl);
 }
 
@@ -1257,7 +1253,7 @@ function renderDocProducts(emptyMessage) {
             const series = p.series_name
                 ? `<span class="text-muted">[${esc(p.series_name)}]</span>`
                 : '<span class="text-muted small">(без серийного номера)</span>';
-            return `<div class="form-check doc-product-item ${checked ? 'selected' : ''} ${disabled ? 'disabled' : ''}" data-key="${esc(key)}">
+            return `<div class="form-check doc-product-item ${checked ? 'selected' : ''} ${disabled ? 'disabled' : ''}" data-key="${esc(key).replace(/"/g, '&quot;')}">
                 <input class="form-check-input" type="checkbox" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
                 <label class="form-check-label d-flex justify-content-between align-items-start gap-2">
                     <span class="flex-grow-1 min-w-0" style="font-size:0.8rem">${esc(p.product_name || '—')} ${series}</span>
@@ -1296,7 +1292,7 @@ function renderDocSelected() {
     }
     container.innerHTML = docSelectedItems.map((item, i) =>
         `<span class="badge bg-primary d-flex align-items-center gap-1" style="font-size:0.75rem">
-            ${i+1}. ${item.name}${item.series ? ' [' + item.series + ']' : ''}
+            ${i+1}. ${esc(item.name)}${item.series ? ' [' + esc(item.series) + ']' : ''}
             <i class="bi bi-x" style="cursor:pointer" onclick="removeDocItem(${i})"></i>
         </span>`
     ).join('');
@@ -1508,30 +1504,15 @@ function generateDocForm() {
 
     status.textContent = 'Генерация документов...';
 
-    const ycTypes = {'/api/tasks/documents/act': 'doc-act',
-                     '/api/tasks/documents/fn': 'doc-fn',
-                     '/api/tasks/documents/m15': 'doc-m15'};
-
-    const fetchDirect = u =>
-        fetch(u, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)})
+    const fetches = endpoints.map(url =>
+        fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)})
             .then(checkAuth)
             .then(r => {
                 if (!r.ok) return r.json().then(t => { throw new Error(t.error || 'Ошибка генерации') });
                 const filename = getFilenameFromHeaders(r.headers);
                 return r.blob().then(blob => ({blob, filename}));
-            });
-
-    const fetches = endpoints.map(url => {
-        // Через облачную функцию; бэк ответил ошибкой -> показываем её,
-        // НЕ повторяя генерацию (иначе LibreOffice пойдёт вторым потоком);
-        // функция недоступна / неверные креды 1С -> прямой запрос по cookie-сессии.
-        return ycGenerateDoc(ycTypes[url], payload).then(ycRes => {
-            if (ycRes && ycRes.blob) return ycRes;
-            if (ycRes && ycRes.status === 401) return fetchDirect(url);
-            if (ycRes) throw new Error(ycRes.error || 'Ошибка генерации (HTTP ' + ycRes.status + ')');
-            return fetchDirect(url);
-        });
-    });
+            })
+    );
 
     downloadMultiple(fetches, (done, total) => {
         status.textContent = `Загрузка... (${done}/${total})`;

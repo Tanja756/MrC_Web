@@ -121,7 +121,7 @@ function filterBalances() {
                 <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.date_arrival ? '\u041F\u043E\u0441\u0442\u0443\u043F\u043B.: ' + esc(b.date_arrival) : ''}</div>
                 ${b.series_name ? `
                 <label class="broken-toggle" onclick="event.stopPropagation()">
-                    <input type="checkbox" ${b.broken ? 'checked' : ''} onchange="toggleBroken(this, '${esc(b.product_name)}', '${esc(b.series_name)}', '${esc(b.inventory_number || '')}', ${b.broken ? 'false' : 'true'})">
+                    <input type="checkbox" ${b.broken ? 'checked' : ''} onchange="toggleBroken(this, ${jsAttr(b.product_name)}, ${jsAttr(b.series_name)}, ${jsAttr(b.inventory_number || '')}, ${b.broken ? 'false' : 'true'})">
                     <span class="broken-label">\u041D\u0430 \u0440\u0435\u043C\u043E\u043D\u0442</span>
                 </label>` : ''}
             </div>
@@ -147,7 +147,7 @@ function filterBalances() {
             <td class="text-center">
                 ${b.series_name ? `
                 <label class="broken-toggle" onclick="event.stopPropagation()">
-                    <input type="checkbox" ${b.broken ? 'checked' : ''} onchange="toggleBroken(this, '${esc(b.product_name)}', '${esc(b.series_name)}', '${esc(b.inventory_number || '')}', ${b.broken ? 'false' : 'true'})">
+                    <input type="checkbox" ${b.broken ? 'checked' : ''} onchange="toggleBroken(this, ${jsAttr(b.product_name)}, ${jsAttr(b.series_name)}, ${jsAttr(b.inventory_number || '')}, ${b.broken ? 'false' : 'true'})">
                 </label>` : '\u2014'}
             </td>
         </tr>`).join('')}</tbody>

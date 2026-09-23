@@ -621,7 +621,7 @@ td.fn-status-other {
 .doc-product-item.selected { background: rgba(0,120,212,0.1); }
 .doc-product-item.disabled { opacity: 0.4; }
 
-/* ===== Startup overlay — Enhanced ===== */
+/* ===== Startup overlay — «приёмка смены» ===== */
 @keyframes startup-gradient {
     0% { background-position: 0% 50%; }
     25% { background-position: 100% 0%; }
@@ -639,14 +639,6 @@ td.fn-status-other {
     0%, 100% { text-shadow: 0 0 20px rgba(0,120,212,0.3), 0 0 40px rgba(0,120,212,0.1); }
     50% { text-shadow: 0 0 30px rgba(0,120,212,0.6), 0 0 60px rgba(0,120,212,0.2); }
 }
-@keyframes startup-dot-wave {
-    0%, 80%, 100% { transform: scale(0.4); opacity: 0.3; }
-    40% { transform: scale(1); opacity: 1; }
-}
-@keyframes startup-fade-out {
-    0% { opacity: 1; transform: scale(1); }
-    100% { opacity: 0; transform: scale(1.05); pointer-events: none; }
-}
 @keyframes startup-spinner {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
@@ -654,6 +646,28 @@ td.fn-status-other {
 @keyframes shimmer-slide {
     0% { transform: translateX(-100%); }
     100% { transform: translateX(200%); }
+}
+/* Парящие иконки склада на фоне */
+@keyframes startup-float {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50% { transform: translateY(-20px) rotate(7deg); }
+}
+/* Смена шуточной строки статуса */
+@keyframes startup-tip-in {
+    0% { opacity: 0; transform: translateY(7px); }
+    100% { opacity: 1; transform: none; }
+}
+/* Печать «ПРОВЕРЕНО»: шлёпается сверху, blur -> резкость */
+@keyframes startup-stamp-in {
+    0% { opacity: 0; transform: translate(-50%, -50%) rotate(-16deg) scale(1.9); filter: blur(7px); }
+    55% { opacity: 1; transform: translate(-50%, -50%) rotate(-9deg) scale(0.94); filter: blur(0); }
+    75% { transform: translate(-50%, -50%) rotate(-9deg) scale(1.06); }
+    100% { opacity: 1; transform: translate(-50%, -50%) rotate(-9deg) scale(1); filter: blur(0); }
+}
+/* Искры от печати */
+@keyframes startup-spark {
+    0% { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+    100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.4) rotate(var(--r)); }
 }
 
 /* Animated gradient background */
@@ -681,15 +695,41 @@ td.fn-status-other {
     animation: startup-gradient 8s ease infinite;
 }
 
-/* Accent ring */
+/* Парящие иконки (молоко/коробки/холодильник/заявки/ремонт) */
+.startup-bubbles {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+}
+.startup-bubble {
+    position: absolute;
+    left: var(--x);
+    top: var(--y);
+    font-size: 1.5rem;
+    color: var(--primary);
+    opacity: 0.18;
+    animation: startup-float 4.5s ease-in-out infinite;
+    animation-delay: var(--d);
+}
+
+/* Кольцо загрузки, которое затем превращается в печать */
+.startup-hero {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 72px;
+    min-height: 72px;
+    margin-bottom: 26px;
+}
 .startup-ring {
     width: 72px;
     height: 72px;
     position: relative;
-    margin-bottom: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: opacity 0.2s ease;
 }
 .startup-ring::before {
     content: '';
@@ -721,6 +761,52 @@ td.fn-status-other {
     opacity: 0.8;
     animation: startup-glow 2s ease-in-out infinite;
 }
+#startupOverlay.stamped .startup-ring { opacity: 0; }
+
+/* Печать «ПРОВЕРЕНО» */
+.startup-stamp {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-9deg) scale(0.6);
+    opacity: 0;
+    padding: 7px 14px;
+    border: 3px solid var(--success);
+    border-radius: 9px;
+    color: var(--success);
+    background: rgba(29, 172, 75, 0.08);
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    white-space: nowrap;
+    box-shadow: 0 0 20px rgba(29, 172, 75, 0.35), inset 0 0 12px rgba(29, 172, 75, 0.15);
+    pointer-events: none;
+}
+.startup-stamp i { margin-right: 4px; }
+#startupOverlay.stamped .startup-stamp {
+    animation: startup-stamp-in 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+}
+
+/* Искры от печати (в «молочном режиме» — с молочком) */
+.startup-spark {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--primary);
+    pointer-events: none;
+    animation: startup-spark 0.9s ease-out forwards;
+}
+.startup-spark-milk {
+    width: auto;
+    height: auto;
+    border-radius: 0;
+    background: none;
+    font-size: 0.95rem;
+}
 
 /* Staggered logo letters */
 .startup-logo {
@@ -748,49 +834,47 @@ td.fn-status-other {
     text-shadow: 0 0 25px rgba(0,120,212,0.6);
 }
 
-/* Loading bar */
+/* Шуточная строка статуса */
+.startup-status {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    letter-spacing: 0.2px;
+    min-height: 1.3em;
+    padding: 0 24px;
+    text-align: center;
+}
+.startup-status.startup-tip-in { animation: startup-tip-in 0.28s ease; }
+
+/* Прогресс и подпись */
 .startup-bar {
-    width: 160px;
-    height: 3px;
+    width: 180px;
+    height: 4px;
     background: var(--border-color);
     border-radius: 4px;
     overflow: hidden;
-    margin-top: 4px;
-    opacity: 0;
-    animation: startup-bounce-in 0.4s ease 0.9s forwards;
+    margin-top: 16px;
 }
 .startup-bar-fill {
     height: 100%;
-    width: 35%;
+    width: 0;
     border-radius: 4px;
-    background: linear-gradient(90deg, var(--primary), #4db8ff, var(--primary));
-    background-size: 200% 100%;
-    animation: shimmer-slide 1.5s ease-in-out infinite;
+    background: linear-gradient(90deg, var(--primary), #4db8ff);
+    transition: width 0.12s linear;
 }
-
-/* Animated dots */
-.startup-sub {
-    font-size: 0.85rem;
-    color: var(--text-muted);
-    margin-top: 18px;
+.startup-foot {
     display: flex;
     align-items: center;
-    gap: 4px;
-    opacity: 0;
-    animation: startup-bounce-in 0.4s ease 0.7s forwards;
-    letter-spacing: 0.3px;
+    gap: 10px;
+    margin-top: 10px;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    letter-spacing: 0.4px;
 }
-.startup-sub .dot {
-    display: inline-block;
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--text-muted);
-    animation: startup-dot-wave 1.4s ease-in-out infinite;
+.startup-pct {
+    color: var(--primary);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
 }
-.startup-sub .dot:nth-child(1) { animation-delay: 0s; }
-.startup-sub .dot:nth-child(2) { animation-delay: 0.2s; }
-.startup-sub .dot:nth-child(3) { animation-delay: 0.4s; }
 
 /* Shimmer overlay on logo area */
 .startup-shimmer {
@@ -805,6 +889,23 @@ td.fn-status-other {
     transform: translateX(-100%);
     animation: shimmer-slide 2.5s ease-in-out 0.5s infinite;
     pointer-events: none;
+}
+
+/* Уважаем системную настройку «уменьшить движение» */
+@media (prefers-reduced-motion: reduce) {
+    #startupOverlay,
+    .startup-bubble,
+    .startup-ring::before,
+    .startup-ring::after,
+    .startup-ring-inner,
+    .startup-logo .letter,
+    .startup-logo .letter-dot,
+    .startup-shimmer::after {
+        animation: none !important;
+    }
+    .startup-logo .letter,
+    .startup-logo .letter-dot { opacity: 1 !important; }
+    #startupOverlay { transition: none !important; }
 }
 
 /* Desktop container width */

@@ -1,4 +1,5 @@
 import logging
+import sqlite3
 from flask import Blueprint, request, jsonify, session
 from .helpers import api_login_required
 from db import get_all_shops, add_shop, update_shop, delete_shop, set_user_shop_in_work, get_user_shops_status, upsert_shops
@@ -48,8 +49,11 @@ def api_shops_create():
                          adm2_name=str(data.get('adm2_name', '')).strip(),
                          adm2_phone=str(data.get('adm2_phone', '')).strip())
         if rowid is None:
-            return jsonify({'error': 'Не удалось добавить магазин (возможно, уже существует)'}), 409
+            return jsonify({'error': 'Магазин с таким номером и SAP-кодом уже существует'}), 409
         return jsonify({'id': rowid, 'shop_number': shop_number, 'sap_code': sap_code, 'address': address}), 201
+    except sqlite3.OperationalError as e:
+        logger.error(f"api_shops_create lock/error: {e}")
+        return jsonify({'error': 'База занята, попробуйте ещё раз через пару секунд'}), 503
     except Exception as e:
         logger.error(f"api_shops_create error: {e}")
         return jsonify({'error': 'Ошибка при добавлении магазина'}), 500
@@ -72,9 +76,14 @@ def api_shops_update(rowid):
                          adm1_phone=str(data.get('adm1_phone', '')).strip(),
                          adm2_name=str(data.get('adm2_name', '')).strip(),
                          adm2_phone=str(data.get('adm2_phone', '')).strip())
+        if ok is None:
+            return jsonify({'error': 'Магазин с таким номером и SAP-кодом уже существует'}), 409
         if not ok:
             return jsonify({'error': 'Магазин не найден'}), 404
         return jsonify({'id': rowid, 'shop_number': shop_number, 'sap_code': sap_code, 'address': address})
+    except sqlite3.OperationalError as e:
+        logger.error(f"api_shops_update lock/error: {e}")
+        return jsonify({'error': 'База занята, попробуйте ещё раз через пару секунд'}), 503
     except Exception as e:
         logger.error(f"api_shops_update error: {e}")
         return jsonify({'error': 'Ошибка при обновлении магазина'}), 500
@@ -83,7 +92,11 @@ def api_shops_update(rowid):
 @references_bp.route('/shops/<int:rowid>', methods=['DELETE'])
 @api_login_required
 def api_shops_delete(rowid):
-    ok = delete_shop(rowid)
+    try:
+        ok = delete_shop(rowid)
+    except Exception as e:
+        logger.error(f"api_shops_delete error: {e}")
+        return jsonify({'error': 'Ошибка при удалении магазина'}), 500
     if not ok:
         return jsonify({'error': 'Магазин не найден'}), 404
     return jsonify({'success': True})
