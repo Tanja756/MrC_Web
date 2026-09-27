@@ -211,21 +211,24 @@ function populateTaskDepartments() {
 }
 
 // Обработчик изменения фильтра: локально + сохранение на сервере (с debounce).
+// pushProfileToServer() собирает payload из localStorage, поэтому чтение полей
+// модалок (которые могут быть не открыты) здесь больше не затирает настройки.
 function setTaskDepartment() {
     const sel = document.getElementById('taskDepartment');
     if (!sel) return;
     const val = sel.value;
     lsSet('defaultDepartment', val);
     filterTasks();
-    if (typeof saveProfile === 'function') {
+    if (typeof pushProfileToServer === 'function') {
         clearTimeout(window._taskDeptSyncT);
-        window._taskDeptSyncT = setTimeout(() => { try { saveProfile(); } catch (e) {} }, 500);
+        window._taskDeptSyncT = setTimeout(() => { try { pushProfileToServer(); } catch (e) {} }, 500);
     }
 }
 
 // Применение сохранённого фильтра при загрузке страницы:
-// фильтр подразделений — локальная настройка устройства, хранится
-// только в localStorage (на сервер не отправляется и с него не читается).
+// фильтр подразделений — настройка устройства (localStorage), которая также
+// хранится на сервере как резервная копия: восстанавливается в loadProfile()
+// только при первой синхронизации на устройстве.
 function initTaskDepartment() {
     const sel = document.getElementById('taskDepartment');
     if (!sel) return;
@@ -246,9 +249,9 @@ function resetFilters() {
         deptSel.value = '';
         lsSet('defaultDepartment', '');
     }
-    if (typeof saveProfile === 'function') {
+    if (typeof pushProfileToServer === 'function') {
         clearTimeout(window._taskDeptSyncT);
-        window._taskDeptSyncT = setTimeout(() => { try { saveProfile(); } catch (e) {} }, 100);
+        window._taskDeptSyncT = setTimeout(() => { try { pushProfileToServer(); } catch (e) {} }, 100);
     }
     clearTimeout(taskSearchTimeout);
     refreshCurrentTab();

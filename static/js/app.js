@@ -28,14 +28,22 @@ const SERVER_BACKUP_LOCAL_KEYS = ['theme', 'markMyTasks', 'merryMilkman', 'defau
 const SERVER_BACKUP_STRING_KEYS = ['profileName', 'myTaskKeywords', 'defaultWarehouse', 'defaultDepartment'];
 // Переключатели хранятся в localStorage как 'true' (включено) или '' (выключено).
 const LOCAL_BOOLEAN_KEYS = ['markMyTasks', 'merryMilkman', 'notifyOnlyMine', 'notifyAllWarehouses'];
+// Флаг «на этом устройстве настройки уже синхронизированы с сервером».
+// Нужен, чтобы один раз восстановить резервную копию (в т.ч. переключатели,
+// у которых '' означает «выключено») и больше не перезаписывать локальные
+// значения с сервера — иначе восстановление «воевало» бы с действиями
+// пользователя (выключил — снова включилось при следующем обновлении).
+const PROFILE_SYNCED_KEY = 'profileSyncedOnce';
 
 function lsRaw(key) {
     try { return localStorage.getItem(key); } catch { return null; }
 }
 
-function applyTheme(theme) {
+// persist=false — не трогаем localStorage (настройки на устройстве ещё нет,
+// пусть её применит loadProfile из резервной копии на сервере).
+function applyTheme(theme, persist) {
     currentTheme = theme;
-    lsSet('theme', theme);
+    if (persist !== false) lsSet('theme', theme);
     document.documentElement.dataset.theme = theme;
     document.documentElement.dataset.bsTheme = theme;
 
@@ -61,15 +69,20 @@ function applyTheme(theme) {
 
 function toggleTheme() {
     applyTheme(currentTheme === 'light' ? 'dark' : 'light');
-    saveProfile();
+    pushProfileToServer();
 }
 
+// Тумблеры пишут ТОЛЬКО свой ключ и отправляют профиль на сервер.
+// Раньше здесь вызывался saveProfile(), который читал ещё и поля других
+// модалок (имя, склад, ключевые слова) — если они не были открыты, настройки
+// затирались дефолтами.
 function toggleMarkMyTasks() {
     const el = document.getElementById('markMyTasksToggle');
     const on = !el.classList.contains('active');
     el.classList.toggle('active', on);
     el.setAttribute('aria-checked', on);
-    saveProfile();
+    lsSet('markMyTasks', on ? 'true' : '');
+    pushProfileToServer();
 }
 
 function toggleNotifyOnlyMine() {
@@ -77,7 +90,8 @@ function toggleNotifyOnlyMine() {
     const on = !el.classList.contains('active');
     el.classList.toggle('active', on);
     el.setAttribute('aria-checked', on);
-    saveProfile();
+    lsSet('notifyOnlyMine', on ? 'true' : '');
+    pushProfileToServer();
 }
 
 function toggleNotifyAllWarehouses() {
@@ -85,7 +99,8 @@ function toggleNotifyAllWarehouses() {
     const on = !el.classList.contains('active');
     el.classList.toggle('active', on);
     el.setAttribute('aria-checked', on);
-    saveProfile();
+    lsSet('notifyAllWarehouses', on ? 'true' : '');
+    pushProfileToServer();
 }
 
 function toggleMerryMilkman() {
@@ -93,7 +108,8 @@ function toggleMerryMilkman() {
     const on = !el.classList.contains('active');
     el.classList.toggle('active', on);
     el.setAttribute('aria-checked', on);
-    saveProfile();
+    lsSet('merryMilkman', on ? 'true' : '');
+    pushProfileToServer();
     applyMerryMilkman();
 }
 
@@ -162,11 +178,16 @@ function openSettings(firstLogin) {
 
     const ws = document.getElementById('settingsWarehouse');
     const saved = lsGet('defaultWarehouse', '');
+    if (ws) ws.dataset.storagesLoaded = '';
     fetchDeduped('/api/warehouse/storages', undefined, 60000)
         .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(data => {
+            if (!ws || !Array.isArray(data) || data.length === 0) return;
             ws.innerHTML = '<option value="">Не выбран</option>' +
                 data.map(s => `<option value="${s.guid}" ${s.guid === saved ? 'selected' : ''}>${s.name}</option>`).join('');
+            // Список реально загружен — только теперь значение селекта можно
+            // считать достоверным и сохранять (иначе офлайн он «Не выбран»).
+            ws.dataset.storagesLoaded = '1';
         });
 
     modal.show();
@@ -193,25 +214,29 @@ function loadProfile() {
         .then(data => {
             const p = data.profile;
             if (!p) return;
-            // Синхронизируемые с сервером параметры + настройки устройства:
-            // применяем значение с сервера ТОЛЬКО если на этом устройстве ключа
-            // ещё нет (первый вход на устройстве, очистка данных браузера).
-            // Уже сохранённые на устройстве значения не перезаписываются —
-            // у каждого устройства свои настройки, конфликтов между
-            // устройствами при входе под одним пользователем нет.
+            // Первый успешный обмен с сервером на этом устройстве: разрешаем
+            // восстановить резервную копию целиком, в т.ч. переключатели, у
+            // которых '' означает «выключено» (могло остаться от старого бага
+            // затирания). Дальше локальные значения — источник истины.
+            const firstSync = lsRaw(PROFILE_SYNCED_KEY) === null;
             const restoreKeys = SERVER_PROFILE_KEYS.concat(SERVER_BACKUP_LOCAL_KEYS);
             let themeRestored = false;
             for (const key of restoreKeys) {
                 if (p[key] === undefined || p[key] === null) continue;
                 const localVal = lsRaw(key);
-                // Пустое значение строковой настройки считаем «не настроено»
-                // и тоже восстанавливаем; '' у переключателя — это «выключено».
-                const canRestore = localVal === null ||
-                    (localVal === '' && SERVER_BACKUP_STRING_KEYS.includes(key));
-                if (!canRestore) continue;
-                const val = LOCAL_BOOLEAN_KEYS.includes(key)
+                const isBool = LOCAL_BOOLEAN_KEYS.includes(key);
+                const val = isBool
                     ? (p[key] === 'true' || p[key] === true ? 'true' : '')
                     : String(p[key]);
+                // Строковую настройку восстанавливаем, если локально пусто;
+                // переключатель — если ключа нет вовсе, а при первой
+                // синхронизации ещё и когда сервер говорит «включено».
+                let canRestore = localVal === null ||
+                    (localVal === '' && SERVER_BACKUP_STRING_KEYS.includes(key));
+                if (!canRestore && isBool && firstSync && localVal === '' && val === 'true') {
+                    canRestore = true;
+                }
+                if (!canRestore) continue;
                 lsSet(key, val);
                 if (key === 'theme') themeRestored = true;
             }
@@ -224,6 +249,7 @@ function loadProfile() {
                 savedProfileName = p.profileName;
             }
             if (themeRestored) applyTheme(lsGet('theme', 'dark'));
+            lsSet(PROFILE_SYNCED_KEY, '1');
             updateProfileAvatar();
             const menuName = document.getElementById('menuProfileName');
             if (menuName && savedProfileName) menuName.textContent = savedProfileName;
@@ -231,29 +257,10 @@ function loadProfile() {
         .catch(() => {});
 }
 
-function saveProfile() {
-    const pNameEl = document.getElementById('profileName');
-    if (pNameEl) {
-        savedProfileName = pNameEl.value.trim();
-        lsSet('profileName', savedProfileName);
-    }
-    const warehouseEl = document.getElementById('settingsWarehouse');
-    if (warehouseEl) lsSet('defaultWarehouse', warehouseEl.value);
-    const mmtEl = document.getElementById('markMyTasksToggle');
-    if (mmtEl) lsSet('markMyTasks', mmtEl.classList.contains('active') ? 'true' : '');
-    const kwEl = document.getElementById('myTaskKeywords');
-    if (kwEl) lsSet('myTaskKeywords', kwEl.value.trim());
-    const nomEl = document.getElementById('notifyOnlyMineToggle');
-    if (nomEl) lsSet('notifyOnlyMine', nomEl.classList.contains('active') ? 'true' : '');
-    const nawEl = document.getElementById('notifyAllWarehousesToggle');
-    if (nawEl) lsSet('notifyAllWarehouses', nawEl.classList.contains('active') ? 'true' : '');
-    const mmEl = document.getElementById('merryMilkmanToggle');
-    if (mmEl) lsSet('merryMilkman', mmEl.classList.contains('active') ? 'true' : '');
-    updateProfileAvatar();
-
-    // На сервер отправляем параметры, важные для его работы, и настройки
-    // устройства — сервер хранит их как резервную копию, чтобы восстановить
-    // на новом устройстве (см. loadProfile).
+// Отправляет профиль на сервер. Payload собирается ТОЛЬКО из localStorage:
+// поля модалок могут быть не заполнены (модалка не открывалась), читать
+// настройки из DOM нельзя — именно это раньше сбрасывало их в дефолты.
+function pushProfileToServer() {
     const prof = {
         profileName: savedProfileName,
         defaultWarehouse: lsGet('defaultWarehouse', ''),
@@ -263,13 +270,55 @@ function saveProfile() {
         theme: lsGet('theme', 'dark'),
         markMyTasks: lsGet('markMyTasks', ''),
         merryMilkman: lsGet('merryMilkman', ''),
+        defaultDepartment: lsGet('defaultDepartment', ''),
     };
-
     return fetch('/api/profile', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ profile: prof })
     }).catch(() => {});
+}
+
+// Совместимость: раньше пункты меню/тумблеры звали saveProfile(). Теперь это
+// безопасная отправка без чтения DOM.
+function saveProfile() {
+    return pushProfileToServer();
+}
+
+// Сохранение склада из модалки «Настройки». saveWarehouse=true — только по
+// явному выбору пользователя (onchange); при закрытии склада не трогаем.
+function saveSettingsModal(saveWarehouse) {
+    if (saveWarehouse) {
+        const el = document.getElementById('settingsWarehouse');
+        // Сохраняем, если список реально загрузился: иначе офлайн селект
+        // содержит только «Не выбран», и это обнулило бы настройку.
+        if (el && el.dataset.storagesLoaded === '1') lsSet('defaultWarehouse', el.value);
+    }
+    return pushProfileToServer();
+}
+
+// Сохранение имени из модалки «Профиль» (плюс тумблер «молочника» — свой сейв).
+function saveProfileModal() {
+    const el = document.getElementById('profileName');
+    if (el) {
+        savedProfileName = el.value.trim();
+        lsSet('profileName', savedProfileName);
+    }
+    updateProfileAvatar();
+    return pushProfileToServer();
+}
+
+// Сохранение настроек уведомлений из одноимённой модалки.
+function saveNotificationsModal() {
+    const kwEl = document.getElementById('myTaskKeywords');
+    if (kwEl) lsSet('myTaskKeywords', kwEl.value.trim());
+    const mmtEl = document.getElementById('markMyTasksToggle');
+    if (mmtEl) lsSet('markMyTasks', mmtEl.classList.contains('active') ? 'true' : '');
+    const nomEl = document.getElementById('notifyOnlyMineToggle');
+    if (nomEl) lsSet('notifyOnlyMine', nomEl.classList.contains('active') ? 'true' : '');
+    const nawEl = document.getElementById('notifyAllWarehousesToggle');
+    if (nawEl) lsSet('notifyAllWarehouses', nawEl.classList.contains('active') ? 'true' : '');
+    return pushProfileToServer();
 }
 
 function clearUserCache() {
@@ -744,7 +793,9 @@ document.addEventListener('DOMContentLoaded', () => {
     runStartup();
     requestPermissions();
     initPushNotifications();
-    applyTheme(currentTheme);
+    // Если настройки темы на устройстве ещё нет — не записываем дефолт,
+    // иначе loadProfile() не сможет восстановить тему из резервной копии.
+    applyTheme(currentTheme, lsRaw('theme') !== null);
     updateProfileAvatar();
 
     loadProfile().then(function() { applyMerryMilkman(); });

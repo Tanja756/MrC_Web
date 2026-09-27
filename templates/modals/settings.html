@@ -8,7 +8,7 @@
             <div class="modal-body">
                 <div class="settings-section">
                     <label for="settingsWarehouse"><i class="bi bi-shop me-1"></i>Основной склад</label>
-                    <select class="form-select" id="settingsWarehouse" onchange="saveProfile()">
+                    <select class="form-select" id="settingsWarehouse" onchange="saveSettingsModal(true)">
                         <option value="">Не выбран</option>
                     </select>
                     <div class="form-text small text-muted mt-1">Будет подставляться по умолчанию на вкладке «Склад» и при подборе товаров в М15</div>
@@ -41,7 +41,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="saveProfile()" data-bs-dismiss="modal">Закрыть</button>
+                <button class="btn btn-secondary" onclick="saveSettingsModal(false)" data-bs-dismiss="modal">Закрыть</button>
             </div>
         </div>
     </div>

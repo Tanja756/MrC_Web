@@ -1,4 +1,4 @@
-const CACHE = 'mrc-v21';
+const CACHE = 'mrc-v22';
 const ASSETS = [
   '/static/style.css',
   '/static/css/tasks.css',
@@ -45,10 +45,27 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (url.hostname === 'cdn.jsdelivr.net' || url.pathname.startsWith('/static/')) {
     e.respondWith(cacheFirst(e.request));
+  } else if (url.origin === self.location.origin && url.pathname.startsWith('/api/')) {
+    // API не кэшируем: данные под сессией, а офлайн отдавать устаревший
+    // (или чужой после смены пользователя) профиль/списки нельзя.
+    // Приложение держит собственный кэш (fc:*) в localStorage.
+    e.respondWith(networkOnly(e.request));
   } else {
     e.respondWith(networkFirst(e.request));
   }
 });
+
+// Сеть без кэша: офлайн — честная 503-заглушка, старые ответы не подставляем.
+async function networkOnly(request) {
+  try {
+    return await fetch(request);
+  } catch {
+    if ((request.headers.get('accept') || '').includes('json')) {
+      return new Response(JSON.stringify({error: 'Offline'}), { status: 503, headers: {'Content-Type': 'application/json'} });
+    }
+    return new Response(null, { status: 503, statusText: 'Service Unavailable' });
+  }
+}
 
 async function cacheFirst(request) {
   const cache = await caches.open(CACHE);
