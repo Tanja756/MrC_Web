@@ -1169,12 +1169,14 @@ function loadDocStorages(sel) {
             const saved = lsGet('defaultWarehouse', '');
             if (saved && [...sel.options].some(o => o.value === saved)) {
                 sel.value = saved;
-                loadDocProducts();
+                // При открытии формы «Товары для М15» остаются свёрнутыми (мобильный интерфейс)
+                loadDocProducts(false);
             }
         });
 }
 
-function loadDocProducts() {
+// expandSection=true — раскрыть «Товары для М15» (только по явному действию пользователя)
+function loadDocProducts(expandSection = false) {
     const guid = document.getElementById('docStorageSelect').value;
     const list = document.getElementById('docProductsList');
     if (!guid) {
@@ -1193,7 +1195,7 @@ function loadDocProducts() {
                 ? data.filter(p => !p.broken && (includeAll || !!p.series_name))
                 : [];
             renderDocProducts();
-            expandDocProductsSection();
+            if (expandSection) expandDocProductsSection();
         })
         .catch(() => {
             docAllProducts = [];
@@ -1203,19 +1205,16 @@ function loadDocProducts() {
 
 function refreshDocProducts() {
     cacheClearPrefix('/api/warehouse/balances');
-    loadDocProducts();
+    loadDocProducts(true);
 }
 
-// Раскрытие секции «Товары для М15» на мобильных (без сворачивания остальных секций)
+// Раскрытие секции «Товары для М15» на мобильных: сворачивает «Основные данные»
+// (использует toggleDocSection — он раскрывает секцию и прячет соседние)
 function expandDocProductsSection() {
     const header = document.querySelector('#docFormModal .doc-header-goods');
     if (!header) return;
     const body = header.nextElementSibling;
-    if (body && body.classList.contains('d-none')) {
-        body.classList.remove('d-none');
-        const icon = header.querySelector('.bi');
-        if (icon) icon.className = 'bi bi-chevron-up ms-auto';
-    }
+    if (body && body.classList.contains('d-none')) toggleDocSection(header);
 }
 
 function filterDocProducts() {

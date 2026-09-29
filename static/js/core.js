@@ -392,22 +392,27 @@ function toggleFilter(el) {
 
 function toggleDocSection(header) {
     const section = header.closest('.doc-section');
+    if (!section) return;
     const allSections = section.parentElement.querySelectorAll('.doc-section');
-    const wasHidden = header.nextElementSibling.classList.contains('d-none');
+    const body = header.nextElementSibling;
+    if (!body) return;
+    const wasHidden = body.classList.contains('d-none');
 
-    allSections.forEach(s => {
-        if (s === section) return;
-        const body = s.querySelector('.doc-section-body');
-        if (!body.classList.contains('d-none')) {
-            body.classList.add('d-none');
+    // Сворачиваем соседние секции только при раскрытии текущей
+    if (wasHidden) {
+        allSections.forEach(s => {
+            if (s === section) return;
+            const otherBody = s.querySelector('.doc-section-body');
+            if (!otherBody || otherBody.classList.contains('d-none')) return;
+            otherBody.classList.add('d-none');
             const icon = s.querySelector('.doc-section-header .bi');
             if (icon) icon.className = 'bi bi-chevron-down ms-auto';
-        }
-    });
+        });
+    }
 
-    header.nextElementSibling.classList.toggle('d-none');
+    body.classList.toggle('d-none');
     const icon = header.querySelector('.bi');
-    icon.className = 'bi bi-chevron-' + (wasHidden ? 'up' : 'down') + ' ms-auto';
+    if (icon) icon.className = 'bi bi-chevron-' + (wasHidden ? 'up' : 'down') + ' ms-auto';
 }
 
 function parseDate(str) {

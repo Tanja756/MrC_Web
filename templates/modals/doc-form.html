@@ -26,7 +26,7 @@
                 <div class="doc-section-body d-none d-md-block" id="docProductsSection">
                 <label class="fw-semibold small d-block mb-1"><i class="bi bi-box-seam me-1"></i>Товары для М15</label>
                 <div class="row g-2 align-items-center">
-                    <div class="col-8 col-md-6"><select class="form-select form-select-sm" id="docStorageSelect" onchange="loadDocProducts()"><option value="">Выберите склад...</option></select></div>
+                    <div class="col-8 col-md-6"><select class="form-select form-select-sm" id="docStorageSelect" onchange="loadDocProducts(true)"><option value="">Выберите склад...</option></select></div>
                     <div class="col-4 col-md-2"><button class="btn btn-outline-secondary btn-sm w-100" onclick="refreshDocProducts()" title="Обновить остатки"><i class="bi bi-arrow-repeat"></i></button></div>
                     <div class="col-12 col-md-4"><input type="text" class="form-control form-control-sm" id="docProductSearch" placeholder="Поиск товара..." oninput="filterDocProducts()" autocomplete="off" autocorrect="off" spellcheck="false"></div>
                 </div>
@@ -38,7 +38,7 @@
                 <div class="form-check"><input class="form-check-input" type="checkbox" id="docIncludeAct" checked><label class="form-check-label fw-semibold small" for="docIncludeAct">АВР (Акт)</label></div>
                 <div class="form-check"><input class="form-check-input" type="checkbox" id="docIncludeFn"><label class="form-check-label fw-semibold small" for="docIncludeFn">Акт ФН</label></div>
                 <div class="form-check"><input class="form-check-input" type="checkbox" id="docIncludeM15"><label class="form-check-label fw-semibold small" for="docIncludeM15">М15 (Накладная)</label></div>
-                <div class="form-check"><input class="form-check-input" type="checkbox" id="docIncludeAllGoods" onchange="loadDocProducts()"><label class="form-check-label fw-semibold small" for="docIncludeAllGoods">Весь товар</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" id="docIncludeAllGoods" onchange="loadDocProducts(true)"><label class="form-check-label fw-semibold small" for="docIncludeAllGoods">Весь товар</label></div>
             </div>
         </div>
         <div class="modal-footer" id="docFormFooter">
