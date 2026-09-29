@@ -379,6 +379,69 @@ def _escape_html(s):
     return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
 
 
+def movement_feed_pdf_html(storage_name, period, rows):
+    """HTML для PDF-экспорта ленты движения склада (приход/расход).
+    rows: event_type ('arrival'/'writeoff'), display_date, product_name,
+    series_name, inventory_number, storage_name, comment."""
+    def _cell(v):
+        return _escape_html(v) if v else '—'
+    trs = []
+    for i, r in enumerate(rows):
+        is_in = r.get('event_type') == 'arrival'
+        sign = '+' if is_in else '−'
+        cls = 'in' if is_in else 'out'
+        trs.append(
+            f'<tr><td class="num">{i + 1}</td>'
+            f'<td>{_escape_html(r.get("display_date") or "")}</td>'
+            f'<td class="sign {cls}">{sign}</td>'
+            f'<td>{_cell(r.get("product_name"))}</td>'
+            f'<td>{_cell(r.get("series_name"))}</td>'
+            f'<td>{_cell(r.get("inventory_number"))}</td>'
+            f'<td>{_cell(r.get("storage_name"))}</td>'
+            f'<td class="qty {cls}">{_escape_html(r.get("comment") or "")}</td></tr>'
+        )
+    body = ''.join(trs)
+    in_count = sum(1 for r in rows if r.get('event_type') == 'arrival')
+    out_count = len(rows) - in_count
+    now_str = datetime.now().strftime('%d.%m.%Y %H:%M')
+    period_label = _escape_html(period) or 'всё время'
+    return f'''<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="UTF-8">
+<style>
+@page {{ margin: 14mm 10mm; }}
+body {{ font-family: 'Liberation Sans', 'Arial', sans-serif; font-size: 9pt; color: #1a1a1a; }}
+.header {{ display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid #d32f2f; }}
+.header h1 {{ font-size: 13pt; margin: 0; color: #d32f2f; }}
+.header .meta {{ font-size: 8pt; color: #666; text-align: right; line-height: 1.4; }}
+table {{ width: 100%; border-collapse: collapse; }}
+th {{ background: #f5f5f5; font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.8px; padding: 5px 7px; text-align: left; border-bottom: 1px solid #ccc; color: #666; }}
+td {{ padding: 4px 7px; border-bottom: 1px solid #eee; font-size: 8.5pt; }}
+td.num {{ text-align: center; color: #999; width: 24px; }}
+td.sign {{ text-align: center; font-weight: 700; width: 20px; }}
+td.sign.in {{ color: #198754; }}
+td.sign.out {{ color: #d32f2f; }}
+td.qty {{ font-weight: 700; white-space: nowrap; }}
+td.qty.in {{ color: #198754; }}
+td.qty.out {{ color: #d32f2f; }}
+tr:nth-child(even) td {{ background: #fafafa; }}
+.summary {{ margin-top: 8px; font-weight: 700; font-size: 9pt; }}
+.footer {{ margin-top: 16px; padding-top: 8px; border-top: 1px solid #ddd; font-size: 7.5pt; color: #999; text-align: center; }}
+</style></head>
+<body>
+<div class="header">
+    <div><h1>Движение товаров (приход/расход)</h1><div style="font-size:8.5pt;color:#444;margin-top:3px;">{_escape_html(storage_name)}</div></div>
+    <div class="meta">Период: {period_label}<br>Сформировано: {now_str}</div>
+</div>
+<table>
+<tr><th>#</th><th>Дата</th><th>±</th><th>Товар</th><th>Серия</th><th>Инв. номер</th><th>Склад</th><th>Кол-во</th></tr>
+{body}
+</table>
+<div class="summary">Приход: {in_count} · Расход: {out_count} · Всего: {len(rows)} {plural(len(rows))}</div>
+<div class="footer">Сгенерировано Mr.Check</div>
+</body></html>'''
+
+
 def check_balance_changes(username, storage_guid, new_data, storage_name=''):
     if not username or not new_data:
         return
@@ -419,10 +482,12 @@ def check_balance_changes(username, storage_guid, new_data, storage_name=''):
     today = datetime.now().strftime('%Y-%m-%d')
     add_item_movements(
         [{'event_type': 'arrival', 'product_name': n, 'series_name': s, 'inventory_number': i,
-          'storage_guid': storage_guid, 'event_date': today, 'username': username, 'source': 'diff'}
+          'storage_guid': storage_guid, 'event_date': today, 'comment': f'+{d} шт',
+          'username': username, 'source': 'diff'}
          for d, n, s, i in added]
         + [{'event_type': 'writeoff', 'product_name': n, 'series_name': s, 'inventory_number': i,
-            'storage_guid': storage_guid, 'event_date': today, 'username': username, 'source': 'diff'}
+            'storage_guid': storage_guid, 'event_date': today, 'comment': f'-{d} шт',
+            'username': username, 'source': 'diff'}
            for d, n, s, i in removed]
     )
 

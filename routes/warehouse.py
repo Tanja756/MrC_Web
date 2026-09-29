@@ -3,6 +3,7 @@ import os
 import re
 import copy
 import uuid
+import shutil
 import base64
 import tempfile
 import threading
@@ -12,14 +13,15 @@ from flask import Blueprint, request, jsonify, send_file, session
 from .helpers import (
     api_login_required, get_api_client,
     get_storage_name, check_balance_changes, short_date, plural,
-    warehouse_pdf_html,
+    warehouse_pdf_html, movement_feed_pdf_html,
     get_balance_item_meta, set_balance_item_broken,
     get_arrival_overrides, set_arrival_override,
     sync_and_enrich_products, enrich_products_to_dict,
 )
 from db import (
-    add_item_movements, get_item_movements, get_pending_returns,
-    get_task_m15_text, get_user_settings, get_snapshot,
+    add_item_movements, get_item_movements, get_movement_feed,
+    get_pending_returns, get_task_m15_text, get_user_settings, get_snapshot,
+    get_last_movement_dates,
 )
 from utils import compress_attachments, compress_image_bytes
 
@@ -79,15 +81,26 @@ def api_storages():
 
 
 def _enrich_balances(items, username, storage_guid):
-    """Форматирование дат, разметка broken и arrival-overrides для остатков."""
+    """Форматирование дат, разметка broken и arrival-overrides для остатков.
+
+    Даты прихода/расхода берутся из локальной истории движений (item_movements) —
+    той же, что показывает вкладка «Движения», т.к. 1С в /balances-report дат не отдаёт.
+    Приоритет для даты прихода: balance_arrival (архив перемещений) → история → значение 1С.
+    """
     if not items:
         return items
     meta = get_balance_item_meta(username, storage_guid) if username else {}
+    history = get_last_movement_dates(storage_guid)
     for item in items:
         item['date_arrival'] = short_date(item.get('date_arrival'))
         item['date_writeoff'] = short_date(item.get('date_writeoff'))
         key = f"{item.get('product_name','')}|{item.get('series_name','') or ''}|{item.get('inventory_number','') or ''}"
         item['broken'] = meta.get(key, {}).get('broken', False)
+        last = history.get(key) or {}
+        if last.get('arrival'):
+            item['date_arrival'] = short_date(last['arrival'])
+        if last.get('writeoff'):
+            item['date_writeoff'] = short_date(last['writeoff'])
     overrides = get_arrival_overrides(storage_guid)
     for item in items:
         key = f"{item.get('product_name','')}|{item.get('series_name','') or ''}|{item.get('inventory_number','') or ''}"
@@ -173,13 +186,21 @@ def api_warehouse_export_pdf():
     date_str = data.get('date', datetime.now().strftime('%d.%m.%Y'))
     balances = data.get('balances', [])
     html = warehouse_pdf_html(storage_name, date_str, balances)
+    safe_name = re.sub(r'[^\w\s-]', '', storage_name).strip().replace(' ', '_')
+    filename = f'{safe_name}_{date_str.replace(".", "")}.pdf'
+    return _send_generated_pdf(html, 'wh', filename)
+
+
+def _send_generated_pdf(html, prefix, filename):
+    """Рендерит HTML в PDF через headless LibreOffice и отдаёт файл.
+    Временные файлы удаляются после закрытия ответа."""
     tag = uuid.uuid4().hex[:12]
-    tmp_html = os.path.join(tempfile.gettempdir(), f'wh-{tag}.html')
-    tmp_pdf = os.path.join(tempfile.gettempdir(), f'wh-{tag}.pdf')
+    tmp_html = os.path.join(tempfile.gettempdir(), f'{prefix}-{tag}.html')
+    tmp_pdf = os.path.join(tempfile.gettempdir(), f'{prefix}-{tag}.pdf')
+    lo_dir = os.path.join(tempfile.gettempdir(), f'lo-{prefix}-{tag}')
     try:
         with open(tmp_html, 'w', encoding='utf-8') as f:
             f.write(html)
-        lo_dir = os.path.join(tempfile.gettempdir(), f'lo-wh-{tag}')
         os.makedirs(lo_dir, exist_ok=True)
         env = os.environ.copy()
         env['HOME'] = lo_dir
@@ -189,24 +210,22 @@ def api_warehouse_export_pdf():
              '--convert-to', 'pdf', '--outdir', tempfile.gettempdir(), tmp_html],
             capture_output=True, text=True, timeout=60, env=env
         )
-        expected = os.path.join(tempfile.gettempdir(), f'wh-{tag}.pdf')
-        generated = os.path.join(tempfile.gettempdir(), f'wh-{tag}.html.pdf')
+        expected = tmp_pdf
+        generated = os.path.join(tempfile.gettempdir(), f'{prefix}-{tag}.html.pdf')
         if os.path.exists(generated):
             os.rename(generated, expected)
         if not os.path.exists(expected) or os.path.getsize(expected) < 100:
             raise RuntimeError(result.stderr or 'PDF not generated')
-        safe_name = re.sub(r'[^\w\s-]', '', storage_name).strip().replace(' ', '_')
-        filename = f'{safe_name}_{date_str.replace(".", "")}.pdf'
         response = send_file(expected, mimetype='application/pdf',
                              as_attachment=True, download_name=filename)
         @response.call_on_close
         def cleanup():
-            for p in [tmp_html, expected, lo_dir]:
+            for p in [tmp_html, expected]:
                 try:
                     if os.path.isfile(p): os.unlink(p)
-                    elif os.path.isdir(p): os.rmdir(p)
                 except Exception:
                     pass
+            shutil.rmtree(lo_dir, ignore_errors=True)
         return response
     except Exception as e:
         for p in [tmp_html, tmp_pdf]:
@@ -214,7 +233,68 @@ def api_warehouse_export_pdf():
                 if os.path.exists(p): os.unlink(p)
             except Exception:
                 pass
+        shutil.rmtree(lo_dir, ignore_errors=True)
         return jsonify({'error': str(e)}), 500
+
+
+@warehouse_bp.route('/movement-feed')
+@api_login_required
+def api_movement_feed():
+    """Лента прихода/расхода по складу из локальной истории (item_movements).
+    Работает без 1С: наименования и серийники хранятся у нас текстом."""
+    storage_guid = (request.args.get('storage') or '').strip()
+    start_date = (request.args.get('start') or '').strip()
+    end_date = (request.args.get('end') or '').strip()
+    q = (request.args.get('q') or '').strip()
+    direction = (request.args.get('direction') or '').strip()  # all | in | out
+    try:
+        limit = min(max(int(request.args.get('limit', '500')), 1), 2000)
+    except ValueError:
+        limit = 500
+
+    events = get_movement_feed(storage_guid=storage_guid, start_date=start_date,
+                               end_date=end_date, q=q, limit=limit)
+    in_count = sum(1 for e in events if e['event_type'] == 'arrival')
+    out_count = len(events) - in_count
+    if direction == 'in':
+        events = [e for e in events if e['event_type'] == 'arrival']
+    elif direction == 'out':
+        events = [e for e in events if e['event_type'] == 'writeoff']
+
+    storage_names = {}
+    try:
+        client = get_api_client()
+        storage_names = {s['guid']: s['name'] for s in (client.get_storages() or [])} if client else {}
+    except Exception:
+        storage_names = {}
+    m15_text_cache = {}
+    for e in events:
+        e['storage_name'] = storage_names.get(e.get('storage_guid', ''), '')
+        e['display_date'] = short_date(e.get('event_date') or (e.get('created_at') or '')[:10])
+        e['task_label'] = ''
+        if e.get('event_type') == 'm15' and e.get('task_guid'):
+            if e['task_guid'] not in m15_text_cache:
+                m15_text_cache[e['task_guid']] = get_task_m15_text(task_guid=e['task_guid'])
+            info = m15_text_cache[e['task_guid']]
+            e['task_label'] = info.get('code', '') if info else ''
+        elif e.get('task_name'):
+            e['task_label'] = e['task_name']
+    return jsonify({'items': events, 'in_count': in_count, 'out_count': out_count})
+
+
+@warehouse_bp.route('/movement-feed/export-pdf', methods=['POST'])
+@api_login_required
+def api_movement_feed_export_pdf():
+    data = request.get_json(silent=True) or {}
+    storage_name = (data.get('storage_name') or 'Все склады').strip() or 'Все склады'
+    period = (data.get('period') or '').strip()
+    rows = data.get('rows') or []
+    if not rows:
+        return jsonify({'error': 'Нет данных для экспорта'}), 400
+    html = movement_feed_pdf_html(storage_name, period, rows)
+    date_str = datetime.now().strftime('%d.%m.%Y')
+    safe_name = re.sub(r'[^\w\s-]', '', storage_name).strip().replace(' ', '_') or 'Движение'
+    return _send_generated_pdf(html, 'whfeed', f'{safe_name}_{date_str.replace(".", "")}.pdf')
 
 
 @warehouse_bp.route('/stock-transfers', methods=['GET', 'POST'])

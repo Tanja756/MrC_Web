@@ -71,6 +71,7 @@ function filterBalances() {
             (b.series_name || '').toLowerCase().includes(query) ||
             (b.inventory_number || '').toLowerCase().includes(query) ||
             (b.date_arrival || '').toLowerCase().includes(query) ||
+            (b.date_writeoff || '').toLowerCase().includes(query) ||
             (b.broken && '\u0440\u0435\u043C\u043E\u043D\u0442'.includes(query))
         );
     }
@@ -118,7 +119,8 @@ function filterBalances() {
                 <div class="fw-semibold text-truncate">${esc(b.product_name) || '\u2014'}</div>
                 <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.series_name ? '\u0421\u0435\u0440.: ' + esc(b.series_name) : ''}</div>
                 <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.inventory_number ? '\u0418\u043D\u0432.: ' + esc(b.inventory_number) : ''}</div>
-                <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.date_arrival ? '\u041F\u043E\u0441\u0442\u0443\u043F\u043B.: ' + esc(b.date_arrival) : ''}</div>
+                <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.date_arrival ? '\u041F\u0440\u0438\u0445\u043E\u0434: ' + esc(b.date_arrival) : ''}</div>
+                <div class="text-muted" style="font-size:0.7rem;line-height:1.3">${b.date_writeoff ? '\u0420\u0430\u0441\u0445\u043E\u0434: ' + esc(b.date_writeoff) : ''}</div>
                 ${b.series_name ? `
                 <label class="broken-toggle" onclick="event.stopPropagation()">
                     <input type="checkbox" ${b.broken ? 'checked' : ''} onchange="toggleBroken(this, ${jsAttr(b.product_name)}, ${jsAttr(b.series_name)}, ${jsAttr(b.inventory_number || '')}, ${b.broken ? 'false' : 'true'})">
@@ -134,7 +136,8 @@ function filterBalances() {
             <th class="sortable" onclick="sortBalances('product_name')">\u0422\u043E\u0432\u0430\u0440${sortIcon('product_name')}</th>
             <th class="sortable" onclick="sortBalances('series_name')">\u0421\u0435\u0440\u0438\u044F${sortIcon('series_name')}</th>
             <th class="sortable" onclick="sortBalances('inventory_number')">\u0418\u043D\u0432. \u043D\u043E\u043C\u0435\u0440${sortIcon('inventory_number')}</th>
-            <th class="sortable" onclick="sortBalances('date_arrival')">\u041F\u043E\u0441\u0442\u0443\u043F\u043B\u0435\u043D\u0438\u0435${sortIcon('date_arrival')}</th>
+            <th class="sortable" onclick="sortBalances('date_arrival')">\u041F\u0440\u0438\u0445\u043E\u0434${sortIcon('date_arrival')}</th>
+            <th class="sortable" onclick="sortBalances('date_writeoff')">\u0420\u0430\u0441\u0445\u043E\u0434${sortIcon('date_writeoff')}</th>
             <th class="text-end sortable" onclick="sortBalances('balance')">\u041E\u0441\u0442\u0430\u0442\u043E\u043A${sortIcon('balance')}</th>
             <th class="text-center" style="width:90px">\u0420\u0435\u043C\u043E\u043D\u0442</th>
         </tr></thead>
@@ -143,6 +146,7 @@ function filterBalances() {
             <td>${esc(b.series_name) || '\u2014'}</td>
             <td>${esc(b.inventory_number) || '\u2014'}</td>
             <td style="font-size:0.75rem">${b.date_arrival || '\u2014'}</td>
+            <td style="font-size:0.75rem">${b.date_writeoff || '\u2014'}</td>
             <td class="text-end fw-bold">${b.balance ?? 0}</td>
             <td class="text-center">
                 ${b.series_name ? `
@@ -193,7 +197,8 @@ function exportWarehousePdf() {
             (b.product_name || '').toLowerCase().includes(query) ||
             (b.series_name || '').toLowerCase().includes(query) ||
             (b.inventory_number || '').toLowerCase().includes(query) ||
-            (b.date_arrival || '').toLowerCase().includes(query)
+            (b.date_arrival || '').toLowerCase().includes(query) ||
+            (b.date_writeoff || '').toLowerCase().includes(query)
         );
     }
 

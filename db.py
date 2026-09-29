@@ -569,6 +569,35 @@ def set_arrival_override(storage_guid, product_name, series_name, inventory_numb
     conn.commit()
     conn.close()
 
+
+def get_last_movement_dates(storage_guid):
+    """Последние даты прихода и расхода по каждой позиции склада.
+
+    Источник — локальная история item_movements (та же, что во вкладке «Движения»),
+    поэтому даты совпадают с лентой приход/расход. 1С в /balances-report дат не отдаёт,
+    а balance_arrival хранит только приход из архива перемещений.
+    Ключ — 'product_name|series_name|inventory_number' (как в get_arrival_overrides).
+    """
+    if not storage_guid:
+        return {}
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT product_name, series_name, inventory_number, event_type, MAX(event_date)
+        FROM item_movements
+        WHERE storage_guid = ? AND event_type IN ('arrival', 'writeoff') AND event_date != ''
+        GROUP BY product_name, series_name, inventory_number, event_type
+    """, (storage_guid,))
+    rows = c.fetchall()
+    conn.close()
+    result = {}
+    for product_name, series_name, inventory_number, event_type, event_date in rows:
+        entry = result.setdefault(f"{product_name}|{series_name}|{inventory_number}",
+                                  {'arrival': '', 'writeoff': ''})
+        entry[event_type] = event_date or ''
+    return result
+
+
 # --- ANNOUNCEMENTS ---
 
 def init_announcements_table():
@@ -806,7 +835,9 @@ def add_item_movements(events):
     seen = set()
     unique_events = []
     for e in events:
-        if not (e.get('series_name') or e.get('inventory_number')):
+        # Нужно хотя бы одно из: серийник, инвентарный номер или наименование —
+        # иначе приход/расход расходныхок (без серийника) не попадёт в ленту.
+        if not (e.get('series_name') or e.get('inventory_number') or e.get('product_name')):
             continue
         k = (e.get('event_type', ''), e.get('storage_guid', '') or '',
              e.get('product_name', '') or '', e.get('series_name', '') or '',
@@ -872,6 +903,48 @@ def get_item_movements(series_name='', inventory_number='', product_name='',
          'username': r[11], 'source': r[12], 'created_at': r[13]}
         for r in rows
     ]
+
+
+def get_movement_feed(storage_guid='', start_date='', end_date='', q='', limit=500):
+    """Лента прихода/расхода по складу из локальной истории (item_movements).
+    Наименование/серийник хранятся текстом — товары, исчезнувшие из справочника 1С,
+    остаются видимыми в ленте. Направление (in/out) фильтруется на уровне API,
+    счётчики считаются по всем строкам без фильтра направления."""
+    conn = get_db_connection()
+    c = conn.cursor()
+    where = ["event_type IN ('arrival', 'writeoff')"]
+    params = []
+    if storage_guid:
+        where.append("storage_guid = ?")
+        params.append(storage_guid)
+    if start_date:
+        where.append("event_date >= ?")
+        params.append(start_date)
+    if end_date:
+        where.append("event_date <= ?")
+        params.append(end_date)
+    if q:
+        like = f"%{q}%"
+        where.append("(product_name LIKE ? OR series_name LIKE ? OR inventory_number LIKE ?)")
+        params.extend([like, like, like])
+    query = (
+        "SELECT id, event_type, product_name, series_name, inventory_number, "
+        "storage_guid, task_guid, task_name, status, event_date, comment, username, source, created_at "
+        "FROM item_movements WHERE " + " AND ".join(where) +
+        " ORDER BY event_date DESC, id DESC LIMIT ?"
+    )
+    params.append(limit)
+    c.execute(query, params)
+    rows = c.fetchall()
+    conn.close()
+    return [
+        {'id': r[0], 'event_type': r[1], 'product_name': r[2], 'series_name': r[3],
+         'inventory_number': r[4], 'storage_guid': r[5], 'task_guid': r[6],
+         'task_name': r[7], 'status': r[8], 'event_date': r[9], 'comment': r[10],
+         'username': r[11], 'source': r[12], 'created_at': r[13]}
+        for r in rows
+    ]
+
 
 def get_pending_returns(storage_guid, since):
     """Arrival events on a storage with no return binding and no matching transfer.
