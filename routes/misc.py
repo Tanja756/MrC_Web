@@ -45,6 +45,8 @@ def api_profile_get():
             "avatarUrl": avatar_url,
             "merryMilkman": "true" if settings.get("merry_milkman") else "",
             "defaultDepartment": settings.get("default_department", ""),
+            "showNotifications": "true" if settings.get("show_notifications", True) else "",
+            "show1cNotifications": "true" if settings.get("show_1c_notifications", True) else "",
         }})
     except Exception as e:
         logger.warning(f"Failed to fetch profile: {e}")
@@ -84,6 +86,16 @@ def api_profile_post():
             notify_all_warehouses = profile.get('notifyAllWarehouses') == 'true'
         else:
             notify_all_warehouses = bool(existing.get('notify_all_warehouses', True))
+        # «Показывать уведомления» / «Показывать уведомления сервера 1С»:
+        # по умолчанию включены; отсутствующее поле НЕ затирает сохранённое.
+        if 'showNotifications' in profile:
+            show_notifications = profile.get('showNotifications') == 'true'
+        else:
+            show_notifications = bool(existing.get('show_notifications', True))
+        if 'show1cNotifications' in profile:
+            show_1c_notifications = profile.get('show1cNotifications') == 'true'
+        else:
+            show_1c_notifications = bool(existing.get('show_1c_notifications', True))
         # Локальные настройки устройства (theme, markMyTasks, merryMilkman):
         # клиент может их не присылать — отсутствующее поле НЕ затирает
         # сохранённое в БД значение (иначе каждое сохранение профиля
@@ -114,7 +126,9 @@ def api_profile_post():
                            mark_my_tasks=mark_my_tasks,
                            notify_all_warehouses=notify_all_warehouses,
                            avatar_url=avatar_url,
-                           merry_milkman=merry_milkman)
+                           merry_milkman=merry_milkman,
+                           show_notifications=show_notifications,
+                           show_1c_notifications=show_1c_notifications)
         return jsonify({"status": "ok"})
     except Exception as e:
         logger.warning(f"Failed to save profile: {e}")
@@ -140,7 +154,9 @@ def _save_settings_with_avatar(username, avatar_url):
                        mark_my_tasks=bool(ex.get('mark_my_tasks')),
                        notify_all_warehouses=bool(ex.get('notify_all_warehouses', True)),
                        avatar_url=avatar_url,
-                       merry_milkman=bool(ex.get('merry_milkman')))
+                       merry_milkman=bool(ex.get('merry_milkman')),
+                       show_notifications=bool(ex.get('show_notifications', True)),
+                       show_1c_notifications=bool(ex.get('show_1c_notifications', True)))
 
 
 @misc_bp.route('/api/profile/avatar', methods=['POST', 'DELETE'])

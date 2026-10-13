@@ -8,10 +8,11 @@ let currentTheme = lsGet('theme', 'dark');
 // ============ РАЗДЕЛЕНИЕ ПАРАМЕТРОВ ПРОФИЛЯ ============
 // Параметры, важные для работы сервера: синхронизируются через /api/profile.
 // Сервер читает их при push-уведомлениях (myTaskKeywords, notifyOnlyMine,
-// notifyAllWarehouses) и возвратах на склад (defaultWarehouse).
+// notifyAllWarehouses, showNotifications, show1cNotifications) и возвратах на
+// склад (defaultWarehouse).
 const SERVER_PROFILE_KEYS = [
     'profileName', 'defaultWarehouse', 'myTaskKeywords', 'notifyOnlyMine',
-    'notifyAllWarehouses'
+    'notifyAllWarehouses', 'showNotifications', 'show1cNotifications'
 ];
 // Параметры, которые сервер только отдаёт (файл аватара хранится на сервере).
 const SERVER_READONLY_PROFILE_KEYS = ['avatarUrl'];
@@ -27,7 +28,8 @@ const SERVER_BACKUP_LOCAL_KEYS = ['theme', 'markMyTasks', 'merryMilkman', 'defau
 // когда ключа нет вовсе (у них '' означает «выключено»).
 const SERVER_BACKUP_STRING_KEYS = ['profileName', 'myTaskKeywords', 'defaultWarehouse', 'defaultDepartment'];
 // Переключатели хранятся в localStorage как 'true' (включено) или '' (выключено).
-const LOCAL_BOOLEAN_KEYS = ['markMyTasks', 'merryMilkman', 'notifyOnlyMine', 'notifyAllWarehouses'];
+const LOCAL_BOOLEAN_KEYS = ['markMyTasks', 'merryMilkman', 'notifyOnlyMine', 'notifyAllWarehouses',
+    'showNotifications', 'show1cNotifications'];
 // Флаг «на этом устройстве настройки уже синхронизированы с сервером».
 // Нужен, чтобы один раз восстановить резервную копию (в т.ч. переключатели,
 // у которых '' означает «выключено») и больше не перезаписывать локальные
@@ -101,6 +103,30 @@ function toggleNotifyAllWarehouses() {
     el.setAttribute('aria-checked', on);
     lsSet('notifyAllWarehouses', on ? 'true' : '');
     pushProfileToServer();
+}
+
+// «Наши» уведомления Mr.Check (приход/списание, дедлайны, новые заявки).
+// Значение хранится локально, дублируется на сервер (чтобы фильтровался push)
+// и мгновенно перерисовывает список уведомлений.
+function toggleShowNotifications() {
+    const el = document.getElementById('showNotificationsToggle');
+    const on = !el.classList.contains('active');
+    el.classList.toggle('active', on);
+    el.setAttribute('aria-checked', on);
+    lsSet('showNotifications', on ? 'true' : '');
+    pushProfileToServer();
+    refreshNotificationsList();
+}
+
+// Уведомления сервера 1С (типы 1c_*).
+function toggleShow1cNotifications() {
+    const el = document.getElementById('show1cNotificationsToggle');
+    const on = !el.classList.contains('active');
+    el.classList.toggle('active', on);
+    el.setAttribute('aria-checked', on);
+    lsSet('show1cNotifications', on ? 'true' : '');
+    pushProfileToServer();
+    refreshNotificationsList();
 }
 
 function toggleMerryMilkman() {
@@ -205,6 +231,12 @@ function openNotificationsModal() {
     const notifyAll = lsGet('notifyAllWarehouses', 'true') === 'true';
     document.getElementById('notifyAllWarehousesToggle').classList.toggle('active', notifyAll);
     document.getElementById('notifyAllWarehousesToggle').setAttribute('aria-checked', notifyAll);
+    const showOn = lsGet('showNotifications', 'true') === 'true';
+    document.getElementById('showNotificationsToggle').classList.toggle('active', showOn);
+    document.getElementById('showNotificationsToggle').setAttribute('aria-checked', showOn);
+    const show1cOn = lsGet('show1cNotifications', 'true') === 'true';
+    document.getElementById('show1cNotificationsToggle').classList.toggle('active', show1cOn);
+    document.getElementById('show1cNotificationsToggle').setAttribute('aria-checked', show1cOn);
     modal.show();
 }
 
@@ -267,6 +299,10 @@ function pushProfileToServer() {
         myTaskKeywords: lsGet('myTaskKeywords', ''),
         notifyOnlyMine: lsGet('notifyOnlyMine', ''),
         notifyAllWarehouses: lsGet('notifyAllWarehouses', ''),
+        // Дефолт 'true' (не ''): нетронутый переключатель не должен уехать на
+        // сервер как «выключено» и выключить push.
+        showNotifications: lsGet('showNotifications', 'true'),
+        show1cNotifications: lsGet('show1cNotifications', 'true'),
         theme: lsGet('theme', 'dark'),
         markMyTasks: lsGet('markMyTasks', ''),
         merryMilkman: lsGet('merryMilkman', ''),
@@ -318,6 +354,10 @@ function saveNotificationsModal() {
     if (nomEl) lsSet('notifyOnlyMine', nomEl.classList.contains('active') ? 'true' : '');
     const nawEl = document.getElementById('notifyAllWarehousesToggle');
     if (nawEl) lsSet('notifyAllWarehouses', nawEl.classList.contains('active') ? 'true' : '');
+    const snEl = document.getElementById('showNotificationsToggle');
+    if (snEl) lsSet('showNotifications', snEl.classList.contains('active') ? 'true' : '');
+    const s1cEl = document.getElementById('show1cNotificationsToggle');
+    if (s1cEl) lsSet('show1cNotifications', s1cEl.classList.contains('active') ? 'true' : '');
     return pushProfileToServer();
 }
 
@@ -407,6 +447,26 @@ function removeAvatar() {
 var knownNotifIds = {};
 var notifIdsInitialized = false;
 
+// Уведомления сервера 1С приходят с типом '1c_<тип>' (см. check_1c_notifications
+// на сервере). Всё остальное — «наши» уведомления Mr.Check.
+function isServerNotification(n) {
+    return !!n && typeof n.type === 'string' && n.type.indexOf('1c_') === 0;
+}
+
+// Тумблеры «Показывать уведомления» / «Показывать уведомления сервера 1С».
+// Значение 'true' — показывать, '' — скрывать; отсутствие ключа = показывать.
+function isNotificationVisible(n) {
+    return isServerNotification(n)
+        ? lsGet('show1cNotifications', 'true') === 'true'
+        : lsGet('showNotifications', 'true') === 'true';
+}
+
+// Перерисовать список уведомлений после переключения тумблера.
+function refreshNotificationsList() {
+    const storage = document.getElementById('storageSelect')?.value || '';
+    loadNotifications(storage);
+}
+
 function checkNewNotifications(list) {
     if (!Array.isArray(list)) return;
     if (!notifIdsInitialized) {
@@ -415,12 +475,14 @@ function checkNewNotifications(list) {
         return;
     }
     list.forEach(function(n) {
-        if (!knownNotifIds[n.id]) {
-            var icon = n.type === 'warehouse_arrival' ? 'success' : n.type === 'warehouse_writeoff' ? 'error' : n.type === 'task_deadline' ? 'clock' : n.type === 'new_task' ? 'message' : 'message';
-            var title = n.type === 'warehouse_arrival' ? 'Приход товара' : n.type === 'warehouse_writeoff' ? 'Списание товара' : n.type === 'task_deadline' ? 'Дедлайн задачи' : n.type === 'new_task' ? 'Новая задача' : 'Уведомление';
-            NotificationCenter.show({ icon: icon, title: title, subtitle: n.title || n.description || '', actions: ['OK'], duration: 8000 });
-            knownNotifIds[n.id] = true;
-        }
+        if (knownNotifIds[n.id]) return;
+        // Помечаем известным даже скрытое настройкой уведомление: иначе после
+        // повторного включения тумблера всплыли бы все старые уведомления.
+        knownNotifIds[n.id] = true;
+        if (!isNotificationVisible(n)) return;
+        var icon = n.type === 'warehouse_arrival' ? 'success' : n.type === 'warehouse_writeoff' ? 'error' : n.type === 'task_deadline' ? 'clock' : n.type === 'new_task' ? 'message' : 'message';
+        var title = n.type === 'warehouse_arrival' ? 'Приход товара' : n.type === 'warehouse_writeoff' ? 'Списание товара' : n.type === 'task_deadline' ? 'Дедлайн задачи' : n.type === 'new_task' ? 'Новая задача' : 'Уведомление';
+        NotificationCenter.show({ icon: icon, title: title, subtitle: n.title || n.description || '', actions: ['OK'], duration: 8000 });
     });
 }
 
@@ -469,11 +531,15 @@ function loadNotifications(storageGuid, checkTasks) {
     fetchDeduped(url, undefined, 30000)
         .then(r => r instanceof Response ? r.json().catch(() => []) : r)
         .then(list => {
+            // checkNewNotifications нужен полный список (чтобы скрытые
+            // уведомления тоже помечались известными), а в интерфейс отдаём
+            // только те, что разрешены тумблерами.
             checkNewNotifications(list);
-            renderNotifications(list, container);
-            updateNotifBadge(list);
+            const visible = list.filter(isNotificationVisible);
+            renderNotifications(visible, container);
+            updateNotifBadge(visible);
             const dropdownList = document.getElementById('notifDropdownList');
-            if (dropdownList) renderNotifications(list, dropdownList);
+            if (dropdownList) renderNotifications(visible, dropdownList);
         })
         .catch(() => {
             container.innerHTML = '<div class="text-muted small">\u041E\u0448\u0438\u0431\u043A\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0438</div>';

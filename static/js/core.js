@@ -575,6 +575,10 @@ function fetchPriorities() {
             if (Array.isArray(data)) {
                 taskPriorityMap = {};
                 data.forEach(p => { if (p.value != null) taskPriorityMap[p.value] = p.name; });
+                // Справочник типов грузится асинхронно. Перерисовываем фильтры,
+                // чтобы селект «Тип заявки» и бейджи типа на карточках
+                // появились сразу после загрузки (а не только на следующем рендере).
+                if (typeof filterTasks === 'function') filterTasks();
             }
         })
         .catch(() => {});

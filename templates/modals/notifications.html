@@ -13,6 +13,26 @@
                 <div class="settings-section">
                     <div class="d-flex align-items-center justify-content-between">
                         <div>
+                            <label class="mb-0"><i class="bi bi-bell me-1"></i>Показывать уведомления</label>
+                            <div class="form-text small text-muted mt-0">Уведомления Mr.Check: приход и списание со склада, дедлайны и новые заявки</div>
+                        </div>
+                        <button class="theme-toggle" id="showNotificationsToggle" onclick="toggleShowNotifications()" role="switch" aria-checked="true"></button>
+                    </div>
+                </div>
+                <hr>
+                <div class="settings-section">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <label class="mb-0"><i class="bi bi-cloud-arrow-down me-1"></i>Показывать уведомления сервера 1С</label>
+                            <div class="form-text small text-muted mt-0">Уведомления, которые присылает сервер 1С</div>
+                        </div>
+                        <button class="theme-toggle" id="show1cNotificationsToggle" onclick="toggleShow1cNotifications()" role="switch" aria-checked="true"></button>
+                    </div>
+                </div>
+                <hr>
+                <div class="settings-section">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
                             <label class="mb-0"><i class="bi bi-bookmark-star me-1"></i>Выделять мои заявки</label>
                             <div class="form-text small text-muted mt-0">Заявки, содержащие ключевые слова или SAP-код магазина из «В работе», будут выделены цветом</div>
                         </div>

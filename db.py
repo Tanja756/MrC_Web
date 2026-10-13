@@ -1465,7 +1465,8 @@ def init_user_settings_table():
             c.execute(f"ALTER TABLE user_settings ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
         except Exception:
             pass
-    for col in [('theme', 'dark'), ('mark_my_tasks', '0'), ('notify_all_warehouses', '1')]:
+    for col in [('theme', 'dark'), ('mark_my_tasks', '0'), ('notify_all_warehouses', '1'),
+                ('show_notifications', '1'), ('show_1c_notifications', '1')]:
         try:
             c.execute(f"ALTER TABLE user_settings ADD COLUMN {col[0]} TEXT NOT NULL DEFAULT '{col[1]}'")
         except Exception:
@@ -1484,14 +1485,16 @@ def init_user_settings_table():
 def save_user_settings(username, notify_only_mine, my_task_keywords,
                        profile_name='', default_warehouse='', default_department='', theme='dark',
                        mark_my_tasks=False, notify_all_warehouses=True,
-                       avatar_url='', merry_milkman=False):
+                       avatar_url='', merry_milkman=False,
+                       show_notifications=True, show_1c_notifications=True):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("""
         INSERT INTO user_settings (username, notify_only_mine, my_task_keywords,
             profile_name, default_warehouse, default_department, theme, mark_my_tasks,
-            notify_all_warehouses, avatar_url, merry_milkman, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+            notify_all_warehouses, avatar_url, merry_milkman,
+            show_notifications, show_1c_notifications, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
         ON CONFLICT(username) DO UPDATE SET
             notify_only_mine = excluded.notify_only_mine,
             my_task_keywords = excluded.my_task_keywords,
@@ -1503,13 +1506,17 @@ def save_user_settings(username, notify_only_mine, my_task_keywords,
             notify_all_warehouses = excluded.notify_all_warehouses,
             avatar_url = excluded.avatar_url,
             merry_milkman = excluded.merry_milkman,
+            show_notifications = excluded.show_notifications,
+            show_1c_notifications = excluded.show_1c_notifications,
             updated_at = datetime('now', 'localtime')
     """, (username, notify_only_mine, my_task_keywords,
           profile_name, default_warehouse, default_department, theme,
           1 if mark_my_tasks else 0,
           1 if notify_all_warehouses else 0,
           avatar_url,
-          1 if merry_milkman else 0))
+          1 if merry_milkman else 0,
+          1 if show_notifications else 0,
+          1 if show_1c_notifications else 0))
     conn.commit()
     conn.close()
 
@@ -1517,7 +1524,7 @@ def get_user_settings(username):
     conn = get_db_connection()
     c = conn.cursor()
     try:
-        c.execute("SELECT notify_only_mine, my_task_keywords, profile_name, default_warehouse, theme, mark_my_tasks, notify_all_warehouses, avatar_url, merry_milkman, default_department FROM user_settings WHERE username = ?", (username,))
+        c.execute("SELECT notify_only_mine, my_task_keywords, profile_name, default_warehouse, theme, mark_my_tasks, notify_all_warehouses, avatar_url, merry_milkman, default_department, show_notifications, show_1c_notifications FROM user_settings WHERE username = ?", (username,))
         row = c.fetchone()
         conn.close()
         if row:
@@ -1532,6 +1539,8 @@ def get_user_settings(username):
                 'avatar_url': row[7] or '',
                 'merry_milkman': bool(int(row[8])) if row[8] else False,
                 'default_department': row[9] or '',
+                'show_notifications': bool(int(row[10])) if row[10] else True,
+                'show_1c_notifications': bool(int(row[11])) if row[11] else True,
             }
     except Exception:
         pass

@@ -445,6 +445,7 @@ tr:nth-child(even) td {{ background: #fafafa; }}
 def check_balance_changes(username, storage_guid, new_data, storage_name=''):
     if not username or not new_data:
         return
+    show_notifications, _ = _get_show_flags(username)
     sync_product_instances_from_balances(new_data, storage_guid)
     old = get_snapshot(username, storage_guid)
     if old is None:
@@ -506,14 +507,14 @@ def check_balance_changes(username, storage_guid, new_data, storage_name=''):
     if added:
         lines = '\n'.join(_fmt_line('+', d, n, s, i) for d, n, s, i in added)
         items_data = [{'product_name': n, 'series_name': s or '', 'inventory_number': i or ''} for d, n, s, i in added]
-        if not notification_exists(username, 'warehouse_arrival', lines, 60):
+        if show_notifications and not notification_exists(username, 'warehouse_arrival', lines, 60):
             create_notification(username, 'warehouse_arrival',
                 _title_arrival(), lines, storage_guid, items=items_data)
             send_push_notification(username, _title_arrival(), lines)
 
     if removed:
         lines = '\n'.join(_fmt_line('-', d, n, s, i) for d, n, s, i in removed)
-        if not notification_exists(username, 'warehouse_writeoff', lines, 60):
+        if show_notifications and not notification_exists(username, 'warehouse_writeoff', lines, 60):
             create_notification(username, 'warehouse_writeoff',
                 _title_writeoff(), lines, storage_guid)
             send_push_notification(username, _title_writeoff(), lines)
@@ -600,7 +601,26 @@ def send_push_notification(username, title, body):
                 logger.warning(f"push failed for {username}: {err_str[:120]}")
 
 
+def _get_show_flags(username):
+    """Флаги «показывать уведомления» из настроек пользователя.
+
+    Возвращает (наши, 1С); по умолчанию оба включены. Нужны, чтобы не создавать
+    уведомления и не слать push, когда пользователь отключил категорию локально
+    (значение дублируется на сервер через /api/profile).
+    """
+    try:
+        from db import get_user_settings
+        s = get_user_settings(username) or {}
+        return (bool(s.get('show_notifications', True)),
+                bool(s.get('show_1c_notifications', True)))
+    except Exception:
+        return (True, True)
+
+
 def copy_seed_notifications(username):
+    show_notifications, _ = _get_show_flags(username)
+    if not show_notifications:
+        return
     seeds = get_active_notifications('__seed__')
     if not seeds:
         return
@@ -625,6 +645,7 @@ def _task_matches_keywords(task, keywords_str, in_work_saps=None):
 
 
 def check_deadlines(tasks, username, now, notify_only_mine=False, my_task_keywords='', in_work_saps=None):
+    show_notifications, _ = _get_show_flags(username)
     for task in tasks:
         if task.get('priority') == 700:
             continue
@@ -647,12 +668,12 @@ def check_deadlines(tasks, username, now, notify_only_mine=False, my_task_keywor
             task_label = f'Заявка {task.get("number", "")} "{task.get("name", "")}"'
             if diff < 0:
                 desc = f'{task_label}\nСрок был: {period_str}'
-                if not notification_exists(username, 'task_deadline', desc, None):
+                if show_notifications and not notification_exists(username, 'task_deadline', desc, None):
                     create_notification(username, 'task_deadline', 'Срок заявки истёк', desc)
                     send_push_notification(username, 'Срок заявки истёк', desc.replace('\n', ' — '))
             elif diff < 7200:
                 desc = f'{task_label}\nОсталось менее 2 часов'
-                if not notification_exists(username, 'task_deadline', desc, None):
+                if show_notifications and not notification_exists(username, 'task_deadline', desc, None):
                     create_notification(username, 'task_deadline', 'Срок заявки истекает', desc)
                     send_push_notification(username, 'Срок заявки истекает', desc.replace('\n', ' — '))
         except Exception:
@@ -660,6 +681,7 @@ def check_deadlines(tasks, username, now, notify_only_mine=False, my_task_keywor
 
 
 def check_new_free_tasks(username, free_tasks, old_data, notify_only_mine=False, my_task_keywords='', in_work_saps=None):
+    show_notifications, _ = _get_show_flags(username)
     current_free_guids = {t.get('guid', '') for t in free_tasks if t.get('guid')}
     if old_data is None:
         save_task_snapshot(username, list(current_free_guids))
@@ -672,7 +694,7 @@ def check_new_free_tasks(username, free_tasks, old_data, notify_only_mine=False,
             if notify_only_mine and not _task_matches_keywords(task, my_task_keywords, in_work_saps):
                 continue
             desc = f'Заявка {task.get("number", "")} "{task.get("name", "")}"'
-            if not notification_exists(username, 'new_task', desc, None):
+            if show_notifications and not notification_exists(username, 'new_task', desc, None):
                 create_notification(username, 'new_task', 'Новая свободная заявка', desc, task.get('guid'))
                 send_push_notification(username, 'Новая свободная заявка', desc)
     save_task_snapshot(username, list(current_free_guids))
@@ -684,6 +706,9 @@ _1C_NOTIFICATION_TITLES = {
 
 def check_1c_notifications(client, username):
     if not client or not username:
+        return
+    _, show_1c = _get_show_flags(username)
+    if not show_1c:
         return
     try:
         data = client.get_user_notifications()

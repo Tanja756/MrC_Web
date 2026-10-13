@@ -8,6 +8,9 @@ const selectedGuids = new Set();
 let knownTaskGuids = {};
 let taskGuidsInitialized = false;
 let deadlinesNotified = false;
+// Активный фильтр по SAP (напр. 'SAP-L754'). Живёт в рамках сессии устройства
+// (localStorage), на сервер не синхронизируется. Пустая строка = фильтр выключен.
+let activeSapFilter = lsGet('taskSapFilter', '') || '';
 
 function checkNewTaskNotifications(tasks) {
     if (!taskGuidsInitialized) {
@@ -187,6 +190,7 @@ function filterTasks() {
     saveTabPrefs();
 
     populateTaskDepartments();
+    populateTaskTypes();
     renderTasks('tasksMyList', tasksMy, query, 'my');
     renderTasks('tasksFreeList', tasksFree, query, 'free');
     renderTasks('tasksClosedList', tasksClosed, query, 'closed');
@@ -235,6 +239,73 @@ function initTaskDepartment() {
     sel.value = lsGet('defaultDepartment', '') || '';
 }
 
+// ===== Фильтр по типу заявки =====
+// Тип заявки — расшифровка числового поля priority через справочник /api/priorities
+// (taskPriorityMap[priority] = имя типа; тот же источник, что питает бейдж типа на
+// карточке). Селект наполняется из загруженных свободных заявок — как и подразделения.
+// Фильтр живёт в рамках сессии устройства (localStorage) и НЕ синхронизируется с сервером.
+function populateTaskTypes() {
+    const sel = document.getElementById('taskType');
+    if (!sel) return;
+    const current = sel.value;
+    const types = [...new Set(tasksFree.map(t => taskPriorityMap[t.priority]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru'));
+    if (current) types.unshift(current);
+    const seen = new Set();
+    const opts = types.filter(d => !seen.has(d) && seen.add(d));
+    const html = '<option value="">Все типы</option>' + opts.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+    if (sel.innerHTML !== html) {
+        sel.innerHTML = html;
+        sel.value = current;
+    }
+}
+
+function setTaskType() {
+    const sel = document.getElementById('taskType');
+    if (!sel) return;
+    lsSet('taskType', sel.value);
+    filterTasks();
+}
+
+function initTaskType() {
+    const sel = document.getElementById('taskType');
+    if (!sel) return;
+    sel.value = lsGet('taskType', '') || '';
+}
+
+// ===== Фильтр по SAP =====
+// SAP-код магазина извлекается из текста заявки (name + description), как в обычном
+// детальном просмотре: SAP-XXXX, где XXXX — 4 латинских символа/цифры. В списке
+// свободных заявок description уже присутствует, поэтому доп. запрос не нужен.
+function extractSap(task) {
+    const text = ((task && task.name) || '') + '\n' + ((task && task.description) || '');
+    const m = text.match(/SAP-(\w{4})/i);
+    return m ? ('SAP-' + m[1].toUpperCase()) : '';
+}
+
+// Клик по SAP-чипу на карточке: включает фильтр по этому магазину; повторный клик по
+// активному — снимает. Также вызывается с '' из индикатора/«Сброса» для выключения.
+function toggleSapFilter(sap) {
+    const val = (sap || '').trim().toUpperCase();
+    activeSapFilter = (val && activeSapFilter !== val) ? val : '';
+    lsSet('taskSapFilter', activeSapFilter);
+    updateSapFilterUI();
+    filterTasks();
+}
+
+// Показывает/скрывает компактный индикатор активного SAP-фильтра в заголовке фильтров
+// (виден и когда на мобиле тело фильтров свёрнуто).
+function updateSapFilterUI() {
+    const badge = document.getElementById('sapFilterBadge');
+    const text = document.getElementById('sapFilterBadgeText');
+    if (!badge) return;
+    if (activeSapFilter) {
+        if (text) text.textContent = activeSapFilter;
+        badge.classList.remove('d-none');
+    } else {
+        badge.classList.add('d-none');
+    }
+}
+
 function resetFilters() {
     document.getElementById('taskSearch').value = '';
     for (const t of ['my', 'free', 'closed']) {
@@ -248,6 +319,16 @@ function resetFilters() {
     if (deptSel) {
         deptSel.value = '';
         lsSet('defaultDepartment', '');
+    }
+    const typeSel = document.getElementById('taskType');
+    if (typeSel) {
+        typeSel.value = '';
+        lsSet('taskType', '');
+    }
+    if (activeSapFilter) {
+        activeSapFilter = '';
+        lsSet('taskSapFilter', '');
+        updateSapFilterUI();
     }
     if (typeof pushProfileToServer === 'function') {
         clearTimeout(window._taskDeptSyncT);
@@ -335,8 +416,13 @@ function renderTasks(containerId, tasks, query, mode) {
     const dir = tabPrefs[mode]?.dir || (mode === 'closed' ? 'desc' : 'asc');
     const deptSel = document.getElementById('taskDepartment');
     const dept = (mode === 'free' && deptSel) ? deptSel.value : '';
+    const typeSel = document.getElementById('taskType');
+    const type = (mode === 'free' && typeSel) ? typeSel.value : '';
+    const sapFilter = (mode === 'free') ? activeSapFilter : '';
     const filtered = tasks.filter(t => {
         if (dept && (t.name_department || '').trim() !== dept) return false;
+        if (type && (taskPriorityMap[t.priority] || '') !== type) return false;
+        if (sapFilter && extractSap(t) !== sapFilter) return false;
         const searchStr = [
             t.number, t.name, t.status, t.name_department, t.user,
             clientName(t.guid_client)
@@ -412,6 +498,14 @@ function renderTasks(containerId, tasks, query, mode) {
         const typeBadge = typeName ? `<span class="task-type-badge ms-auto">${esc(typeName)}</span>` : '';
         const hkCode = (t.name || '').match(/[А-ЯЁ]{2}-\d{6}(?=[:;| ]|$)/);
         const hk = hkCode ? esc(hkCode[0]) : '';
+
+        // SAP-чип на карточке (только «Свободные»): клик включает/снимает фильтр
+        // по этому магазину. Активный чип подсвечен; чип переносится внутри
+        // .task-header благодаря flex-wrap (корректно и на узких мобильных).
+        const cardSap = mode === 'free' ? extractSap(t) : '';
+        const sapChip = cardSap
+            ? `<span class="task-sap-chip${activeSapFilter === cardSap ? ' active' : ''}" role="button" tabindex="0" title="Фильтр по магазину ${esc(cardSap)}" onclick="event.stopPropagation();toggleSapFilter('${cardSap}')" onkeypress="if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();toggleSapFilter('${cardSap}')}"><i class="bi bi-shop"></i>${esc(cardSap)}</span>`
+            : '';
         let actionHtml = '';
         if (mode === 'my' && !isClosed) {
             actionHtml = `<button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','${mode}')" title="Описание"><i class="bi bi-info-circle"></i><span class="btn-label"> Описание</span></button><button class="btn btn-outline-secondary btn-action" onclick="openDocForm('${t.guid}')" title="Документы"><i class="bi bi-file-earmark-text"></i><span class="btn-label"> Документы</span></button><button class="btn btn-outline-secondary btn-action" onclick="viewM15Equipment('${t.guid}','${hk}')" title="Просмотреть сохранённое оборудование"><i class="bi bi-clipboard-data"></i></button><button class="btn btn-outline-secondary btn-action" onclick="openTaskDetail('${t.guid}','user')" title="Завершить"><i class="bi bi-check-lg"></i><span class="btn-label"> Завершить</span></button>`;
@@ -433,6 +527,7 @@ function renderTasks(containerId, tasks, query, mode) {
                     ${t.status ? `<span class="task-status ${statusClass}">${t.status}</span>` : ''}
                     ${isOverdue && mode !== 'closed' ? '<span class="badge bg-danger ms-1">Просрочено</span>' : ''}
                     ${t.name_department ? `<span class="task-dept">${t.name_department}</span>` : ''}
+                    ${sapChip}
                     <div class="task-header-end">
                         ${hasAttach ? '<i class="bi bi-paperclip meta-icon text-muted" title="Есть вложения"></i>' : ''}
                         ${showLocation ? (hasLoc ? '<i class="bi bi-geo-alt-fill meta-icon text-success" title="Геолокация сохранена"></i>' : '<i class="bi bi-geo-alt meta-icon text-danger" title="Нет геолокации"></i>') : ''}

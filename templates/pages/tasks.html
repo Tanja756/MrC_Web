@@ -12,23 +12,32 @@
         </ul>
         <div class="filter-bar">
             <div class="filter-header" onclick="toggleFilter(this)">
-                <i class="bi bi-funnel"></i> Фильтры <span class="badge bg-secondary ms-auto" id="taskCount">0</span>
+                <i class="bi bi-funnel"></i> Фильтры
+                <span class="badge bg-info sap-active-badge d-none" id="sapFilterBadge" onclick="event.stopPropagation();toggleSapFilter('')" title="Сбросить фильтр по магазину (SAP)">
+                    <i class="bi bi-shop me-1"></i><span id="sapFilterBadgeText"></span><i class="bi bi-x-lg ms-1"></i>
+                </span>
+                <span class="badge bg-secondary ms-auto" id="taskCount">0</span>
             </div>
             <div class="filter-body">
             <div class="row g-2 align-items-center">
-                <div class="col-md-4">
+                <div class="col-12 col-md-3">
                     <div class="input-group">
                         <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
                         <input type="text" class="form-control" id="taskSearch" placeholder="Поиск..." oninput="onTaskSearch()">
                         <button class="btn btn-outline-secondary btn-reset-filter" onclick="document.getElementById('taskSearch').value='';clearTimeout(taskSearchTimeout);refreshCurrentTab()"><i class="bi bi-x-lg"></i></button>
                     </div>
                 </div>
-                <div class="col-md-3">
+                <div class="col-6 col-md-2">
                     <select class="form-select" id="taskDepartment" onchange="setTaskDepartment()" title="Подразделение">
                         <option value="">Все подразделения</option>
                     </select>
                 </div>
-                <div class="col-md-3">
+                <div class="col-6 col-md-2">
+                    <select class="form-select" id="taskType" onchange="setTaskType()" title="Тип заявки">
+                        <option value="">Все типы</option>
+                    </select>
+                </div>
+                <div class="col-12 col-md-3">
                     <div class="d-flex gap-1">
                         <select class="form-select" id="taskSort" onchange="filterTasks()">
                             <option value="date">По дате создания</option>
@@ -42,7 +51,7 @@
                         </div>
                     </div>
                 </div>
-                <div class="col-md-2">
+                <div class="col-12 col-md-2">
                     <button class="btn btn-outline-secondary btn-sm w-100" onclick="resetFilters()"><i class="bi bi-arrow-counterclockwise me-1"></i>Сброс</button>
                 </div>
             </div>
@@ -84,11 +93,11 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<link href="{{ url_for('static', filename='css/tasks.css') }}?v=5" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/tasks.css') }}?v=6" rel="stylesheet">
 {% include "modals/task-detail.html" %}
 <div class="modal fade" id="docFormModal" tabindex="-1">{% include "modals/doc-form.html" %}</div>
 {% include "modals/confirm-take.html" %}
 <button id="scrollTopBtn" class="scroll-top-btn" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Наверх"><i class="bi bi-arrow-up"></i></button>
-<script src="{{ url_for('static', filename='js/tasks.js') }}?v=22"></script>
-<script>document.addEventListener('DOMContentLoaded',()=>{loadClients();loadTabIntoUI(currentTab);initTaskDepartment();loadTasks('',['my','free']);fetchPriorities();initSwipeTabs();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&isWorkingHours()){loadTasks('',['my','free']);}});document.querySelectorAll('#taskTabs .nav-link').forEach(p=>{p.addEventListener('shown.bs.tab',()=>{const id=p.getAttribute('data-bs-target');const tab=id==='#tasks-my'?'my':id==='#tasks-free'?'free':'closed';switchTab(tab);});});document.getElementById('tasksFreeList')?.addEventListener('contextmenu',(e)=>{e.preventDefault();multiSelectMode=!multiSelectMode;if(!multiSelectMode)cancelMultiSelect();else{selectedGuids.clear();filterTasks();}});const tab=localStorage.getItem('taskTab')||'my';if(tab!=='my'){const target='#tasks-'+tab;const pill=document.querySelector('#taskTabs .nav-link[data-bs-target="'+target+'"]');if(pill)pill.click();}});</script>
+<script src="{{ url_for('static', filename='js/tasks.js') }}?v=23"></script>
+<script>document.addEventListener('DOMContentLoaded',()=>{loadClients();loadTabIntoUI(currentTab);initTaskDepartment();initTaskType();updateSapFilterUI();loadTasks('',['my','free']);fetchPriorities();initSwipeTabs();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&isWorkingHours()){loadTasks('',['my','free']);}});document.querySelectorAll('#taskTabs .nav-link').forEach(p=>{p.addEventListener('shown.bs.tab',()=>{const id=p.getAttribute('data-bs-target');const tab=id==='#tasks-my'?'my':id==='#tasks-free'?'free':'closed';switchTab(tab);});});document.getElementById('tasksFreeList')?.addEventListener('contextmenu',(e)=>{e.preventDefault();multiSelectMode=!multiSelectMode;if(!multiSelectMode)cancelMultiSelect();else{selectedGuids.clear();filterTasks();}});const tab=localStorage.getItem('taskTab')||'my';if(tab!=='my'){const target='#tasks-'+tab;const pill=document.querySelector('#taskTabs .nav-link[data-bs-target="'+target+'"]');if(pill)pill.click();}});</script>
 {% endblock %}

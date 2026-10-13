@@ -111,6 +111,52 @@
     font-weight: 400;
 }
 
+/* SAP-чип на карточке свободной заявки: клик включает/снимает фильтр по магазину.
+   Компактный бейдж в духе .task-status/.task-type-badge, переносится внутри
+   .task-header (flex-wrap), поэтому не ломает узкие мобильные экраны. */
+.task-sap-chip {
+    font-size: 0.65rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    white-space: nowrap;
+    line-height: 1.4;
+    background: rgba(108,117,125,0.14);
+    color: var(--text-muted);
+    border: 1px solid transparent;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.task-sap-chip i { font-size: 0.68rem; }
+.task-sap-chip:hover {
+    background: var(--surface);
+    color: var(--text-color);
+    border-color: var(--text-muted);
+}
+.task-sap-chip.active {
+    background: rgba(0,120,212,0.16);
+    color: var(--primary);
+    border-color: var(--primary);
+}
+[data-theme="light"] .task-sap-chip { background: rgba(108,117,125,0.1); }
+[data-theme="light"] .task-sap-chip.active { background: rgba(0,120,212,0.12); }
+
+/* Индикатор активного SAP-фильтра в заголовке панели фильтров (виден и на
+   мобиле, когда .filter-body свёрнут). */
+.sap-active-badge {
+    font-size: 0.68rem;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    vertical-align: middle;
+}
+
 .task-header-end {
     margin-left: auto;
     display: flex;
