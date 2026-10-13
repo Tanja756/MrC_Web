@@ -107,7 +107,7 @@
         <div class="card">
             <div class="card-body">
                 <h5 class="card-title"><i class="bi bi-shop me-2"></i>Загрузка магазинов</h5>
-                <div class="form-text text-muted mt-1 mb-2">Файл без шапки: колонка A — SAP-код, B — номер магазина, C — адрес. Добавляются только новые магазины; существующие (по паре номер+SAP) не обновляются.</div>
+                <div class="form-text text-muted mt-1 mb-2">Файл без шапки: колонка A — SAP-код, B — номер магазина, C — адрес, D — регион (необязательно). Добавляются только новые магазины; существующие (по паре номер+SAP) не обновляются.</div>
                 <div class="filter-bar mt-2 px-0">
                     <div class="filter-header d-md-none" onclick="toggleFilter(this)"><i class="bi bi-funnel"></i> Выбор файла</div>
                     <div class="filter-body">
@@ -142,6 +142,6 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/ppr.js') }}?v=4"></script>
 <script src="{{ url_for('static', filename='js/fn.js') }}?v=1"></script>
-<script src="{{ url_for('static', filename='js/shops-upload.js') }}?v=1"></script>
+<script src="{{ url_for('static', filename='js/shops-upload.js') }}?v=2"></script>
 <script>document.addEventListener('DOMContentLoaded', () => { initUploadTab(); initFnUploadTab(); initShopsUploadTab(); });</script>
 {% endblock %}

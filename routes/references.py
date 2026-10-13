@@ -2,7 +2,7 @@ import logging
 import sqlite3
 from flask import Blueprint, request, jsonify, session
 from .helpers import api_login_required
-from db import get_all_shops, add_shop, update_shop, delete_shop, set_user_shop_in_work, get_user_shops_status, upsert_shops
+from db import get_all_shops, add_shop, update_shop, delete_shop, delete_shops, set_user_shop_in_work, get_user_shops_status, upsert_shops
 
 logger = logging.getLogger(__name__)
 references_bp = Blueprint('references', __name__, url_prefix='/api/references')
@@ -47,7 +47,8 @@ def api_shops_create():
                          adm1_name=str(data.get('adm1_name', '')).strip(),
                          adm1_phone=str(data.get('adm1_phone', '')).strip(),
                          adm2_name=str(data.get('adm2_name', '')).strip(),
-                         adm2_phone=str(data.get('adm2_phone', '')).strip())
+                         adm2_phone=str(data.get('adm2_phone', '')).strip(),
+                         region=str(data.get('region', '')).strip())
         if rowid is None:
             return jsonify({'error': 'Магазин с таким номером и SAP-кодом уже существует'}), 409
         return jsonify({'id': rowid, 'shop_number': shop_number, 'sap_code': sap_code, 'address': address}), 201
@@ -75,7 +76,8 @@ def api_shops_update(rowid):
                          adm1_name=str(data.get('adm1_name', '')).strip(),
                          adm1_phone=str(data.get('adm1_phone', '')).strip(),
                          adm2_name=str(data.get('adm2_name', '')).strip(),
-                         adm2_phone=str(data.get('adm2_phone', '')).strip())
+                         adm2_phone=str(data.get('adm2_phone', '')).strip(),
+                         region=str(data.get('region', '')).strip())
         if ok is None:
             return jsonify({'error': 'Магазин с таким номером и SAP-кодом уже существует'}), 409
         if not ok:
@@ -100,6 +102,27 @@ def api_shops_delete(rowid):
     if not ok:
         return jsonify({'error': 'Магазин не найден'}), 404
     return jsonify({'success': True})
+
+
+@references_bp.route('/shops/bulk-delete', methods=['POST'])
+@api_login_required
+def api_shops_bulk_delete():
+    """Массовое удаление выбранных магазинов по списку rowid."""
+    try:
+        data = request.json or {}
+        ids = data.get('ids', [])
+        if not isinstance(ids, list) or not ids:
+            return jsonify({'error': 'Не выбраны магазины для удаления'}), 400
+        deleted = delete_shops(ids)
+        if not deleted:
+            return jsonify({'error': 'Магазины не найдены'}), 404
+        return jsonify({'success': True, 'deleted': deleted})
+    except sqlite3.OperationalError as e:
+        logger.error(f"api_shops_bulk_delete lock/error: {e}")
+        return jsonify({'error': 'База занята, попробуйте ещё раз через пару секунд'}), 503
+    except Exception as e:
+        logger.error(f"api_shops_bulk_delete error: {e}")
+        return jsonify({'error': 'Ошибка при удалении магазинов'}), 500
 
 
 @references_bp.route('/shops/user-status')

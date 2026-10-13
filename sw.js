@@ -1,8 +1,9 @@
-const CACHE = 'mrc-v25';
+const CACHE = 'mrc-v26';
 const ASSETS = [
   '/static/style.css',
   '/static/css/tasks.css',
   '/static/css/warehouse.css',
+  '/static/css/references.css',
   '/static/js/core.js',
   '/static/js/app.js',
   '/static/js/tasks.js',

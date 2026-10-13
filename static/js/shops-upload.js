@@ -53,19 +53,21 @@ function handleShopsFile(file) {
 
             shopsRows = [];
             // Файл вида mag_list_no_index.xlsx — БЕЗ шапки, первая строка уже данные.
-            // Колонки: A — SAP-код, B — номер магазина, C — адрес.
+            // Колонки: A — SAP-код, B — номер магазина, C — адрес, D — регион (необяз.).
             for (let i = 0; i < json.length; i++) {
                 const row = json[i];
                 if (!row) continue;
                 const sap = shopsCellToStr(row[0]).toUpperCase();
                 const num = shopsCellToNumber(row[1]);
                 const addr = shopsCellToStr(row[2]);
-                if (!sap && !num && !addr) continue;
+                const region = shopsCellToStr(row[3]);
+                if (!sap && !num && !addr && !region) continue;
                 shopsRows.push({
                     _uid: ++shopsRowIdCounter,
                     sap_code: sap,
                     shop_number: num,
                     address: addr,
+                    region: region,
                 });
             }
 
@@ -128,6 +130,7 @@ function renderShopsPreview() {
             <th>Номер магазина</th>
             <th>SAP</th>
             <th>Адрес</th>
+            <th>Регион</th>
             <th style="width:50px"></th>
         </tr></thead>
         <tbody>${filtered.map((r, i) => {
@@ -139,6 +142,7 @@ function renderShopsPreview() {
                 <td>${shopsEsc(r.shop_number)} ${ok ? '' : '<span class="badge bg-danger">неполный</span>'}</td>
                 <td>${shopsEsc(r.sap_code)}</td>
                 <td class="text-truncate" style="max-width:340px">${shopsEsc(r.address)}</td>
+                <td class="text-truncate" style="max-width:160px">${shopsEsc(r.region)}</td>
                 <td><button class="btn btn-outline-danger btn-sm" onclick="deleteShopsRow(${r._uid})" title="Удалить"><i class="bi bi-trash"></i></button></td>
             </tr>`;
         }).join('')}</tbody>

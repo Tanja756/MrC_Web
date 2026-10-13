@@ -1,0 +1,46 @@
+/* ===== Справочник магазинов ===== */
+
+/* Сортируемые заголовки таблицы (как в остатках на складе). */
+#shopsTable th.sortable {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+#shopsTable th.sortable:hover {
+    color: var(--primary);
+}
+
+/* Иконка направления сортировки в заголовке (вставляется JS как <i class="bi">). */
+#shopsTable th .sort-icon {
+    margin-left: 4px;
+    font-size: 0.7rem;
+    opacity: 0.45;
+}
+#shopsTable th.sortable[data-dir] .sort-icon {
+    opacity: 1;
+    color: var(--primary);
+}
+
+/* Выбранная строка (мультиселект). */
+#shopsTable tbody tr.row-selected {
+    background: rgba(0, 120, 212, 0.14) !important;
+}
+[data-theme="light"] #shopsTable tbody tr.row-selected {
+    background: rgba(0, 120, 212, 0.1) !important;
+}
+
+/* Регион — приглушённый текст, пока значение не заполнено. */
+#shopsTable .shop-region {
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+/* На узких экранах адрес переносим и ограничиваем, чтобы таблица не разъезжалась. */
+@media (max-width: 768px) {
+    #shopsTable { font-size: 0.82rem; }
+    #shopsTable .shop-address {
+        white-space: normal;
+        min-width: 160px;
+        max-width: 320px;
+    }
+}

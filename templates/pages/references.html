@@ -5,11 +5,15 @@
 </ul>
 <div class="tab-content">
     <div class="tab-pane fade show active" id="ref-shops">
-        <div class="d-flex align-items-center gap-2 mb-3">
+        <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
             <button class="btn btn-primary btn-sm" onclick="openShopModal()"><i class="bi bi-plus-lg me-1"></i>Добавить магазин</button>
             <button class="btn btn-outline-secondary btn-sm" onclick="loadShops()" title="Обновить"><i class="bi bi-arrow-clockwise"></i></button>
-            <div class="ms-auto d-flex align-items-center gap-1">
-                <input class="form-control form-control-sm" id="shopFilter" placeholder="Поиск..." style="max-width:280px" oninput="filterShops()">
+            <button class="btn btn-outline-danger btn-sm d-none" id="shopsDeleteSelectedBtn" onclick="deleteSelectedShops()" title="Удалить выбранные"><i class="bi bi-trash me-1"></i>Удалить выбранные (<span id="shopsSelectedCount">0</span>)</button>
+            <div class="ms-auto d-flex align-items-center gap-1 flex-wrap">
+                <select class="form-select form-select-sm" id="shopRegionFilter" style="max-width:200px" onchange="filterShops()" title="Регион">
+                    <option value="">Все регионы</option>
+                </select>
+                <input class="form-control form-control-sm" id="shopFilter" placeholder="Поиск..." style="max-width:220px" oninput="filterShops()">
                 <button class="btn btn-outline-secondary btn-reset-filter" onclick="clearShopFilter()"><i class="bi bi-x-lg"></i></button>
             </div>
         </div>
@@ -17,16 +21,18 @@
             <table class="table table-sm table-hover align-middle" id="shopsTable">
                 <thead class="table-dark">
                     <tr>
+                        <th style="width:36px"><input type="checkbox" class="form-check-input" id="shopsSelectAll" onchange="toggleAllShops(this.checked)"></th>
                         <th>#</th>
-                        <th>Номер магазина</th>
-                        <th>SAP-код</th>
-                        <th>Адрес</th>
+                        <th class="sortable" onclick="sortShops('shop_number')">Номер магазина<span class="sort-icon" data-sort-icon="shop_number"></span></th>
+                        <th class="sortable" onclick="sortShops('sap_code')">SAP-код<span class="sort-icon" data-sort-icon="sap_code"></span></th>
+                        <th class="sortable" onclick="sortShops('address')">Адрес<span class="sort-icon" data-sort-icon="address"></span></th>
+                        <th class="sortable" onclick="sortShops('region')">Регион<span class="sort-icon" data-sort-icon="region"></span></th>
                         <th style="width:80px">В работе</th>
                         <th style="width:100px">Действия</th>
                     </tr>
                 </thead>
                 <tbody id="shopsTableBody">
-                    <tr><td colspan="6" class="text-center text-muted py-4">Загрузка...</td></tr>
+                    <tr><td colspan="8" class="text-center text-muted py-4">Загрузка...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -34,6 +40,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/references.js') }}?v=2"></script>
+<link href="{{ url_for('static', filename='css/references.css') }}?v=1" rel="stylesheet">
+<script src="{{ url_for('static', filename='js/references.js') }}?v=3"></script>
 {% include "modals/shop-form.html" %}
 {% endblock %}

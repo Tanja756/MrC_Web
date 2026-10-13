@@ -46,7 +46,7 @@ def init_db():
         )
     """)
     existing = {r[1] for r in c.execute("PRAGMA table_info('shops')").fetchall()}
-    for col in ['dm_name', 'dm_phone', 'adm1_name', 'adm1_phone', 'adm2_name', 'adm2_phone']:
+    for col in ['dm_name', 'dm_phone', 'adm1_name', 'adm1_phone', 'adm2_name', 'adm2_phone', 'region']:
         if col not in existing:
             try:
                 c.execute(f"ALTER TABLE shops ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
@@ -80,7 +80,7 @@ def add_shop_if_not_exists(shop_number, sap_code, address):
 def get_all_shops():
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT rowid, shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone FROM shops")
+    c.execute("SELECT rowid, shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone, region FROM shops")
     rows = c.fetchall()
     conn.close()
     # Естественная сортировка: числовые номера по возрастанию числа (1, 2, 10,
@@ -93,9 +93,9 @@ def get_all_shops():
     rows.sort(key=_sort_key)
     return [{'id': r[0], 'shop_number': r[1], 'sap_code': r[2], 'address': r[3],
              'dm_name': r[4], 'dm_phone': r[5], 'adm1_name': r[6], 'adm1_phone': r[7],
-             'adm2_name': r[8], 'adm2_phone': r[9]} for r in rows]
+             'adm2_name': r[8], 'adm2_phone': r[9], 'region': r[10] or ''} for r in rows]
 
-def add_shop(shop_number, sap_code, address, dm_name='', dm_phone='', adm1_name='', adm1_phone='', adm2_name='', adm2_phone=''):
+def add_shop(shop_number, sap_code, address, dm_name='', dm_phone='', adm1_name='', adm1_phone='', adm2_name='', adm2_phone='', region=''):
     """Добавить магазин. Возвращает rowid или None, если такой (номер, SAP) уже есть.
     ВАЖНО: соединение закрывается в finally — при IntegrityError открытая
     транзакция удерживала бы блокировку БД до сборки мусора."""
@@ -105,8 +105,8 @@ def add_shop(shop_number, sap_code, address, dm_name='', dm_phone='', adm1_name=
     try:
         c = conn.cursor()
         c.execute(
-            "INSERT INTO shops (shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone)
+            "INSERT INTO shops (shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone, region) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone, region)
         )
         rowid = c.lastrowid
         conn.commit()
@@ -117,15 +117,15 @@ def add_shop(shop_number, sap_code, address, dm_name='', dm_phone='', adm1_name=
     finally:
         conn.close()
 
-def update_shop(rowid, shop_number, sap_code, address, dm_name='', dm_phone='', adm1_name='', adm1_phone='', adm2_name='', adm2_phone=''):
+def update_shop(rowid, shop_number, sap_code, address, dm_name='', dm_phone='', adm1_name='', adm1_phone='', adm2_name='', adm2_phone='', region=''):
     """Обновить магазин. True — ок, False — не найден, None — дубликат (номер+SAP).
     Соединение закрывается в finally (см. add_shop)."""
     conn = get_db_connection()
     try:
         c = conn.cursor()
         c.execute(
-            "UPDATE shops SET shop_number = ?, sap_code = ?, address = ?, dm_name = ?, dm_phone = ?, adm1_name = ?, adm1_phone = ?, adm2_name = ?, adm2_phone = ? WHERE rowid = ?",
-            (shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone, rowid)
+            "UPDATE shops SET shop_number = ?, sap_code = ?, address = ?, dm_name = ?, dm_phone = ?, adm1_name = ?, adm1_phone = ?, adm2_name = ?, adm2_phone = ?, region = ? WHERE rowid = ?",
+            (shop_number, sap_code, address, dm_name, dm_phone, adm1_name, adm1_phone, adm2_name, adm2_phone, region, rowid)
         )
         affected = c.rowcount
         conn.commit()
@@ -144,6 +144,22 @@ def delete_shop(rowid):
         affected = c.rowcount
         conn.commit()
         return affected > 0
+    finally:
+        conn.close()
+
+def delete_shops(rowids):
+    """Массовое удаление магазинов по списку rowid. Возвращает число удалённых."""
+    ids = [int(r) for r in (rowids or []) if str(r).strip().lstrip('-').isdigit()]
+    if not ids:
+        return 0
+    conn = get_db_connection()
+    try:
+        c = conn.cursor()
+        placeholders = ','.join('?' * len(ids))
+        c.execute(f"DELETE FROM shops WHERE rowid IN ({placeholders})", ids)
+        affected = c.rowcount
+        conn.commit()
+        return affected
     finally:
         conn.close()
 
@@ -229,11 +245,12 @@ def upsert_shops(items):
         shop_number = str(item.get('shop_number') or '').strip()
         sap_code = str(item.get('sap_code') or '').strip().upper()
         address = str(item.get('address') or '').strip()
+        region = str(item.get('region') or '').strip()
         total += 1
         if not all([shop_number, sap_code, address]):
             skipped_invalid += 1
             continue
-        entries.append((shop_number, sap_code, address))
+        entries.append((shop_number, sap_code, address, region))
 
     if not entries:
         return {'inserted': 0, 'skipped_existing': 0, 'skipped_invalid': skipped_invalid, 'total': total}
@@ -247,7 +264,7 @@ def upsert_shops(items):
                 skipped_existing += 1
                 continue
             c.execute(
-                "INSERT OR IGNORE INTO shops (shop_number, sap_code, address) VALUES (?, ?, ?)",
+                "INSERT OR IGNORE INTO shops (shop_number, sap_code, address, region) VALUES (?, ?, ?, ?)",
                 entry
             )
             if c.rowcount:
